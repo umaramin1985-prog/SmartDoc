@@ -162,7 +162,7 @@ const convertRawHtmlToStudio = (rawHtml, existingFields = []) => {
     const mode = f.mode || 'placeholder';
     const isPh = mode === 'placeholder';
     const isBold = !!(f.bold || f.isBold);
-    const widthAttr = f.width ? ` data-width="${f.width}" style="width: calc(${f.width}% - 8px); box-sizing: border-box;"` : '';
+    const widthAttr = f.width ? ` data-width="${f.width}" style="width: ${f.width === 100 ? '100%' : `calc(${f.width}% - 8px)`}; box-sizing: border-box;"` : '';
     return `<span class="sd-doc-field-pill${isPh ? ' is-placeholder' : ''}${isBold ? ' is-bold' : ''}" data-field-key="${esc(f.key)}" data-field-label="${esc(f.label)}" data-field-type="${f.type}" data-field-mode="${mode}" data-field-bold="${isBold ? 'true' : 'false'}" data-required="${f.required}" data-placeholder="${esc(f.placeholder || '')}" data-description="${esc(f.description || '')}" data-options='${JSON.stringify(f.options || [])}'${widthAttr} contenteditable="false">${pillInnerHtml(f.label, f.type, f.required, mode, isBold)}</span>`;
   });
 
@@ -174,7 +174,7 @@ const applyPillWidth = (el, width) => {
   const w = parseInt(width, 10);
   if (w > 0) {
     el.setAttribute('data-width', String(w));
-    el.style.width = `calc(${w}% - 8px)`;
+    el.style.width = w === 100 ? '100%' : `calc(${w}% - 8px)`;
     el.style.boxSizing = 'border-box';
   } else {
     el.removeAttribute('data-width');
@@ -527,8 +527,8 @@ const buildPreviewHtml = (editorEl) => {
       if (f.bold) wrap.style.fontWeight = '700';
       wrap.innerHTML = `<span class="sd-ph-brace">{{</span><span class="sd-ph-tag-title ${f.bold ? 'is-bold' : ''}">${esc(f.label || f.key)}</span>${f.required ? '<span class="sd-ph-star">*</span>' : ''}<span class="sd-ph-brace">}}</span>`;
     } else {
-      wrap.className = `sd-pv-field${f.type === 'textarea' ? ' is-block' : ''}`;
-      if (f.width) wrap.style.width = `calc(${f.width}% - 8px)`;
+      wrap.className = `sd-pv-field${f.type === 'textarea' || f.width === 100 ? ' is-block' : ''}`;
+      if (f.width) wrap.style.width = f.width === 100 ? '100%' : `calc(${f.width}% - 8px)`;
       wrap.innerHTML = `<span class="sd-pv-label">${esc(f.label)}${f.required ? '<span class="sd-required"> *</span>' : ''}</span>${previewInputHtml(f)}`;
     }
     pill.replaceWith(wrap);

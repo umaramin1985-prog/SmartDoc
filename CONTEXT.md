@@ -620,7 +620,7 @@ Tables in use:
       - Optimized login card neon glow and ambient aura breathing animation speed from `3.5s` to `1.2s` for a lively, responsive pulse.
   - **Application Version Tracking & Automated Cache Clearing (2026-10-25)**:
     - **Footer Version Badge (`AppFooter.jsx`)**:
-      - Displays the live application version (`v1.1.0`) in the footer across all layouts (login screen, main workspace, standalone popup windows).
+      - Displays the live application version (`v1.2.0`) in the footer across all layouts (login screen, main workspace, standalone popup windows).
       - Styled as a sleek cyber pill with a pulsing live status dot (`.smartdoc-version-status-dot`), version number, and `RefreshCw` icon.
       - **Manual Force-Refresh**: Clicking the version pill immediately runs `forceCacheClearReload(APP_VERSION)`, spins the icon, clears all browser caches, and hard-reloads the page.
     - **Automated Cache Clearing ("Ctrl + F5" Functionality) (`src/utils/versionManager.js`)**:
@@ -748,4 +748,59 @@ Tables in use:
   - **Release v1.1.0 (2026-10-25)**:
     - Bumped application version from `1.0.0` to `1.1.0` in `package.json`, `package-lock.json`, `server/server.js`, `vite.config.js`, and `src/utils/versionManager.js`.
     - Automated cache invalidation system propagates the update: background poller (`GET /api/version`) detects `v1.1.0`, triggers cache eviction, and delivers the upgraded bundle without stale asset interference.
-
+  - **Direct Input Box Width Overlap Fix (2026-10-26)**:
+    - **Root Cause**: `.sd-doc-live-field-wrap` had a legacy hardcoded `min-width: 190px;` (and `.sd-pv-field` had `min-width: 200px;`). On an A4 paper sheet with standard padding (content width ~692px), a `25%` width column is `~165px`. Because `min-width: 190px` took precedence, the inner wrapper and input box forced themselves to 190px and overflowed the parent slot by ~25px, causing subsequent sibling inputs on the same row to paint directly on top of each other.
+    - **Fix Applied**:
+      - Updated `.sd-doc-live-field-wrap` in `src/App.css` to `width: 100%; min-width: 0; max-width: 100%;` and `.sd-doc-live-input` to `min-width: 0; padding: 6px 8px;`.
+      - Updated `.sd-pv-field` in `src/App.css` to `min-width: 0;`.
+      - Enhanced `.sd-live-slot-field` slot styling in `FillFormModal.jsx` and `SmartWordStudio.jsx` to cleanly handle `100%` width (`width: 100%`) vs sub-percentages (`calc(width% - 8px)`), ensuring zero overlap and clean spacing across multi-column rows.
+      - Added overflow ellipsis to `.sd-doc-live-field-label` with native hover tooltip to prevent long labels from breaking horizontal alignment.
+  - **Word Print Fidelity & Signature Stamping Fix (2026-10-26)**:
+    - **Root Causes**:
+      1. In `server/server.js` (`POST /api/forms/templates/:id/render-print-document`), submitter signatures were checked using `if (!blank && actor.signature)`. The PostgreSQL user record stores signatures in `signature_image`, meaning `actor.signature` was undefined and signatures array was empty `[]`, causing `{{Signature: Submitter}}` to be replaced with empty string `''`.
+      2. In `server/docxEngine.js`, `renderFilledDocument` only knew field keys without label metadata. When printing unfilled direct input fields, it replaced them with `''` or blank lines without labels, making fields completely disappear from the printed document.
+    - **Fixes Applied**:
+      - Updated `server/server.js` to extract `actor.signature_image` and register aliases (`Submitter`, `Applicant`, `Originator`), stamping the user's authentic signature PNG image, name, and cryptographic PKI seal into the Word document.
+      - Passed template `fields` schema to `renderFilledDocument` in both template print (`renderPrintDocument`) and submission document download endpoints.
+      - Enhanced `docxEngine.js` tag replacement: for direct inputs (`mode: 'input'`), it formats as `${fieldLabel}: ${val}` when filled, and `${fieldLabel}: ________________________________________` when blank/unfilled, guaranteeing field labels and pen-fill lines are preserved on printed paper.
+  - **WYSIWYG On-Form "Print As-Is" Engine & Margin Maintenance (`FillFormModal.jsx`, `App.css`) (2026-10-26)**:
+    - **Requirement**: Form printing must print **only the form** — strictly excluding outer app chrome (sidebar, background drive explorer container/breadcrumbs, app footer, right-side interactive form rail, top action ribbon, sequential approval workflow widget, and automated form engine footer marker) — while maintaining consistent standard A4 paper margins (20mm) and fitting cleanly on 1 single page without rogue empty pages.
+    - **Implementation & Fixes**:
+      - **Native Direct Sheet Printing**: Switched `FillFormModal.jsx` from hidden-iframe DOCX rendering to direct WYSIWYG sheet printing (`window.print()`), adding `beforeprint` and `afterprint` lifecycle event handlers and `sd-printing-live-form` body toggles.
+      - **Strict Form Isolation**: In `src/App.css` `@media print`, `body:has(.sd-form-filler-sheet)` and `body.sd-printing-live-form` hide all outer chrome: `.smart-sidebar`, `.smartdoc-app-footer`, `.sd-page-header`, `.sd-explorer-container`, `.sd-explorer-topbar`, `.sd-explorer-address-bar`, `.sd-explorer-toolbar`, `.sd-explorer-body`, `.sd-explorer-footer`, `.sd-explorer-page > *:not(.sd-form-filler-overlay)`, `.sd-form-filler-header`, `.sd-form-filler-rail`, `.sd-filler-connector-svg`, `.sd-form-filler-objection-banner`, `.sd-studio-alert`, `.sd-form-filler-workflow-chain`, and `.sd-word-page-footer-mark`.
+      - **Consistent Standard Margins**: Configured `@page { size: A4 portrait; margin: 0; }` with `.sd-form-filler-sheet { box-sizing: border-box; width: 100%; max-width: 210mm; margin: 0 auto; padding: 18mm 24mm; }` to maintain deterministic **24mm (~0.95 in)** left and right margins and **18mm** top/bottom margins, while suppressing browser URL/timestamp headers and ensuring the form fits comfortably on exactly 1 single page.
+      - **1:1 Form Element Fidelity**: Direct form boxes (`.sd-doc-live-field-wrap`, `.sd-doc-live-input`) retain their labels, borders, placeholders/values, and exact percentage widths. The digital signature card (`.sd-doc-live-sig-card.submitter`) retains its authentic dashed border, `Applicant / Submitter Signature *` title, `Step 0 (Originator)` badge, inner white signature container, drawn signature stroke, and PKI RSA-2048 cryptographic seal with `-webkit-print-color-adjust: exact`.
+  - **Form Filler Visual Leader Connector Line & Placeholder Parsing Fix (`FillFormModal.jsx`, `App.css`) (2026-10-26)**:
+    - **User Issue**: "Line ON" was checked/active in the right rail of `FillFormModal`, but no leader line was present connecting the active rail card (e.g. Card 1: First Name) to the document field on the sheet, and placeholders with asterisks like `{{Contract Amount*}}` appeared as raw unparsed text.
+    - **Root Causes**:
+      1. **Element ID / Selector Target Mismatch**: `updateConnectorLine` previously only searched for IDs prefixed with `live-placeholder-`. Direct input boxes on the document sheet render as `live-field-${sanitizedKey}` inside `.sd-doc-live-field-wrap`. When `activeRailField` was a direct input field, `document.getElementById('live-placeholder-...')` returned `null`, immediately clearing `connectorCoords` to `null` and preventing `<svg>` from rendering.
+      2. **Temporal Dead Zone (TDZ) State Order**: `const [mountedSlots, setMountedSlots] = useState([])` was declared lower in the component (line 349), while `useEffect` listening to `mountedSlots` was called earlier at line 208. During component mount, this triggered a minified `ReferenceError: Cannot access variable before initialization`.
+      3. **Trailing Asterisks & Non-Word Characters in Placeholders**: The template placeholder replacement regex expected exact key matching `fieldsMap.get(fn.toLowerCase())`. If a user typed `{{Contract Amount*}}` or double spaces like `First  Name`, the raw text remained unparsed.
+      4. **SVG Stroke & CSS Variable Resolution**: In certain browsers, SVG linear gradients using `stopColor="var(--primary-500)"` as an XML attribute can fail to resolve, causing `stroke="url(#sd-connector-gradient)"` to render invisibly.
+    - **Fixes Applied**:
+      - **Dual-Target Element Resolution (`getDocFieldElement` & `getRailFieldElements`)**: Enhanced element resolution in `FillFormModal.jsx` to dynamically resolve `live-wrap-${key}`, `live-field-${key}`, `live-placeholder-${key}`, `[data-field-key]`, and prefix queries with sanitization and trailing-symbol stripping. Added `data-rail-key` to rail cards and `data-field-key` + `live-wrap-${sanitizedKey}` to document field wrappers.
+      - **Fixed State Declaration Ordering**: Moved `docBodyRef` and `[mountedSlots, setMountedSlots]` to the top of `FillFormModal.jsx` alongside other refs and states, completely eliminating the TDZ ReferenceError.
+      - **Fuzzy Placeholder Normalization**: Enhanced `fieldsMap` and regex in `processedHtml` to strip trailing asterisks (`replace(/[*:\s]+$/, '')`) and normalize whitespace (`replace(/\s+/g, ' ')`), allowing placeholders like `{{Contract Amount*}}` to cleanly match `Contract Amount` and render as interactive slots.
+      - **Robust Visual SVG Connector Line**: Configured direct stroke `var(--primary-500, #a4fb4f)` with glowing halo, crisp target pin dot and downward arrowhead pointing directly to the active document field, and pulsing radar dot on the active rail card.
+      - **Active Direct Field Highlight**: Added CSS rules in `src/App.css` so that direct input boxes linked to the active rail card illuminate with the theme's active accent border and glow (`is-active-target`).
+  - **Access Rights & Permissions Modal Modern Redesign (`TemplatePermissionsModal.jsx`, `App.css`) (2026-10-26)**:
+    - **User Feedback & Issues with Legacy GUI**:
+      1. **Vertical Bloat & Clutter**: Three massive, vertically stacked cards (`All Users`, `Specific Departments`, `Specific Persons`) took up >350px of vertical space with awkward centered icons and radio buttons.
+      2. **Viewport Clipping**: The bottom department list and action buttons (`Cancel`, `Save Access Rights`) were pushed off-screen or cut off.
+      3. **Text Truncation**: Department names in the 2-column checklist truncated (e.g. `Finance & Accoun...`) because the modal was too narrow (580px) while wasting huge vertical space.
+      4. **CSS Conflicts**: Legacy conflicting `.sd-perm-card` rules forced accidental vertical flex stacking and centering.
+    - **Redesign & Architectural Improvements**:
+      - **3-Way Horizontal Segmented Scope Switcher**: Replaced the bulky stacked cards with a compact, modern 3-option segmented control (`All Employees`, `Departments`, `Specific Persons`) taking only ~55px of vertical height with subtle micro-animations and theme-aware active indicators.
+      - **Spacious & Truncation-Free Department Grid**: Expanded dialog to `size="lg"` / `max-width: 680px`. Department names like `Finance & Accounting` now display in full without truncation, alongside real-time employee counts (`0 employees`, `2 employees`, `1 employee`), `Owning Dept` accent badges, and custom checkboxes.
+      - **Informative Toolbars & Controls**: Included quick actions (`Select All`, `Reset to Owning Dept`), search filter bar for large organizations, and dedicated individual user picker with avatars and system roles (`Admin`, `Superadmin`).
+      - **Live Footer Scope Summary**: Replaced static buttons with a live summary display (`Scope: 1 Department (Finance & Accounting)`) paired with `Cancel` and `Save Access Rights`.
+      - **Full Dynamic Accent Theme Adaptability**: Replaced all hardcoded color literals (`#a4fb4f`, `rgba(164, 251, 79, ...)`) with `var(--primary-500)`, `var(--primary)`, and `color-mix(in srgb, var(--primary-500) ..., transparent)`. The permissions modal now flawlessly matches whichever accent color is active in user preferences (Orange, Green, Blue, Red, Purple) across active tab buttons, counter badges, department checkboxes, borders, and footer summary icons.
+  - **Release v1.2.0 (2026-10-26)**:
+    - **Application Version Bump**: Bumped version from `1.1.0` to `1.2.0` across `package.json`, `package-lock.json`, `server/server.js`, `src/utils/versionManager.js`, `README.md`, `USER_MANUAL.md`, and `CONTEXT.md`.
+    - **Key Highlights**:
+      - **Access Rights & Permissions Modal Redesign**: Modern horizontal 3-way segmented scope switcher (`All Employees`, `Departments`, `Specific Persons`), truncation-free 2-column department cards with live employee counts, `Owning Dept` badge, custom checkboxes, toolbar quick-actions (`Select All`, `Reset to Owning Dept`), and live footer scope summary.
+      - **Full Theme Matching**: Completely eliminated hardcoded colors in favor of CSS variables (`var(--primary-500)`, `color-mix`), enabling 100% harmonious color alignment across all five user-selectable accent themes (Orange, Green, Blue, Red, Purple).
+      - **WYSIWYG On-Form "Print As-Is" Engine**: Dedicated form-isolated printing pipeline suppressing all outer application chrome, with deterministic 24mm standard margins and guaranteed single-page A4 fit.
+      - **Direct Input Width Alignment**: Resolved multi-column overlapping inputs by eliminating legacy `min-width: 190px` constraints and calculating sub-percentages cleanly.
+      - **Visual Leader Connector Line**: Dual element target resolution (`live-wrap`, `live-field`, `live-placeholder`) with trailing-symbol normalization and glowing SVG stroke.
+      - **Automated Cache Invalidation**: Automatic detection of `v1.2.0` deployment triggers background cache clearance and refresh.

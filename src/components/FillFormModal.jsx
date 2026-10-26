@@ -64,7 +64,6 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
   const [touched, setTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [isPrintingBlank, setIsPrintingBlank] = useState(false);
-  const [printingWord, setPrintingWord] = useState(false);
 
   // Single-Field Placeholder Filling Dialogue state
   const [activeDialogField, setActiveDialogField] = useState(null);
@@ -90,6 +89,8 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
   const workspaceRef = useRef(null);
   const deskRef = useRef(null);
   const railBodyRef = useRef(null);
+  const docBodyRef = useRef(null);
+  const [mountedSlots, setMountedSlots] = useState([]);
 
   useEffect(() => {
     if (!activeRailField && fields.length > 0) {
@@ -105,15 +106,77 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
     return fields.filter(f => f.required && !String(values[f.key] ?? '').trim()).length;
   }, [fields, values]);
 
+  // Robust resolution for on-document form element (direct input wrap/box or in-text placeholder)
+  const getDocFieldElement = useCallback((key) => {
+    if (!key) return null;
+    const cleanKey = String(key).replace(/[*:\s]+$/, '').trim();
+    const sanitizedKey = String(key).replace(/\W+/g, '-').toLowerCase();
+    const sanitizedClean = cleanKey.replace(/\W+/g, '-').toLowerCase();
+
+    // 1. Direct ID matches (wrapper, input control, or in-text placeholder)
+    const directMatch =
+      document.getElementById(`live-wrap-${sanitizedKey}`) ||
+      document.getElementById(`live-field-${sanitizedKey}`) ||
+      document.getElementById(`live-placeholder-${sanitizedKey}`) ||
+      document.getElementById(`live-wrap-${sanitizedClean}`) ||
+      document.getElementById(`live-field-${sanitizedClean}`) ||
+      document.getElementById(`live-placeholder-${sanitizedClean}`) ||
+      document.getElementById(`live-field-${key}`) ||
+      document.getElementById(`live-placeholder-${key}`);
+    if (directMatch) return directMatch;
+
+    // 2. Data attribute selectors
+    const attrMatch =
+      document.querySelector(`[data-field-key="${key}"]`) ||
+      document.querySelector(`[data-field-key="${cleanKey}"]`) ||
+      document.querySelector(`[data-field-key="${sanitizedKey}"]`) ||
+      document.querySelector(`[data-field-key="${sanitizedClean}"]`) ||
+      document.querySelector(`.sd-live-slot-field[data-field-key="${key}"]`) ||
+      document.querySelector(`.sd-live-slot-field[data-field-key="${cleanKey}"]`);
+    if (attrMatch) return attrMatch;
+
+    // 3. Fallback prefix query
+    return document.querySelector(`[id^="live-wrap-"][id*="${sanitizedClean}"]`) ||
+           document.querySelector(`[id^="live-field-"][id*="${sanitizedClean}"]`) ||
+           document.querySelector(`[id^="live-placeholder-"][id*="${sanitizedClean}"]`);
+  }, []);
+
+  // Robust resolution for right rail card & input elements
+  const getRailFieldElements = useCallback((key) => {
+    if (!key) return { railCard: null, railInput: null };
+    const cleanKey = String(key).replace(/[*:\s]+$/, '').trim();
+    const sanitizedKey = String(key).replace(/\W+/g, '-').toLowerCase();
+    const sanitizedClean = cleanKey.replace(/\W+/g, '-').toLowerCase();
+
+    const railCard =
+      document.getElementById(`rail-card-${key}`) ||
+      document.getElementById(`rail-card-${cleanKey}`) ||
+      document.getElementById(`rail-card-${sanitizedKey}`) ||
+      document.getElementById(`rail-card-${sanitizedClean}`) ||
+      document.querySelector(`[data-rail-key="${key}"]`) ||
+      document.querySelector(`[data-rail-key="${cleanKey}"]`) ||
+      document.querySelector(`.sd-rail-field-card[data-rail-key="${key}"]`) ||
+      document.querySelector(`.sd-rail-field-card[data-rail-key="${cleanKey}"]`);
+
+    const railInput =
+      document.getElementById(`rail-input-${key}`) ||
+      document.getElementById(`rail-input-${cleanKey}`) ||
+      document.getElementById(`rail-input-${sanitizedKey}`) ||
+      document.getElementById(`rail-input-${sanitizedClean}`) ||
+      railCard?.querySelector('.sd-rail-input') ||
+      railCard?.querySelector('input, textarea, select');
+
+    return { railCard, railInput };
+  }, []);
+
   const updateConnectorLine = useCallback(() => {
     if (!showVisualLine || !activeRailField || !workspaceRef.current) {
       setConnectorCoords(null);
       return;
     }
-    const elemId = `live-placeholder-${activeRailField.replace(/\W+/g, '-').toLowerCase()}`;
-    const docElem = document.getElementById(elemId);
-    const railCard = document.getElementById(`rail-card-${activeRailField}`);
-    const railInput = document.getElementById(`rail-input-${activeRailField}`);
+
+    const docElem = getDocFieldElement(activeRailField);
+    const { railCard } = getRailFieldElements(activeRailField);
 
     if (!docElem || !railCard || !workspaceRef.current) {
       setConnectorCoords(null);
@@ -122,34 +185,42 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
 
     const wsRect = workspaceRef.current.getBoundingClientRect();
     const docRect = docElem.getBoundingClientRect();
-    const targetRightElem = railInput || railCard;
-    const railRect = targetRightElem.getBoundingClientRect();
+    const railRect = railCard.getBoundingClientRect();
 
-    // Verify docElem is within visible desk area
+    // If elements are not rendered in layout yet
+    if (docRect.width === 0 && docRect.height === 0) {
+      return;
+    }
+
+    // Verify docElem is reasonably within visible desk area (with buffer for smooth scrolling)
     const deskRect = deskRef.current?.getBoundingClientRect();
     if (deskRect) {
-      if (docRect.bottom < deskRect.top || docRect.top > deskRect.bottom) {
+      if (docRect.bottom < (deskRect.top - 80) || docRect.top > (deskRect.bottom + 80)) {
         setConnectorCoords(null);
         return;
       }
     }
 
-    // Anchor to top-center of document placeholder to avoid slicing through adjacent words on the line
+    // Anchor to top-center of document field/placeholder
     const x1 = Math.round(docRect.left + docRect.width / 2 - wsRect.left);
     const y1 = Math.round(docRect.top - wsRect.top - 2);
 
+    // Anchor smoothly to the left border of the right rail card
     const x2 = Math.round(railRect.left - wsRect.left);
-    const y2 = Math.round(railRect.top + railRect.height / 2 - wsRect.top);
+    const y2 = Math.round(railRect.top + Math.min(36, railRect.height / 2) - wsRect.top);
 
     setConnectorCoords({ x1, y1, x2, y2 });
-  }, [showVisualLine, activeRailField]);
+  }, [showVisualLine, activeRailField, getDocFieldElement, getRailFieldElements]);
 
   useEffect(() => {
     if (!showVisualLine) {
       setConnectorCoords(null);
       return;
     }
+
     updateConnectorLine();
+    const rafId = requestAnimationFrame(updateConnectorLine);
+
     const desk = deskRef.current;
     const railBody = railBodyRef.current;
 
@@ -161,40 +232,45 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
     desk?.addEventListener('scroll', onScrollOrResize, { passive: true });
     railBody?.addEventListener('scroll', onScrollOrResize, { passive: true });
 
-    const timer = setTimeout(updateConnectorLine, 50);
+    const timer1 = setTimeout(updateConnectorLine, 50);
+    const timer2 = setTimeout(updateConnectorLine, 150);
+    const timer3 = setTimeout(updateConnectorLine, 350);
 
     return () => {
-      clearTimeout(timer);
+      cancelAnimationFrame(rafId);
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+      clearTimeout(timer3);
       window.removeEventListener('resize', onScrollOrResize);
       desk?.removeEventListener('scroll', onScrollOrResize);
       railBody?.removeEventListener('scroll', onScrollOrResize);
     };
-  }, [showVisualLine, updateConnectorLine, values]);
+  }, [showVisualLine, updateConnectorLine, activeRailField, values, mountedSlots]);
 
   const pathD = useMemo(() => {
     if (!connectorCoords) return '';
     const { x1, y1, x2, y2 } = connectorCoords;
-    const dx = Math.max(60, (x2 - x1) * 0.45);
+    const dx = Math.max(60, (x2 - x1) * 0.42);
     // Smooth bezier: leaves the right rail horizontally, arches above text, descends straight onto target pointer
     return `M ${x1} ${y1 - 7} C ${x1} ${y1 - 52}, ${x2 - dx} ${y2 - 10}, ${x2} ${y2}`;
   }, [connectorCoords]);
 
   const handleFocusField = (key) => {
     setActiveRailField(key);
-    const railInput = document.getElementById(`rail-input-${key}`);
+    const { railCard, railInput } = getRailFieldElements(key);
     if (railInput) {
       railInput.focus();
-      const card = document.getElementById(`rail-card-${key}`);
-      card?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    if (railCard) {
+      railCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   };
 
   const handleRailInputFocus = (key) => {
     setActiveRailField(key);
-    const elemId = `live-placeholder-${key.replace(/\W+/g, '-').toLowerCase()}`;
-    const docElem = document.getElementById(elemId);
+    const docElem = getDocFieldElement(key);
     if (docElem) {
-      docElem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      docElem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   };
 
@@ -216,39 +292,38 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
     setActiveDialogField(null);
   };
 
-  // Print handlers: authentic Word document printing (filled or pristine blank)
-  const handlePrint = async (blank = false) => {
-    if (printingWord) return;
-    try {
-      setPrintingWord(true);
-      addToast(
-        blank ? 'Preparing Blank Word Document' : 'Preparing Filled Word Document',
-        'Formatting document with Microsoft Word typography and margins for print...',
-        'info'
-      );
-
-      let docBlob = null;
-      if (template?.id) {
-        docBlob = await apiService.renderPrintDocument(template.id, {
-          values: blank ? {} : values,
-          blank: !!blank
-        });
-      } else if (submission?.id) {
-        docBlob = await apiService.getSubmissionDocument(submission.id);
-      }
-
-      if (!docBlob) throw new Error('Could not retrieve Word document file');
-
-      await printWordDocument(docBlob, {
-        title: `${template?.title || submission?.title || 'SmartDoc'}_${blank ? 'Blank' : 'Filled'}`
-      });
-    } catch (err) {
-      console.error('Word Print Error:', err);
-      addToast('Print Error', err.message || 'Failed to print Word document', 'error');
-    } finally {
-      setPrintingWord(false);
-    }
+  // Print handlers: WYSIWYG document printing (filled or pristine blank, exactly as displayed on screen)
+  const handlePrint = (blank = false) => {
+    setIsPrintingBlank(blank);
+    document.body.classList.add('sd-printing-live-form');
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        window.print();
+        setTimeout(() => {
+          setIsPrintingBlank(false);
+          document.body.classList.remove('sd-printing-live-form');
+        }, 150);
+      }, 100);
+    });
   };
+
+  // Browser print lifecycle hooks (e.g. File > Print or browser keyboard shortcuts)
+  useEffect(() => {
+    const handleBefore = () => {
+      document.body.classList.add('sd-printing-live-form');
+    };
+    const handleAfter = () => {
+      document.body.classList.remove('sd-printing-live-form');
+      setIsPrintingBlank(false);
+    };
+    window.addEventListener('beforeprint', handleBefore);
+    window.addEventListener('afterprint', handleAfter);
+    return () => {
+      window.removeEventListener('beforeprint', handleBefore);
+      window.removeEventListener('afterprint', handleAfter);
+      document.body.classList.remove('sd-printing-live-form');
+    };
+  }, []);
 
   // Keyboard shortcut Ctrl+P / Cmd+P to print the Word document
   useEffect(() => {
@@ -260,7 +335,7 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [values, template, submission, printingWord]);
+  }, [values, template, submission]);
 
   // Auto trigger print when opened with initialPrint={true}
   useEffect(() => {
@@ -271,9 +346,6 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
       return () => clearTimeout(timer);
     }
   }, [initialPrint]);
-
-  const docBodyRef = useRef(null);
-  const [mountedSlots, setMountedSlots] = useState([]);
 
   const missing = useMemo(
     () => fields.filter(f => f.required && !String(values[f.key] ?? '').trim()).map(f => f.key),
@@ -292,13 +364,30 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose, saving]);
 
-  // Map fields for fast key lookups
+  // Map fields for fast key lookups (with fuzzy normalization for spaces, asterisks, hyphens, and underscores)
   const fieldsMap = useMemo(() => {
     const map = new Map();
     fields.forEach(f => {
       if (!f) return;
-      if (f.key) map.set(String(f.key).toLowerCase(), f);
-      if (f.label) map.set(String(f.label).toLowerCase(), f);
+      if (f.key) {
+        const k = String(f.key).toLowerCase();
+        const cleanK = k.replace(/[*:\s]+$/, '').trim();
+        map.set(k, f);
+        map.set(cleanK, f);
+        map.set(cleanK.replace(/\W+/g, '-'), f);
+        map.set(cleanK.replace(/\W+/g, '_'), f);
+        map.set(cleanK.replace(/\s+/g, ''), f);
+      }
+      if (f.label) {
+        const l = String(f.label).toLowerCase();
+        const cleanL = l.replace(/[*:\s]+$/, '').trim();
+        map.set(l, f);
+        map.set(cleanL, f);
+        map.set(cleanL.replace(/\s+/g, ' ').trim(), f);
+        map.set(cleanL.replace(/\s+/g, '_').trim(), f);
+        map.set(cleanL.replace(/\W+/g, '-').trim(), f);
+        map.set(cleanL.replace(/\s+/g, ''), f);
+      }
     });
     return map;
   }, [fields]);
@@ -352,12 +441,21 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
     // 3. Field placeholders: {{field_key}}
     html = html.replace(/\{\{\s*([^}]+)\}\}/g, (match, fieldName) => {
       const fn = fieldName.trim();
-      const f = fieldsMap.get(fn.toLowerCase());
+      const cleanFn = fn.replace(/[*:\s]+$/, '').trim();
+      const f = fieldsMap.get(fn.toLowerCase()) ||
+                fieldsMap.get(cleanFn.toLowerCase()) ||
+                fieldsMap.get(cleanFn.replace(/\s+/g, ' ').toLowerCase()) ||
+                fieldsMap.get(cleanFn.replace(/\s+/g, '_').toLowerCase()) ||
+                fieldsMap.get(cleanFn.replace(/\W+/g, '-').toLowerCase()) ||
+                fieldsMap.get(cleanFn.replace(/\s+/g, '').toLowerCase());
+
       if (f) {
         placed.add(f.key);
         const isBold = isFieldBold(f);
         const isDirect = f.mode === 'input' && (f.width || f.type === 'textarea');
-        const widthStyle = (isDirect && f.width) ? `width: calc(${f.width}% - 8px);` : '';
+        const widthStyle = (isDirect && f.width)
+          ? (f.width === 100 ? 'width: 100%; margin-right: 0;' : `width: calc(${f.width}% - 8px);`)
+          : (isDirect && f.type === 'textarea' ? 'width: 100%; margin-right: 0;' : '');
         const slotClass = `${isDirect ? 'sd-live-slot-field sd-live-slot-direct' : 'sd-live-slot-field sd-live-slot-inline'} ${isBold ? 'is-bold' : ''}`;
         return `<span class="${slotClass}" data-field-key="${f.key}" style="${widthStyle}"></span>`;
       }
@@ -366,17 +464,28 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
 
     // Support any field pills already in the stored HTML
     html = html.replace(/<span[^>]*class="[^"]*sd-doc-field-pill[^"]*"[^>]*data-field-key="([^"]+)"[^>]*>.*?<\/span>/gi, (match, key) => {
-      placed.add(key);
-      const f = fieldsMap.get(key.toLowerCase());
-      const isBold = isFieldBold(f);
-      const isDirect = f && f.mode === 'input' && (f.width || f.type === 'textarea');
-      const widthStyle = (isDirect && f?.width) ? `width: calc(${f.width}% - 8px);` : '';
-      const slotClass = `${isDirect ? 'sd-live-slot-field sd-live-slot-direct' : 'sd-live-slot-field sd-live-slot-inline'} ${isBold ? 'is-bold' : ''}`;
-      return `<span class="${slotClass}" data-field-key="${key}" style="${widthStyle}"></span>`;
+      const cleanKey = key.replace(/[*:\s]+$/, '').trim();
+      const f = fieldsMap.get(key.toLowerCase()) ||
+                fieldsMap.get(cleanKey.toLowerCase()) ||
+                fieldsMap.get(cleanKey.replace(/\s+/g, ' ').toLowerCase()) ||
+                fieldsMap.get(cleanKey.replace(/\s+/g, '_').toLowerCase()) ||
+                fieldsMap.get(cleanKey.replace(/\W+/g, '-').toLowerCase());
+
+      if (f) {
+        placed.add(f.key);
+        const isBold = isFieldBold(f);
+        const isDirect = f && f.mode === 'input' && (f.width || f.type === 'textarea');
+        const widthStyle = (isDirect && f?.width)
+          ? (f.width === 100 ? 'width: 100%; margin-right: 0;' : `width: calc(${f.width}% - 8px);`)
+          : (isDirect && f?.type === 'textarea' ? 'width: 100%; margin-right: 0;' : '');
+        const slotClass = `${isDirect ? 'sd-live-slot-field sd-live-slot-direct' : 'sd-live-slot-field sd-live-slot-inline'} ${isBold ? 'is-bold' : ''}`;
+        return `<span class="${slotClass}" data-field-key="${f.key}" style="${widthStyle}"></span>`;
+      }
+      return `<span class="sd-live-slot-field sd-live-slot-inline" data-field-key="${key}"></span>`;
     });
 
     return { processedHtml: html, placedKeys: placed, hasDocxHtml: true };
-  }, [template, submission, currentUser, fieldsMap, isResubmit]);
+  }, [template, submission, currentUser, fieldsMap, isResubmit, isFieldBold]);
 
   // After HTML renders, discover slot DOM elements for React portals
   useLayoutEffect(() => {
@@ -484,13 +593,16 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
     const val = isPrintingBlank ? '' : (rawVal ?? '');
     const hasVal = String(val).trim().length > 0;
     const isBold = isFieldBold(f);
+    const isActive = activeRailField === f.key;
 
     const commonProps = {
       id: elemId,
-      className: `sd-doc-live-input ${isInvalid ? 'is-invalid' : ''} ${isBold ? 'is-bold' : ''}`,
+      'data-field-key': f.key,
+      className: `sd-doc-live-input ${isInvalid ? 'is-invalid' : ''} ${isBold ? 'is-bold' : ''} ${isActive ? 'is-active-target' : ''}`,
       style: isBold ? { fontWeight: '700' } : undefined,
       value: isPrintingBlank ? '' : (values[f.key] ?? ''),
       onChange: (e) => setValues(prev => ({ ...prev, [f.key]: e.target.value })),
+      onFocus: () => handleFocusField(f.key),
       placeholder: f.placeholder || (f.label ? `Enter ${f.label}…` : '')
     };
 
@@ -822,10 +934,18 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
     }
 
     const isBlock = f.type === 'textarea' || f.width === 100;
+    const sanitizedKey = String(f.key).replace(/\W+/g, '-').toLowerCase();
+    const isActive = activeRailField === f.key;
+
     return (
-      <span className={`sd-doc-live-field-wrap ${isBlock ? 'is-block' : ''}`}>
-        <span className="sd-doc-live-field-label">
-          {f.label || f.key}
+      <span
+        id={`live-wrap-${sanitizedKey}`}
+        data-field-key={f.key}
+        className={`sd-doc-live-field-wrap ${isBlock ? 'is-block' : ''} ${isActive ? 'is-active-target' : ''}`}
+        onClick={() => handleFocusField(f.key)}
+      >
+        <span className="sd-doc-live-field-label" title={f.label || f.key}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.label || f.key}</span>
           {f.required && <span className="sd-required"> *</span>}
         </span>
         {f.description && (
@@ -850,7 +970,7 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
             <span className="sd-doc-live-sig-title">
               <PenLine size={14} /> Applicant / Submitter Signature *
             </span>
-            <span className="sd-badge sd-badge-accent sd-print-hide">Step 0 (Originator)</span>
+            <span className="sd-badge sd-badge-accent">Step 0 (Originator)</span>
           </div>
 
           {isSigned ? (
@@ -986,22 +1106,20 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
               id="btn-print-form"
               type="button"
               className="btn btn-secondary btn-sm"
-              disabled={printingWord}
               onClick={() => handlePrint(false)}
-              title="Print authentic Word document with current filled values and digital signature (Ctrl+P)"
+              title="Print form exactly as displayed with current filled values and digital signature (Ctrl+P)"
             >
-              {printingWord ? <Loader2 size={14} className="sd-spin" /> : <Printer size={14} />}
-              <span>{printingWord ? 'Formatting…' : 'Print Form'}</span>
+              <Printer size={14} />
+              <span>Print Form</span>
             </button>
             <button
               id="btn-print-blank-form"
               type="button"
               className="btn btn-secondary btn-sm"
-              disabled={printingWord}
               onClick={() => handlePrint(true)}
               title="Print a clean, blank copy of this form for physical pen-and-paper filling"
             >
-              {printingWord ? <Loader2 size={14} className="sd-spin" /> : <FileDown size={14} />}
+              <FileDown size={14} />
               <span>Print Blank</span>
             </button>
           </div>
@@ -1166,9 +1284,9 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
             </div>
           )}
 
-          {/* Approval Route Summary at Bottom of Document */}
+          {/* Approval Route Summary at Bottom of Document (In-App Only) */}
           {hasWorkflow && (
-            <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid #e2e8f0' }}>
+            <div className="sd-form-filler-workflow-chain sd-print-hide" style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid #e2e8f0' }}>
               <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
                 Sequential Department Approval Chain
               </div>
@@ -1188,8 +1306,8 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
             </div>
           )}
 
-          {/* Footer Mark */}
-          <div className="sd-word-page-footer-mark">
+          {/* Footer Mark (In-App Only) */}
+          <div className="sd-word-page-footer-mark sd-print-hide">
             <span>SmartDoc Automated Form Engine</span>
             <span>Page 1 of 1</span>
           </div>
@@ -1249,6 +1367,7 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
               return (
                 <div
                   id={`rail-card-${f.key}`}
+                  data-rail-key={f.key}
                   key={f.key}
                   className={`sd-rail-field-card ${isActive ? 'is-active' : ''} ${hasVal ? 'is-filled' : 'is-empty'} ${isFieldInvalid ? 'is-invalid' : ''}`}
                   onClick={() => handleRailInputFocus(f.key)}
@@ -1321,35 +1440,36 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
         >
           <defs>
             <linearGradient id="sd-connector-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="var(--primary-500, #a4fb4f)" stopOpacity="0.85" />
-              <stop offset="100%" stopColor="var(--primary-500, #a4fb4f)" stopOpacity="1" />
+              <stop offset="0%" stopColor="var(--primary-500, #a4fb4f)" stopOpacity="0.85" style={{ stopColor: 'var(--primary-500, #a4fb4f)', stopOpacity: 0.85 }} />
+              <stop offset="100%" stopColor="var(--primary-500, #a4fb4f)" stopOpacity="1" style={{ stopColor: 'var(--primary-500, #a4fb4f)', stopOpacity: 1 }} />
             </linearGradient>
           </defs>
-          {/* Subtle Ambient Glow Path */}
+          {/* Ambient Glow Halo */}
           <path
             d={pathD}
             fill="none"
             stroke="var(--primary-500, #a4fb4f)"
-            strokeWidth="4"
-            opacity="0.22"
+            strokeWidth="6"
+            opacity="0.28"
           />
-          {/* Main Animated Dash Line */}
+          {/* Main Animated Connector Line */}
           <path
             d={pathD}
             fill="none"
-            stroke="url(#sd-connector-gradient)"
-            strokeWidth="2"
+            stroke="var(--primary-500, #a4fb4f)"
+            strokeWidth="2.5"
             strokeDasharray="6 4"
             className="sd-connector-line-animated"
           />
-          {/* Target Pointer at Document Placeholder: crisp pin dot and subtle downward arrow */}
-          <circle cx={connectorCoords.x1} cy={connectorCoords.y1 - 8} r={2} fill="var(--primary-500, #a4fb4f)" />
+          {/* Target Pointer at Document Element: pin dot and downward arrowhead */}
+          <circle cx={connectorCoords.x1} cy={connectorCoords.y1 - 7} r={3} fill="var(--primary-500, #a4fb4f)" />
           <polygon
-            points={`${connectorCoords.x1 - 3},${connectorCoords.y1 - 8} ${connectorCoords.x1 + 3},${connectorCoords.y1 - 8} ${connectorCoords.x1},${connectorCoords.y1 - 2}`}
+            points={`${connectorCoords.x1 - 4},${connectorCoords.y1 - 7} ${connectorCoords.x1 + 4},${connectorCoords.y1 - 7} ${connectorCoords.x1},${connectorCoords.y1 - 1}`}
             fill="var(--primary-500, #a4fb4f)"
           />
-          {/* Source Marker at Right Rail Field */}
-          <circle cx={connectorCoords.x2} cy={connectorCoords.y2} r={3} fill="var(--primary-500, #a4fb4f)" />
+          {/* Source Marker at Right Rail Card: solid dot + pulsing radar ring */}
+          <circle cx={connectorCoords.x2} cy={connectorCoords.y2} r={4} fill="var(--primary-500, #a4fb4f)" />
+          <circle cx={connectorCoords.x2} cy={connectorCoords.y2} r={7} fill="var(--primary-500, #a4fb4f)" opacity="0.4" className="sd-connector-pulse" />
         </svg>
       )}
     </div>

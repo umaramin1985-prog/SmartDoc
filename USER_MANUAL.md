@@ -146,9 +146,12 @@ Admins can upload static reference documents that cannot be modified:
 
 ## 5.6 Form Access Rights & Permissions
 Admins can click **Assign Rights** (lock icon) on any template card to open `TemplatePermissionsModal.jsx`:
-- **All Users (`ALL`)**: Visible across all department drives to every active employee.
-- **Specific Departments (`DEPARTMENTS`)**: Restricted to designated department folders and their personnel.
-- **Specific Persons Only (`USERS`)**: Search and select specific users for confidential executive forms.
+- **Sleek 3-Way Segmented Scope Switcher**: Instantly switch between scope definitions via the compact horizontal control:
+  - **All Employees (`ALL`)**: Open company-wide access with instant visibility in Forms Hub and searchability across all corporate departments.
+  - **Departments (`DEPARTMENTS`)**: 2-column grid showing authorized departments without truncation, live employee counts per department, `Owning Dept` badge, custom checkboxes, and toolbar actions (**Select All**, **Reset to Owning Dept**). Includes an integrated filter bar for organizations with many departments.
+  - **Specific Persons Only (`USERS`)**: Searchable user picker with employee avatars, `@usernames`, department tags, and system role badges (`Admin`, `Superadmin`). Quick actions include **Select All Listed** and **Clear All**.
+- **Live Footer Scope Summary**: The modal footer displays a real-time summary of the active permission scope (e.g. `Scope: 1 Department (Finance & Accounting)`) alongside **Cancel** and **Save Access Rights** buttons with guaranteed viewport visibility and zero off-screen clipping.
+- **Dynamic Theme Adaptability**: All selection highlights, checkboxes, counter pills, and scope icons dynamically adapt to whichever accent color is active in user preferences (Electric Lime, Orange, Blue, Red, Purple).
 
 ## 5.7 Version History & Git Commit Timeline
 Click the **Version History** button (commit icon) on any template card to open `VersionHistoryModal.jsx`:
@@ -359,6 +362,13 @@ If an approver raises an objection:
 - **Comments Rail**: Both submitters and approvers can view or add contextual comments directly within `SubmissionDetailModal.jsx`.
 - **Git Version History**: Click the commit history icon in submission details to view every iteration, author, and timestamp across objections and resubmissions.
 
+## 8.3 On-Form WYSIWYG "Print As-Is" Engine
+When filling out or reviewing forms in `FillFormModal.jsx`:
+- **Direct Sheet Printing**: Click the **Print** button in the header toolbar to trigger the native browser print engine formatted specifically for physical A4 paper sheets.
+- **Form-Only Isolation**: All outer user interface chrome — including sidebars, explorer navigation, page headers, the interactive form filler rail, the visual leader connector SVG, and sequential workflow approval widgets — is strictly suppressed.
+- **Preserved Margins & Single-Page Fit**: Configured with standard **24mm (~0.95 in)** left and right margins and **18mm** top and bottom margins, ensuring filled forms print cleanly on exactly 1 physical page without spilling onto empty blank sheets.
+- **100% Visual Fidelity**: Form input boxes maintain their percentage-based widths without horizontal overlap, and submitter digital signatures retain their dashed borders, originator badges, drawn signature strokes, and cryptographic PKI integrity seals.
+
 ---
 
 # 9. Approvals & Objection Workflows
@@ -513,7 +523,7 @@ Click your profile/avatar in the sidebar footer → **Profile & Signature** → 
 All dialogs and modals in SmartDoc have backdrop outside-click protection enabled. This protects you from accidentally losing unsaved form fields, document edits, commit notes, or folder names if you click outside the modal window. To close any dialog intentionally, click the explicit **Cancel** or **Close (×)** buttons, or press the **Escape** key.
 
 **What does the version number in the footer do?**
-The footer displays the live application version (e.g. `v1.1.0`) with a status indicator. When a new version is deployed to production, SmartDoc automatically detects the update, purges stale browser caches, and performs a hard reload. You can also click the version pill at any time to trigger an immediate cache-clearing hard reload (`Ctrl + F5` equivalent).
+The footer displays the live application version (e.g. `v1.2.0`) with a status indicator. When a new version is deployed to production, SmartDoc automatically detects the update, purges stale browser caches, and performs a hard reload. You can also click the version pill at any time to trigger an immediate cache-clearing hard reload (`Ctrl + F5` equivalent).
 
 ---
 

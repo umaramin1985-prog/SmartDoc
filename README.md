@@ -168,7 +168,7 @@
 - **Cryptographic Fingerprinting**: Every event is recorded with a verified SHA-256 integrity hash.
 
 ### 18. Application Version Tracking & Automated Cache Clearing ("Ctrl + F5")
-- **Live Footer Version Badge**: The footer (`AppFooter.jsx`) displays the real-time application version (`v1.1.0`) with a pulsing status dot and manual cache-clear action.
+- **Live Footer Version Badge**: The footer (`AppFooter.jsx`) displays the real-time application version (`v1.2.0`) with a pulsing status dot and manual cache-clear action.
 - **Automated Cache Clearing**: Automatically purges `CacheStorage` and service workers with cache-busting reload (`Ctrl + F5` equivalent) whenever a new client or server build version is detected, guaranteeing instant deployment pickup without stale cached chunks.
 - **Universal Backdrop Click Immunity**: All dialogs, popovers, and modals (folder CRUD, field customizers, single-field dialogs, missing fields alerts, commit modals) feature backdrop outside-click protection to safeguard against accidental data loss.
 
@@ -178,9 +178,9 @@
 
 | Layer | Technology |
 |---|---|
-| **Frontend** | React 19, Vite, Vanilla CSS (`src/App.css`, `src/index.css`), Pure Black Dark Mode (`#000000`), Electric Lime (`#a4fb4f`), Lucide React Icons |
+| **Frontend** | React 19, Vite, Vanilla CSS (`src/App.css`, `src/index.css`), Pure Black Dark Mode (`#000000`), Multi-Accent Support (Electric Lime, Orange, Blue, Red, Purple), Lucide React Icons |
 | **PKI Cryptography** | Native `node:crypto` (RSA 2048-bit, SHA-256 digests) + `node-forge` (X.509 v3 Digital Certificates) |
-| **Document Rendering** | `docx-preview` (high-fidelity in-browser `.docx` renderer), native PDF embed, image preview |
+| **Document Rendering** | `docx-preview` (high-fidelity in-browser `.docx` renderer), native PDF embed, image preview, WYSIWYG form-isolated sheet printing |
 | **Word Processing Engine** | `docxtemplater`, `pizzip`, `mammoth` (HTML parsing), `html-to-docx` (Word compilation) |
 | **Diff & Merge Engine** | Custom block/word-level LCS diff with conflict detection and merge synthesis (`reviewDiff.js`) |
 | **Backend** | Node.js, Express (`server/server.js`, port 3001; Vite proxies `/api`) |
@@ -205,7 +205,7 @@
 - `SubmissionDetailModal.jsx`: Complete form review, in-form Word-style comments, Git-like version history, and interactive **PKI Cryptographic Integrity Seal** with live signature verification.
 - `SendForReviewModal.jsx`: Multi-department reviewer picker with instructions.
 - `ReviewChangesModal.jsx`: Initiator diff visualizer, per-change accept/reject controls, and live preview.
-- `TemplatePermissionsModal.jsx`: Access rights configuration (All, Departments, Specific Users).
+- `TemplatePermissionsModal.jsx`: Modern, compact access rights configuration with 3-way segmented scope switcher (All Employees, Departments with live employee counts, Specific Persons user picker) and dynamic theme adaptability.
 - `VersionHistoryModal.jsx`: Git-like commit timeline and version diffs.
 - `DocumentPreviewModal.jsx`: In-browser preview for `.docx`, `.pdf`, and images with Print and Download actions.
 - `ToastContainer.jsx`: Global notification toast system.

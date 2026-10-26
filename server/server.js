@@ -25,7 +25,7 @@ app.use(express.json({ limit: '50mb' }));
 // ============================================================
 // Application Version & Cache Invalidation
 // ============================================================
-let appVersion = '1.1.0';
+let appVersion = '1.2.0';
 try {
   const pkgData = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
   if (pkgData && pkgData.version) appVersion = pkgData.version;
@@ -942,7 +942,7 @@ app.post('/api/forms/templates/:id/render-print-document', async (req, res) => {
     }
 
     const system = {
-      'Form ID': blank ? '________________' : `DRAFT-${todayStr().replace(/-/g, '')}`,
+      'Form ID': blank ? '________________' : (t.unique_code || `DRAFT-${todayStr().replace(/-/g, '')}`),
       'Submitted By': blank ? '________________' : actor.name,
       'Submitted Date': blank ? '________________' : todayStr(),
       'Version': t.version_history ? `v${t.version || '1.0'}` : 'v1.0',
@@ -950,22 +950,27 @@ app.post('/api/forms/templates/:id/render-print-document', async (req, res) => {
     };
 
     const signatures = [];
-    if (!blank && actor.signature) {
-      signatures.push({
-        slot: 'Submitter',
-        label: 'Submitter Signature',
+    const userSig = actor.signature_image || actor.signature || actor.signatureImage;
+    if (!blank && userSig) {
+      const sigData = {
         name: actor.name,
         date: todayStr(),
-        image: actor.signature,
+        image: userSig,
         pkiFingerprint: actor.pki_fingerprint,
         pkiSerial: actor.pki_serial_number
-      });
+      };
+      signatures.push({ slot: 'Submitter', label: 'Submitter Signature', ...sigData });
+      signatures.push({ slot: 'Applicant', label: 'Applicant Signature', ...sigData });
+      signatures.push({ slot: 'Originator', label: 'Originator Signature', ...sigData });
     }
+
+    const templateFields = parseJson(t.fields, []);
 
     const buf = renderFilledDocument(templateBase64, {
       values: parseJson(values, values),
       system,
       signatures,
+      fields: templateFields,
       blank: !!blank
     });
 
@@ -2475,7 +2480,13 @@ app.get('/api/forms/submissions/:id/document', async (req, res) => {
       'Version': s.version,
       'Department': s.department
     };
-    const buf = renderFilledDocument(tr.rows[0].docx_base64, { values: parseJson(s.form_data, {}), system, signatures });
+    const templateFields = parseJson(tr.rows[0]?.fields, []);
+    const buf = renderFilledDocument(tr.rows[0].docx_base64, {
+      values: parseJson(s.form_data, {}),
+      system,
+      signatures,
+      fields: templateFields
+    });
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.setHeader('Content-Disposition', `attachment; filename="${s.unique_number}_v${s.version}.docx"`);
     res.send(buf);

@@ -269,12 +269,20 @@ function ensureNamespaces(xml) {
  *   signatures: [{ slot: 'Submitter' | '<Department>', label, name, date, image (png data URL) }]
  * @returns {Buffer}
  */
-export function renderFilledDocument(templateBase64, { values = {}, system = {}, signatures = [], blank = false }) {
+export function renderFilledDocument(templateBase64, { values = {}, system = {}, signatures = [], fields = [], blank = false }) {
   const zip = loadZip(templateBase64);
 
-  const valueMap = new Map(Object.entries(values).map(([k, v]) => [normalize(k), v]));
-  const systemMap = new Map(Object.entries(system).map(([k, v]) => [normalize(k), v]));
-  const sigBySlot = new Map(signatures.filter(s => s.image).map(s => [normalize(s.slot), s]));
+  const valueMap = new Map(Object.entries(values || {}).map(([k, v]) => [normalize(k), v]));
+  const systemMap = new Map(Object.entries(system || {}).map(([k, v]) => [normalize(k), v]));
+  const sigBySlot = new Map((signatures || []).filter(s => s && s.image).map(s => [normalize(s.slot), s]));
+
+  // Index template fields by key and label for formatting direct inputs
+  const fieldMap = new Map();
+  (Array.isArray(fields) ? fields : []).forEach(f => {
+    if (!f) return;
+    if (f.key) fieldMap.set(normalize(f.key), f);
+    if (f.label) fieldMap.set(normalize(f.label), f);
+  });
 
   const markers = []; // { marker, sig }
   let usedSignatureTag = false;
@@ -290,22 +298,49 @@ export function renderFilledDocument(templateBase64, { values = {}, system = {},
         const sig = t.match(SIGNATURE_RE);
         if (sig) {
           usedSignatureTag = true;
+          const slotName = sig[1].trim();
+          const normSlot = normalize(slotName);
           if (blank) {
-            return `________________________________________ (${sig[1].trim()} Signature & Date)`;
+            return `________________________________________ (${slotName} Signature & Date)`;
           }
-          const found = sigBySlot.get(normalize(sig[1]));
-          if (!found) return '';
+          const found = sigBySlot.get(normSlot)
+            || (['submitter', 'applicant', 'originator'].includes(normSlot)
+                ? (sigBySlot.get('submitter') || sigBySlot.get('applicant') || sigBySlot.get('originator'))
+                : null);
+          if (!found) {
+            return `________________________________________ (${slotName} Signature & Date)`;
+          }
           const marker = `@@SMARTDOC_SIG_${markers.length}@@`;
           markers.push({ marker, sig: found });
           return marker;
         }
+
         const key = normalize(t);
-        if (blank) {
-          return '________________________________________';
-        }
         if (systemMap.has(key)) return String(systemMap.get(key) ?? '');
-        if (valueMap.has(key)) return String(valueMap.get(key) ?? '');
-        return '';
+
+        const f = fieldMap.get(key);
+        const isDirect = f ? f.mode === 'input' : false;
+        const fieldLabel = f?.label || f?.key || t;
+
+        const rawVal = valueMap.has(key) ? String(valueMap.get(key) ?? '').trim() : '';
+        const hasVal = rawVal.length > 0;
+
+        if (blank) {
+          return isDirect
+            ? `${fieldLabel}: ________________________________________`
+            : '________________________________________';
+        }
+
+        if (hasVal) {
+          return isDirect
+            ? `${fieldLabel}: ${rawVal}`
+            : rawVal;
+        }
+
+        // If not blank, but field is unfilled when printed:
+        return isDirect
+          ? `${fieldLabel}: ________________________________________`
+          : '________________________________________';
       }
     })
   });

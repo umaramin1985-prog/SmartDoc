@@ -3272,7 +3272,7 @@ textarea.sd-input { resize: vertical; line-height: 1.5; }
 .sd-pv-field {
   display: inline-block;
   vertical-align: top;
-  min-width: 200px;
+  min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
   margin: 2px 4px 8px 0;
@@ -5498,46 +5498,7 @@ body:has(.sd-studio-modal-backdrop) .sd-modal-backdrop:has(#modal-send-for-revie
   flex-direction: column;
   gap: 18px;
 }
-.sd-perm-options {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-}
-.sd-perm-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  padding: 14px;
-  border: 2px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  text-align: left;
-}
-.sd-perm-card:hover {
-  border-color: color-mix(in srgb, var(--accent-primary) 50%, var(--border-color));
-  background: var(--bg-card-subtle);
-}
-.sd-perm-card.active {
-  border-color: var(--accent-primary);
-  background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-card));
-}
-.sd-perm-card-icon {
-  font-size: 1.5rem;
-  margin-bottom: 8px;
-}
-.sd-perm-card-title {
-  font-weight: 700;
-  font-size: 0.88rem;
-  color: var(--text-primary);
-  margin-bottom: 4px;
-}
-.sd-perm-card-desc {
-  font-size: 0.74rem;
-  color: var(--text-secondary);
-  line-height: 1.35;
-}
+
 .sd-dept-chips {
   display: flex;
   flex-wrap: wrap;
@@ -6593,12 +6554,15 @@ body:has(.sd-studio-modal-backdrop) .sd-modal-backdrop:has(#modal-send-for-revie
 @media print {
   @page {
     size: A4 portrait;
-    margin: 12mm 15mm;
+    margin: 0;
   }
 
   *, *::before, *::after {
     box-shadow: none !important;
     text-shadow: none !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
   }
 
   body, html {
@@ -6609,138 +6573,267 @@ body:has(.sd-studio-modal-backdrop) .sd-modal-backdrop:has(#modal-send-for-revie
     overflow: visible !important;
     font-size: 11pt !important;
     line-height: 1.35 !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
   }
 
-  /* Hide app chrome */
-  .toast-fixed-container,
-  .smart-sidebar,
-  .sd-form-filler-header,
-  .sd-form-filler-objection-banner,
-  .sd-studio-alert,
-  .sd-form-filler-unplaced-title,
-  .sd-modal-backdrop,
+  /* When printing the live form filler sheet, strictly isolate and hide ALL outer app chrome, views, sidebars, headers, footers, and panels */
+  body:has(.sd-form-filler-sheet) .smart-sidebar,
+  body:has(.sd-form-filler-sheet) .smartdoc-app-footer,
+  body:has(.sd-form-filler-sheet) .sd-page-header,
+  body:has(.sd-form-filler-sheet) .sd-explorer-container,
+  body:has(.sd-form-filler-sheet) .sd-explorer-topbar,
+  body:has(.sd-form-filler-sheet) .sd-explorer-address-bar,
+  body:has(.sd-form-filler-sheet) .sd-explorer-toolbar,
+  body:has(.sd-form-filler-sheet) .sd-explorer-body,
+  body:has(.sd-form-filler-sheet) .sd-explorer-footer,
+  body:has(.sd-form-filler-sheet) .sd-explorer-page > *:not(.sd-form-filler-overlay),
+  body:has(.sd-form-filler-sheet) .sd-form-filler-header,
+  body:has(.sd-form-filler-sheet) .sd-form-filler-rail,
+  body:has(.sd-form-filler-sheet) .sd-filler-connector-svg,
+  body:has(.sd-form-filler-sheet) .sd-form-filler-objection-banner,
+  body:has(.sd-form-filler-sheet) .sd-studio-alert,
+  body:has(.sd-form-filler-sheet) .sd-form-filler-unplaced-title,
+  body:has(.sd-form-filler-sheet) .sd-form-filler-workflow-chain,
+  body:has(.sd-form-filler-sheet) .sd-word-page-footer-mark,
+  body:has(.sd-form-filler-sheet) .toast-fixed-container,
+  body:has(.sd-form-filler-sheet) .sd-modal-backdrop,
+  body.sd-printing-live-form .smart-sidebar,
+  body.sd-printing-live-form .smartdoc-app-footer,
+  body.sd-printing-live-form .sd-page-header,
+  body.sd-printing-live-form .sd-explorer-container,
+  body.sd-printing-live-form .sd-explorer-topbar,
+  body.sd-printing-live-form .sd-explorer-address-bar,
+  body.sd-printing-live-form .sd-explorer-toolbar,
+  body.sd-printing-live-form .sd-explorer-body,
+  body.sd-printing-live-form .sd-explorer-footer,
+  body.sd-printing-live-form .sd-explorer-page > *:not(.sd-form-filler-overlay),
+  body.sd-printing-live-form .sd-form-filler-header,
+  body.sd-printing-live-form .sd-form-filler-rail,
+  body.sd-printing-live-form .sd-filler-connector-svg,
+  body.sd-printing-live-form .sd-form-filler-objection-banner,
+  body.sd-printing-live-form .sd-studio-alert,
+  body.sd-printing-live-form .sd-form-filler-unplaced-title,
+  body.sd-printing-live-form .sd-form-filler-workflow-chain,
+  body.sd-printing-live-form .sd-word-page-footer-mark,
+  body.sd-printing-live-form .toast-fixed-container,
+  body.sd-printing-live-form .sd-modal-backdrop,
   .sd-print-hide,
   .sd-doc-live-sig-draw-btn,
   .sd-doc-live-sig-pending-box {
     display: none !important;
   }
 
-  /* Unfold overlays to full printable flow */
-  .smartdoc-app-layout,
-  .smartdoc-main-viewport,
-  .sd-form-filler-overlay,
-  .sd-form-filler-workspace,
-  .sd-form-filler-desk {
+  /* Unfold overlays to pure document flow */
+  body:has(.sd-form-filler-sheet) .smartdoc-app-layout,
+  body:has(.sd-form-filler-sheet) .smartdoc-main-viewport,
+  body:has(.sd-form-filler-sheet) .smartdoc-main-content,
+  body:has(.sd-form-filler-sheet) .sd-explorer-page,
+  body:has(.sd-form-filler-sheet) .sd-page,
+  body:has(.sd-form-filler-sheet) .sd-form-filler-overlay,
+  body:has(.sd-form-filler-sheet) .sd-form-filler-workspace,
+  body:has(.sd-form-filler-sheet) .sd-form-filler-desk,
+  body.sd-printing-live-form .smartdoc-app-layout,
+  body.sd-printing-live-form .smartdoc-main-viewport,
+  body.sd-printing-live-form .smartdoc-main-content,
+  body.sd-printing-live-form .sd-explorer-page,
+  body.sd-printing-live-form .sd-page,
+  body.sd-printing-live-form .sd-form-filler-overlay,
+  body.sd-printing-live-form .sd-form-filler-workspace,
+  body.sd-printing-live-form .sd-form-filler-desk {
     position: static !important;
     display: block !important;
     width: 100% !important;
+    max-width: 100% !important;
     height: auto !important;
     min-height: 0 !important;
     overflow: visible !important;
     background: transparent !important;
     padding: 0 !important;
     margin: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
   }
 
   .sd-form-filler-sheet {
     position: static !important;
+    box-sizing: border-box !important;
     width: 100% !important;
-    max-width: 100% !important;
+    max-width: 210mm !important;
     min-height: 0 !important;
+    height: auto !important;
     margin: 0 auto !important;
-    padding: 0 !important;
+    padding: 18mm 24mm !important;
     border: none !important;
     border-radius: 0 !important;
     box-shadow: none !important;
     background: #ffffff !important;
     color: #0f172a !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
   }
 
-  .sd-word-page-header-mark,
-  .sd-word-page-footer-mark {
-    opacity: 0.7 !important;
+  .sd-word-editor-body {
+    min-height: 0 !important;
+  }
+
+  .sd-word-page-header-mark {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
     font-size: 8pt !important;
+    color: #64748b !important;
+    border-bottom: 1px solid #cbd5e1 !important;
+    padding-bottom: 6px !important;
+    margin-bottom: 16px !important;
+    opacity: 0.9 !important;
   }
 
-  /* Swap interactive inputs for clean print presentation */
-  .sd-doc-live-input,
-  .sd-doc-live-checkbox,
-  .sd-doc-live-placeholder {
-    display: none !important;
+  /* Print direct input fields and form elements EXACTLY AS THEY ARE on screen */
+  .sd-doc-live-field-wrap {
+    display: inline-flex !important;
+    flex-direction: column !important;
+    vertical-align: top !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .sd-doc-live-field-label {
+    display: flex !important;
+    align-items: center !important;
+    gap: 2px !important;
+    font-size: 7.5pt !important;
+    font-weight: 700 !important;
+    color: #475569 !important;
+    margin-bottom: 2px !important;
+    min-width: 0 !important;
+  }
+
+  .sd-doc-live-input {
+    display: block !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    min-height: 30px !important;
+    border: 1.5px solid #cbd5e1 !important;
+    border-radius: 4px !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    padding: 5px 8px !important;
+    font-size: 8.5pt !important;
+    box-sizing: border-box !important;
+    outline: none !important;
+    -webkit-appearance: none !important;
+    appearance: none !important;
+  }
+
+  .sd-doc-live-input::placeholder,
+  .sd-doc-live-input::-webkit-input-placeholder {
+    color: #94a3b8 !important;
+    opacity: 0.8 !important;
+  }
+
+  .sd-doc-live-textarea {
+    min-height: 56px !important;
+    resize: none !important;
   }
 
   .sd-print-value {
+    display: none !important;
+  }
+
+  /* Submitter and department signature cards printed as displayed on screen */
+  .sd-doc-live-sig-card {
+    display: block !important;
+    border-radius: 6px !important;
+    padding: 10px 14px !important;
+    margin: 16px 0 12px 0 !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    box-sizing: border-box !important;
+  }
+
+  .sd-doc-live-sig-card.submitter {
+    border: 1.5px dashed #6366f1 !important;
+    background: #f8f7ff !important;
+  }
+
+  .sd-doc-live-sig-card.department {
+    border: 1.5px dashed #cbd5e1 !important;
+    background: #f8fafc !important;
+  }
+
+  .sd-doc-live-sig-header {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    margin-bottom: 8px !important;
+  }
+
+  .sd-doc-live-sig-title {
+    font-size: 8.5pt !important;
+    font-weight: 700 !important;
+    color: #4338ca !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+  }
+
+  .sd-doc-live-sig-department .sd-doc-live-sig-title {
+    color: #64748b !important;
+  }
+
+  .sd-doc-live-sig-signed-box {
+    display: flex !important;
+    align-items: center !important;
+    gap: 14px !important;
+    background: #ffffff !important;
+    border: 1px solid #e0e7ff !important;
+    border-radius: 4px !important;
+    padding: 6px 12px !important;
+    box-sizing: border-box !important;
+  }
+
+  .sd-doc-live-sig-signed-box img {
+    max-height: 48px !important;
+    max-width: 170px !important;
+    object-fit: contain !important;
     display: block !important;
   }
 
-  .sd-print-placeholder-filled {
-    display: inline !important;
-    font-weight: inherit !important;
-    color: inherit !important;
-    border: none !important;
-    padding: 0 !important;
-    text-decoration: none !important;
-  }
-
-  .sd-print-placeholder-blank {
-    display: inline-block !important;
-    vertical-align: baseline !important;
-  }
-
-  .sd-print-value-input,
-  .sd-print-value-select {
-    display: inline-block !important;
-    width: 100% !important;
-    min-height: 22px !important;
-    vertical-align: middle !important;
-  }
-
-  .sd-print-text {
-    display: inline-block !important;
-    width: 100% !important;
-    font-weight: 600 !important;
+  .sd-doc-live-sig-meta-name {
+    font-weight: 700 !important;
+    font-size: 9.5pt !important;
     color: #0f172a !important;
-    border-bottom: 1.5px solid #0f172a !important;
-    padding: 1px 2px !important;
-    word-break: break-word !important;
   }
 
-  .sd-print-text-block {
-    white-space: pre-wrap !important;
-    font-weight: 500 !important;
-    color: #0f172a !important;
-    border: 1px solid #cbd5e1 !important;
-    border-radius: 3px !important;
-    padding: 6px 8px !important;
-    min-height: 48px !important;
-    line-height: 1.4 !important;
-  }
-
-  .sd-print-blank-line {
-    display: inline-block !important;
-    width: 100% !important;
-    height: 18px !important;
-    border-bottom: 1px dashed #64748b !important;
-    vertical-align: bottom !important;
-  }
-
-  .sd-print-blank-lines {
-    display: flex !important;
-    flex-direction: column !important;
-    gap: 12px !important;
-    padding: 4px 0 !important;
-  }
-
-  .sd-print-blank-lines .sd-print-blank-line {
-    height: 14px !important;
-  }
-
-  .sd-print-options-hint {
+  .sd-doc-live-sig-meta-hint {
     font-size: 7.5pt !important;
-    color: #64748b !important;
-    margin-left: 6px !important;
+    color: #059669 !important;
+  }
+
+  .sd-badge {
+    display: inline-flex !important;
+    align-items: center !important;
+    padding: 2px 7px !important;
+    font-size: 7pt !important;
+    font-weight: 600 !important;
+    border-radius: 999px !important;
+  }
+
+  .sd-badge-accent {
+    background: #e8fcd9 !important;
+    color: #166534 !important;
+    border: 1px solid #bbf7d0 !important;
+  }
+
+  .sd-badge-gray {
+    background: #f1f5f9 !important;
+    color: #475569 !important;
+    border: 1px solid #e2e8f0 !important;
   }
 
   .sd-print-value-checkbox {
@@ -6753,16 +6846,6 @@ body:has(.sd-studio-modal-backdrop) .sd-modal-backdrop:has(#modal-send-for-revie
   .sd-print-check-box {
     font-size: 13pt !important;
     line-height: 1 !important;
-  }
-
-  /* Signature Cards in Print */
-  .sd-doc-live-sig-card {
-    background: #fafafa !important;
-    border: 1px solid #cbd5e1 !important;
-    padding: 10px 14px !important;
-    margin-top: 14px !important;
-    break-inside: avoid !important;
-    page-break-inside: avoid !important;
   }
 
   .sd-print-blank-sig-block,
@@ -6810,16 +6893,6 @@ body:has(.sd-studio-modal-backdrop) .sd-modal-backdrop:has(#modal-send-for-revie
     color: #64748b !important;
     text-transform: uppercase !important;
     letter-spacing: 0.04em !important;
-  }
-
-  .sd-doc-live-sig-signed-box {
-    background: transparent !important;
-    border: none !important;
-    padding: 4px 0 !important;
-  }
-
-  .sd-doc-live-sig-signed-box img {
-    max-height: 52px !important;
   }
 
   /* Table and section avoid breaking awkwardly */
@@ -7150,193 +7223,386 @@ body:has(.sd-studio-modal-backdrop) .sd-modal-backdrop:has(#modal-send-for-revie
 
 
 /* =====================================================================
-   Template Permissions Modal (Access Rights)
+   Template Permissions Modal (Access Rights) - Modern Redesign
    ===================================================================== */
+#template-permissions-modal.sd-modal,
 #template-permissions-modal {
-  max-width: 640px;
+  max-width: 680px;
   width: 95vw;
 }
 
-.sd-permissions-form {
+.sd-perm-modal-container {
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
 
-.sd-perm-lead {
-  font-size: 0.84rem;
-  color: var(--text-muted);
-  line-height: 1.45;
-  margin: 0;
-}
-
-.sd-perm-cards-grid {
-  display: flex;
-  flex-direction: column;
+/* 3-Way Horizontal Scope Segmented Switch */
+.sd-perm-scope-selector {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
+  background: #080808;
+  padding: 5px;
+  border-radius: var(--radius-lg, 12px);
+  border: 1px solid #1f1f23;
 }
 
-.sd-perm-card {
+.sd-perm-scope-btn {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 12px 14px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-color);
-  background: var(--bg-card-subtle);
+  gap: 9px;
+  padding: 9px 11px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md, 8px);
+  color: var(--text-muted, #888);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.16s ease;
+  text-align: left;
+  position: relative;
   user-select: none;
 }
 
-.sd-perm-card:hover {
-  background: var(--bg-card);
-  border-color: var(--primary-400);
-  transform: translateY(-1px);
+.sd-perm-scope-btn:hover {
+  background: #121215;
+  color: var(--text-main, #eee);
+  border-color: #27272a;
 }
 
-.sd-perm-card.is-selected {
-  border-color: var(--primary-500);
-  background: color-mix(in srgb, var(--primary-500) 8%, transparent);
-  box-shadow: 0 0 0 1px var(--primary-500);
+.sd-perm-scope-btn.is-active {
+  background: #18181c;
+  border-color: color-mix(in srgb, var(--primary-500) 55%, transparent);
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45), 0 0 0 1px color-mix(in srgb, var(--primary-500) 25%, transparent);
 }
 
-.sd-perm-card-icon {
-  width: 38px;
-  height: 38px;
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
+.sd-perm-scope-icon-wrap {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-muted);
+  background: #141417;
+  border: 1px solid #232328;
+  color: var(--text-muted, #888);
   flex-shrink: 0;
-  transition: all 0.15s ease;
+  transition: all 0.16s ease;
 }
 
-.sd-perm-card:hover .sd-perm-card-icon {
-  color: var(--primary-400);
-  border-color: var(--primary-400);
+.sd-perm-scope-btn:hover .sd-perm-scope-icon-wrap {
+  color: var(--primary-500);
+  border-color: color-mix(in srgb, var(--primary-500) 35%, transparent);
 }
 
-.sd-perm-card.is-selected .sd-perm-card-icon {
-  background: var(--primary-500);
+.sd-perm-scope-btn.is-active .sd-perm-scope-icon-wrap {
+  background: color-mix(in srgb, var(--primary-500) 16%, transparent);
   border-color: var(--primary-500);
-  color: var(--primary-contrast, #000);
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--primary-500) 35%, transparent);
+  color: var(--primary-500);
 }
 
-.sd-perm-card-content {
+.sd-perm-scope-text {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  flex: 1;
   min-width: 0;
+  gap: 2px;
 }
 
-.sd-perm-card-content strong {
-  font-size: 0.92rem;
+.sd-perm-scope-title {
+  font-size: 0.84rem;
   font-weight: 600;
-  color: var(--text-main);
-  line-height: 1.25;
+  color: inherit;
+  line-height: 1.2;
 }
 
-.sd-perm-card-content span {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  line-height: 1.35;
+.sd-perm-scope-sub {
+  font-size: 0.72rem;
+  color: var(--text-dim, #71717a);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.sd-perm-radio-check {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: 2px solid var(--border-color);
+.sd-perm-scope-btn.is-active .sd-perm-scope-sub {
+  color: #a1a1aa;
+}
+
+/* Contextual Card Container */
+.sd-perm-section-card {
+  background: #0a0a0d;
+  border: 1px solid #1f1f25;
+  border-radius: var(--radius-lg, 12px);
+  padding: 14px 16px;
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* Scope A: Company-wide Banner */
+.sd-perm-all-banner {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 18px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary-500) 8%, transparent) 0%, rgba(0, 0, 0, 0.3) 100%);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 25%, transparent);
+  border-radius: 10px;
+}
+
+.sd-perm-all-icon-badge {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary-500) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 35%, transparent);
+  color: var(--primary-500);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: all 0.15s ease;
-  background: var(--bg-surface);
-  color: transparent;
 }
 
-.sd-perm-card.is-selected .sd-perm-radio-check {
-  border-color: var(--primary-500);
-  background: var(--primary-500);
-  color: var(--primary-contrast, #000);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-500) 20%, transparent);
-}
-
-.sd-perm-detail-panel {
-  background: var(--bg-card-subtle);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 14px 16px;
+.sd-perm-all-content {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  animation: fadeIn 0.15s ease-out;
+  gap: 6px;
+  flex: 1;
 }
 
-.sd-perm-detail-header {
+.sd-perm-all-content h4 {
+  margin: 0;
+  font-size: 0.94rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.sd-perm-all-content p {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: #a1a1aa;
+}
+
+.sd-perm-all-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.sd-perm-pill-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #141418;
+  border: 1px solid #27272e;
+  font-size: 0.74rem;
+  color: #d4d4d8;
+}
+
+/* Toolbar & Subheaders */
+.sd-perm-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding-bottom: 8px;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid #1a1a20;
 }
 
-.sd-perm-detail-title {
-  font-size: 0.88rem;
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.sd-perm-check-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+.sd-perm-toolbar-left {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  max-height: 230px;
-  overflow-y: auto;
-  padding: 2px;
 }
 
-.sd-perm-checkbox-item {
+.sd-perm-toolbar-title {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #f4f4f5;
+}
+
+.sd-perm-counter-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--primary-500);
+  background: color-mix(in srgb, var(--primary-500) 14%, transparent);
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--primary-500) 28%, transparent);
+}
+
+.sd-perm-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sd-perm-action-btn {
+  background: transparent;
+  border: 1px solid #27272e;
+  border-radius: 6px;
+  color: #a1a1aa;
+  padding: 3px 8px;
+  font-size: 0.74rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.sd-perm-action-btn:hover {
+  background: #18181e;
+  color: #fff;
+  border-color: #3f3f4c;
+}
+
+/* Department Grid (2 columns, ample space for full names and badges) */
+.sd-perm-dept-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  max-height: 250px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.sd-perm-dept-card {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 9px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-surface);
+  background: #121216;
+  border: 1px solid #22222a;
+  border-radius: 8px;
   cursor: pointer;
   transition: all 0.14s ease;
   user-select: none;
 }
 
-.sd-perm-checkbox-item:hover {
-  background: var(--bg-card);
-  border-color: var(--border-color);
+.sd-perm-dept-card:hover {
+  background: #18181e;
+  border-color: #363642;
 }
 
-.sd-perm-checkbox-item.is-checked {
-  background: color-mix(in srgb, var(--primary-500) 9%, transparent);
-  border-color: var(--primary-500);
+.sd-perm-dept-card.is-selected {
+  background: color-mix(in srgb, var(--primary-500) 10%, transparent);
+  border-color: color-mix(in srgb, var(--primary-500) 55%, transparent);
 }
 
-.sd-perm-checkbox-item input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--primary-500);
-  margin: 0;
-  cursor: pointer;
+.sd-perm-checkbox-custom {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1.5px solid #3f3f4a;
+  background: #09090c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary-contrast, #000);
   flex-shrink: 0;
+  transition: all 0.14s ease;
 }
 
-.sd-perm-item-label {
+.sd-perm-dept-card.is-selected .sd-perm-checkbox-custom,
+.sd-perm-user-item.is-selected .sd-perm-checkbox-custom {
+  background: var(--primary-500);
+  border-color: var(--primary-500);
+  color: var(--primary-contrast, #000);
+}
+
+.sd-perm-dept-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.sd-perm-dept-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: space-between;
+}
+
+.sd-perm-dept-name {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #f4f4f5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sd-perm-dept-meta {
+  font-size: 0.72rem;
+  color: #71717a;
+}
+
+/* User List & Search */
+.sd-perm-user-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #0c0c10;
+  border: 1px solid #22222a;
+  border-radius: 7px;
+  color: #71717a;
+}
+
+.sd-perm-user-search-wrap:focus-within {
+  border-color: var(--primary-500);
+  box-shadow: 0 0 0 1px var(--primary-500);
+}
+
+.sd-perm-user-search-input {
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 0.82rem;
+  width: 100%;
+  outline: none;
+}
+
+.sd-perm-user-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 230px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.sd-perm-user-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  background: #121216;
+  border: 1px solid #22222a;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 0.14s ease;
+  user-select: none;
+}
+
+.sd-perm-user-item:hover {
+  background: #18181e;
+  border-color: #363642;
+}
+
+.sd-perm-user-item.is-selected {
+  background: color-mix(in srgb, var(--primary-500) 10%, transparent);
+  border-color: color-mix(in srgb, var(--primary-500) 55%, transparent);
+}
+
+.sd-perm-user-details {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -7345,72 +7611,51 @@ body:has(.sd-studio-modal-backdrop) .sd-modal-backdrop:has(#modal-send-for-revie
   min-width: 0;
 }
 
-.sd-perm-item-label strong {
-  font-size: 0.85rem;
-  font-weight: 500;
-  color: var(--text-main);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* User Selection in Permissions */
-.sd-perm-user-list {
+.sd-perm-user-main {
   display: flex;
-  flex-direction: column;
+  align-items: baseline;
   gap: 6px;
-  max-height: 230px;
-  overflow-y: auto;
-  padding-right: 4px;
-}
-
-.sd-perm-user-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-surface);
-  cursor: pointer;
-  transition: all 0.14s ease;
-  user-select: none;
-}
-
-.sd-perm-user-row:hover {
-  background: var(--bg-card);
-  border-color: var(--border-color);
-}
-
-.sd-perm-user-row.is-checked {
-  background: color-mix(in srgb, var(--primary-500) 9%, transparent);
-  border-color: var(--primary-500);
-}
-
-.sd-perm-user-row input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--primary-500);
-  margin: 0;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.sd-perm-user-info {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
   min-width: 0;
-  flex: 1;
 }
 
 .sd-perm-user-name {
-  font-size: 0.88rem;
+  font-size: 0.83rem;
   font-weight: 600;
-  color: var(--text-main);
+  color: #f4f4f5;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.sd-perm-user-sub {
+  font-size: 0.74rem;
+  color: #71717a;
+  white-space: nowrap;
+}
+
+/* Modal Footer Custom Layout */
+.sd-perm-footer-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 12px;
+}
+
+.sd-perm-footer-summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.78rem;
+  color: #a1a1aa;
+}
+
+.sd-perm-footer-summary strong {
+  color: #fff;
+}
+
+.sd-text-primary {
+  color: var(--primary-500) !important;
 }
 
 /* =====================================================================
@@ -7788,14 +8033,24 @@ body:has(.sd-studio-modal-backdrop) .sd-modal-backdrop:has(#modal-send-for-revie
 .sd-live-slot-field:has(.sd-doc-live-field-wrap) {
   display: inline-block !important;
   vertical-align: top !important;
+  box-sizing: border-box !important;
   margin: 2px 4px 6px 0 !important;
 }
 
+.sd-live-slot-field:has(.sd-doc-live-field-wrap.is-block),
+.sd-live-slot-field[style*="width: 100%"],
+.sd-live-slot-field[style*="width:100%"] {
+  display: block !important;
+  width: 100% !important;
+  margin: 4px 0 8px 0 !important;
+}
+
 .sd-doc-live-field-wrap {
-  display: inline-flex;
+  display: flex;
   flex-direction: column;
   vertical-align: top;
-  min-width: 190px;
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
   font-family: inherit;
@@ -7816,19 +8071,25 @@ body:has(.sd-studio-modal-backdrop) .sd-modal-backdrop:has(#modal-send-for-revie
   display: flex;
   align-items: center;
   gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sd-doc-live-field-label .sd-required {
   color: #ef4444;
   font-weight: 700;
+  flex-shrink: 0;
 }
 
 .sd-doc-live-input {
   width: 100%;
+  min-width: 0;
   box-sizing: border-box;
-  padding: 6px 10px;
+  padding: 6px 8px;
   font-family: inherit !important;
-  font-size: 0.85rem;
+  font-size: 0.84rem;
   color: #0f172a;
   background: #ffffff;
   border: 1.5px solid #cbd5e1;
@@ -8171,6 +8432,18 @@ body:has(.sd-studio-modal-backdrop) .sd-modal-backdrop:has(#modal-send-for-revie
   box-shadow: none !important;
   outline: none !important;
   animation: none !important;
+}
+
+/* Active Highlight for Direct Input Fields on Sheet when linked to active rail card */
+.sd-doc-live-field-wrap.is-active-target .sd-doc-live-input,
+.sd-doc-live-input.is-active-target {
+  border-color: var(--primary-500, #a4fb4f) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-500, #a4fb4f) 25%, transparent), 0 2px 8px rgba(0, 0, 0, 0.12) !important;
+}
+
+.sd-doc-live-field-wrap.is-active-target .sd-doc-live-field-label {
+  color: var(--primary-500, #a4fb4f) !important;
+  font-weight: 700;
 }
 
 .sd-doc-live-placeholder.is-empty.is-invalid {
