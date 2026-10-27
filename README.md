@@ -19,19 +19,35 @@
 - **Draft Documents & Direct Staging**: Department admins can upload documents and templates purely as unpublished drafts (`status = 'DRAFT'`) without defining an approval chain. Drafts are private to department admins and can be promoted to active forms at any time.
 - **Dual View Modes**: Switch seamlessly between Grid (Card/Tiles) and Details (Table) views with dedicated Size columns.
 - **Safe Re-Parenting**: Deleting a folder automatically re-parents its contents to the parent folder to prevent data loss.
+- **Submission-Aware Deletion vs. Archival**: Deleting a document or template checks if any user has filled or submitted a form against it. If zero submissions exist, the file is permanently erased from the server disk drive (`storage/templates/`) and PostgreSQL database. If submissions exist, it is soft-archived to protect the audit trail and allow completed forms to continue rendering and verifying PKI signatures.
 
 ### 2. Microsoft Word & Form Creation Studio (`SmartWordStudio.jsx`)
 - **Full Union of Word Processor + Custom Form Creator**: Design professional documents and interactive forms on an authentic A4 sheet canvas.
-- **Authentic Microsoft Word Ribbon**:
-  - **Home Tab**: Undo / Redo (with `Ctrl+Z` / `Ctrl+Y` shortcuts and history snapshot stack), font family, font size, bold, italic, underline, strikethrough, paragraph alignment (left, center, right, justify), bullet/numbered lists, heading styles (Normal, H1, H2, H3).
-  - **Text Color & Highlight Color Tools**: Authentic Word-style split buttons for **Font Color** (`Baseline` icon with color underline bar) and **Highlight Color** (`Highlighter` icon with color bar). Includes curated 24-color palettes, "Automatic / Reset" and "No Color / Clear" options, and custom hex color pickers.
+- **Authentic Microsoft Word & Google Docs-Grade Ribbon**:
+  - **Home Tab**:
+    - **Google Docs Parity Inline Formatting Engine**: Font family, font size (−/input/+ stepper), bold, italic, underline, strikethrough, text color, and highlight color apply strictly to the selected text (or collapsed caret for next typed characters) without restyling the entire document or altering document base defaults.
+    - **Text Color & Highlight Color Tools**: Authentic Word-style split buttons for **Font Color** (`Baseline` icon with color underline bar) and **Highlight Color** (`Highlighter` icon with color bar). Includes curated 24-color palettes, "Automatic / Reset" and "No Color / Clear" options, and custom hex color pickers.
+    - **Paragraph Alignment & Lists**: Left, center, right, and justify alignment; bulleted (`Ctrl+Shift+8`) and numbered (`Ctrl+Shift+7`) lists.
+    - **Paragraph Indentation**: Increase / Decrease Indent (`Ctrl+]` / `Ctrl+[`) supporting both body text blocks (±36pt) and nested list levels.
+    - **Line Spacing Control**: Authentic line spacing dropdown with Single (1.0), 1.15, 1.5, and Double (2.0) spacing options.
+    - **Clear Formatting**: One-click format clearing (`Ctrl+\`) stripping inline font, size, and color spans while preserving clean document base typography.
+    - **Heading Styles**: Normal, H1, H2, and H3 styles (`Ctrl+Alt+0–3`).
+    - **Active Toolbar States & Focus Retention**: Live `.is-active` buttons reflecting styling at the caret without stealing focus or collapsing selections.
+    - **Google Docs-Style Hyperlinks & Interactive Link Quick Bubble (`Ctrl+K`)**:
+      - **Floating Link Dialog (`#sd-link-dialog-popover`)**: Edit anchor text and target URL with automatic `https://` / `mailto:` protocol normalization, validation error feedback, `Escape` to cancel, and `Enter` to apply.
+      - **Floating Link Quick Bubble (`.sd-link-bubble`)**: Dynamically positioned above any link under the cursor, providing single-click **Open** in new tab (`target="_blank" rel="noopener noreferrer"`), **Copy link** to clipboard with toast confirmation, **Edit link** dialog, and **Remove link** (cleanly unwraps to plain text).
+      - **Autolink on Space**: Typing any valid web URL followed by `Space` automatically transforms into a formatted hyperlink.
+      - **Paste-to-Link**: Pasting a web address over selected text transforms the text into an anchor link.
+      - **Sanitized Compilation & Export**: Previews and exported `.docx` files run `finalizeLinks` to guarantee secure, sanitized hyperlinks.
+    - **100-Step History Snapshot Stack with Caret Restoration**: Robust undo/redo (`Ctrl+Z`, `Ctrl+Y` / `Ctrl+Shift+Z`) tracking complete editor snapshots, grouping typing bursts (500ms), restoring exact cursor offset position where edits occurred, and routing native browser Edit menu / context menu undo/redo through Studio history.
+    - **Google Docs Keyboard Shortcuts**: `Ctrl+Z`, `Ctrl+Y` / `Ctrl+Shift+Z`, `Ctrl+B/I/U`, `Ctrl+K` (link), `Ctrl+Shift+X` / `Alt+Shift+5` (strikethrough), `Ctrl+Shift+L/E/R/J` (align), `Ctrl+Shift+7/8` (lists), `Ctrl+Alt+0–3` (headings), `Ctrl+Shift+.` / `,` (font size ±), `Ctrl+]` / `Ctrl+[` (indent / outdent), `Ctrl+\` (clear formatting), `Tab` / `Shift+Tab`.
   - **Insert Elements Tab**:
     - **Interactive Form Fields**: Short Text Box, Multiline Text Area, Date Picker, Number Input, Dropdown / Select menu, and Checkbox.
     - **In-Text Placeholders (Legal & Contracts)**: Dedicated quick-insert tools for flowing agreements (Party / Name, Agreement Date, Contract Amount, Governing Law) that sit directly within paragraph prose.
     - **Signature Blocks**: Submitter Signature slot and Department Approval Signature slots.
     - **System Tags**: `{{Form ID}}`, `{{Submitted By}}`, `{{Submitted Date}}`, `{{Department}}`, and `{{Version}}`.
     - **Word-Style Tables**: 10×8 hover grid picker, plus contextual **Table Tools** ribbon tab (Insert Row/Col Above/Below/Left/Right, Delete Row/Col/Table, Merge Cells, Split Cell, Shading, Alignment, Borders, Column resize).
-    - **Document Layout**: Horizontal dividers and page breaks.
+    - **Document Layout & Links**: Horizontal dividers, page breaks, and Insert Link button (`#btn-studio-insert-link-tab`).
   - **Page Layout Tab**: Margins (Normal, Narrow, Wide), Page sizes (A4, Letter), and Orientation (Portrait, Landscape).
   - **Workflow & Approvals Tab**: Target department, destination folder, target audience (All Users vs Department Only), decision deadline in days, and ordered department approval chains (auto-synced with department signature slots).
 - **Authentic Microsoft Word Print Engine**: Dedicated print pipeline (`printWordDocument` and `POST /api/forms/render-print-document`) that renders genuine Word documents (`.docx`) for printing with authentic Word margins, headers, tables, and page layout rather than basic browser HTML print.
@@ -66,9 +82,26 @@
 - **In-Place Template Update on Finalization**:
   - Resuming and publishing a review that originated from an existing template updates that template in-place with a version bump (e.g., `v1.8` → `v1.9`) and a Git commit summary, preventing duplicate templates in the department folder.
 
-### 4. Executive Control Dashboard (`SmartDashboard.jsx`)
-- **Real-Time KPIs**: Live counts for Pending Approvals (in current user's department queue), My Submissions, and Active Form Templates.
-- **Submission Activity Stream**: Status tracking for recent form submissions across all departments.
+### 4. Interactive Smart Analytics Cockpit (`SmartDashboard.jsx`, `DashboardCharts.jsx`)
+- **Interactive Workspace & Time Horizon Controls**:
+  - **Workspace Scope Switcher**: Seamlessly toggle between **My Workspace** (personal submissions & queue), **My Department** (department-scoped pipeline & throughput), and **Enterprise Global** (organization-wide activity).
+  - **Dynamic Time Horizon Filter**: Switch between **7 Days**, **30 Days**, **90 Days**, and **All Time** with immediate recalculation of all series, rates, and volume metrics.
+  - **One-Click Live Sync**: On-demand manual data synchronization with smooth animation.
+- **Computed 6-Card Smart Stats Grid**:
+  - **Awaiting My Action / In Review**: Live queue counter with automatic **⚡ Urgent (<48h)** deadline urgency tags.
+  - **Approval Velocity & Turnaround SLA**: Dynamic turnaround duration calculation (average hours/days to decision) and on-time SLA rate (% of forms completed on or before expiry deadline).
+  - **Approval Pass Rate**: Pass ratio percentage with breakdown tags (`X approved · Y revisions`).
+  - **Revisions Requested**: Highlights submissions with objections raised requiring originator modifications.
+  - **Digital PKI Cryptographic Coverage**: Non-repudiation coverage index tracking percentage of submissions sealed with X.509 RSA-2048 digital signatures.
+  - **Active Catalog Throughput**: Templates utilized versus total published templates and total window submission count.
+- **Interactive SVG Data Visualizations (`DashboardCharts.jsx`)**:
+  - **Submission & Approval Velocity Trend**: Responsive SVG Area & Line chart with smooth Bézier splines, glowing gradient fills under the curve, interactive hover tooltips with exact metrics, and a mode toggle between **Smooth Area Trend** and **Daily Volume Bars**. Clicking any date filters recent submissions below to that day.
+  - **Radial Status Distribution Donut**: Multi-segment SVG donut chart (Approved, In Review, Changes Requested, Rejected) with animated center display showing selected status and percentage of total, plus interactive legend pills filtering feed by status.
+  - **Department Workload & Pipeline**: Comparative horizontal progress bars illustrating throughput, pending approvals, and bottleneck indicators across corporate departments with click-to-filter by department.
+  - **Most Utilized Word Templates (Leaderboard)**: Top form templates ranked by submission frequency with pass rates, versions, and direct "Fill Form" deep-links.
+- **Priority Action Radar**: Multi-tab priority inbox categorizing tasks into **Approvals Queue**, **Objections to Fix**, **Urgent SLA (<48h)**, and **Pre-Publication Reviews** with 1-click modal openers.
+- **Live Searchable Submissions Explorer**: Real-time keyword search across titles, form numbers (`FRM-...`), submitters, and departments, combined with status chips (`All`, `Review`, `Approved`, `Revisions`, `Rejected`), active filter tags with 1-click reset, and direct submission modal inspection.
+- **Enterprise Quick Launch Dock**: Instant shortcuts to Fill Form, Approvals Queue, Signature & PKI Setup, and Cryptographic Activity Ledger.
 - **Zero Mock Data**: Operates strictly on live PostgreSQL records with zero seeded fake data.
 
 ### 5. Form Submissions & Fill Workflow (`FillFormModal.jsx`)
@@ -119,7 +152,7 @@
 
 ### 9. Word Template (.docx & .doc) & Non-Editable Document Uploader (`TemplateUploadModal.jsx`)
 - **Universal Word Document Ingestion**: Automatically scans uploaded `.docx` and legacy `.doc` files for `{{placeholders}}`, signature slots (`{{Signature:...}}` and `{{sig:...}}`), and system tags. Legacy `.doc` templates are parsed via `word-extractor` and compiled to valid `.docx` upon publishing.
-- **Placeholder Configuration Table**: Authors can review detected placeholders, customize labels, set **Fill Style** (`🏷️ Placeholder (Dialog)` vs `📝 Direct Input`), toggle mandatory status, and select typographic **Weight** (`Bold` vs `Normal`).
+- **Modernized Card Architecture & Detected Placeholders**: Replaces clumsy numbered steps and manual placeholder creation forms with sleek pure-black cards (**Template Details & Storage**, **Detected Placeholders** rendered as subtle monospace chips `{{tag}}` when present, and a connected **Sequential Approval Chain** pipeline). Complete visual form editing is handled directly inside **Word Form Studio** (`SmartWordStudio.jsx`).
 - **Direct Draft Upload**: Upload templates as unpublished drafts (`status = 'DRAFT'`) without requiring an approval workflow.
 - **Folder Duplicate Detection**: Real-time validation alerts if a document with the same title or file name already exists in the destination folder.
 - **Static Reference Documents**: Multi-format support for `.pdf`, `.png`, `.jpg`, `.jpeg`, and `.webp`. Static files are stored with `is_editable: false` and are shielded from accidental schema modifications in Word Form Studio.
@@ -180,6 +213,13 @@
 - **Automated Cache Clearing**: Automatically purges `CacheStorage` and service workers with cache-busting reload (`Ctrl + F5` equivalent) whenever a new client or server build version is detected, guaranteeing instant deployment pickup without stale cached chunks.
 - **Universal Backdrop Click Immunity**: All dialogs, popovers, and modals (folder CRUD, field customizers, single-field dialogs, missing fields alerts, commit modals) feature backdrop outside-click protection to safeguard against accidental data loss.
 
+### 19. Native Disk / Object Storage Engine (`server/storageEngine.js`)
+- **Decoupled Binary Storage**: Decouples multi-megabyte binary documents (`.docx`, `.doc`, `.pdf`, images) from PostgreSQL `TEXT` columns into native physical disk storage (`storage/templates/`, `storage/submissions/`, `storage/temp/`), keeping the PostgreSQL database lightweight, fast, and agile.
+- **Zero-Copy Streaming**: Direct streaming downloads via `fs.createReadStream` (`streamTemplateFile`) bypass Node.js heap memory limitations and deliver instant download response times.
+- **Cryptographic File Integrity**: Stores SHA-256 binary hash digests, file sizes, and MIME types alongside template metadata.
+- **Automated Boot Migration**: Server startup automatically migrates existing base64 database records to disk files without downtime, setting `docx_base64 = NULL` to reclaim database storage.
+- **Purge Synchronization**: System Reset options ("Wipe Out Every Data" and "Wipe Only Forms") cleanly purge physical disk storage in tandem with database truncations.
+
 ---
 
 ## 🛠️ Technology Stack
@@ -193,6 +233,7 @@
 | **Word Processing Engine** | `docxtemplater`, `pizzip`, `mammoth` (HTML parsing), `html-to-docx` (Word compilation) |
 | **Diff & Merge Engine** | Custom block/word-level LCS diff with conflict detection and merge synthesis (`reviewDiff.js`) |
 | **Backend** | Node.js, Express (`server/server.js`, port 3001; Vite proxies `/api`) |
+| **File Storage** | Native Disk / Object Storage Engine (`server/storageEngine.js`), zero-copy streaming, SHA-256 integrity |
 | **Database** | PostgreSQL (`server/pgDb.js`), automatic schema initialization, zero mock data |
 
 ---

@@ -5,7 +5,6 @@ import { fileToBase64, Modal } from './ui';
 import { hasChanges as docHasChanges } from './reviewDiff';
 import { PrePublishReviewPromptModal } from './PrePublishReviewPromptModal';
 import { SendForReviewModal } from './SendForReviewModal';
-import { printWordDocument } from '../utils/wordPrintEngine';
 import {
   Bold, Italic, Underline, Strikethrough, AlignLeft, AlignCenter, AlignRight, AlignJustify,
   List, ListOrdered, Table as TableIcon, Type, Calendar, Hash, CheckSquare, ChevronDown,
@@ -14,7 +13,8 @@ import {
   Layers, Palette, Layout, MousePointerClick, HelpCircle, Undo2, Redo2, Eye, Columns2, SquarePen,
   Send, UserCheck, MessageSquare, GitCommit, Edit3, Check, AlertTriangle,
   Minus, Image as ImageIcon, Link as LinkIcon, Tag, Info, Printer, Loader2, FileEdit,
-  Baseline, Highlighter
+  Baseline, Highlighter, IndentIncrease, IndentDecrease, RemoveFormatting, ListChevronsUpDown,
+  Unlink, Copy, ExternalLink, Pencil
 } from 'lucide-react';
 
 const FONTS = [
@@ -161,9 +161,11 @@ const convertRawHtmlToStudio = (rawHtml, existingFields = []) => {
     };
     const mode = f.mode || 'placeholder';
     const isPh = mode === 'placeholder';
+    const type = isPh ? 'text' : (f.type || 'text');
     const isBold = !!(f.bold || f.isBold);
-    const widthAttr = f.width ? ` data-width="${f.width}" style="width: ${f.width === 100 ? '100%' : `calc(${f.width}% - 8px)`}; box-sizing: border-box;"` : '';
-    return `<span class="sd-doc-field-pill${isPh ? ' is-placeholder' : ''}${isBold ? ' is-bold' : ''}" data-field-key="${esc(f.key)}" data-field-label="${esc(f.label)}" data-field-type="${f.type}" data-field-mode="${mode}" data-field-bold="${isBold ? 'true' : 'false'}" data-required="${f.required}" data-placeholder="${esc(f.placeholder || '')}" data-description="${esc(f.description || '')}" data-options='${JSON.stringify(f.options || [])}'${widthAttr} contenteditable="false">${pillInnerHtml(f.label, f.type, f.required, mode, isBold)}</span>`;
+    const options = isPh ? [] : (f.options || []);
+    const widthAttr = (!isPh && f.width) ? ` data-width="${f.width}" style="width: ${f.width === 100 ? '100%' : `calc(${f.width}% - 8px)`}; box-sizing: border-box;"` : '';
+    return `<span class="sd-doc-field-pill${isPh ? ' is-placeholder' : ''}${isBold ? ' is-bold' : ''}" data-field-key="${esc(f.key)}" data-field-label="${esc(f.label)}" data-field-type="${type}" data-field-mode="${mode}" data-field-bold="${isBold ? 'true' : 'false'}" data-required="${f.required}" data-placeholder="${esc(f.placeholder || '')}" data-description="${esc(f.description || '')}" data-options='${JSON.stringify(options)}'${widthAttr} contenteditable="false">${pillInnerHtml(f.label, type, f.required, mode, isBold)}</span>`;
   });
 
   return docHtml;
@@ -200,6 +202,74 @@ const stripEditorState = (root) => {
     img.classList.remove('is-selected');
     if (!img.getAttribute('class')) img.removeAttribute('class');
   });
+  root.querySelectorAll('.sd-link-editing').forEach(a => {
+    a.classList.remove('sd-link-editing');
+    if (!a.getAttribute('class')) a.removeAttribute('class');
+  });
+  root.querySelectorAll('.sd-image-remove').forEach(rm => rm.remove());
+};
+
+// Normalize all images inside the editor so they fit the page, never overflow, and have interactive controls
+const normalizeEditorImages = (root) => {
+  if (!root) return;
+  const imgs = root.querySelectorAll('img');
+  imgs.forEach(img => {
+    // 1. Repair broken images that were saved as raw base64 without data: prefix
+    const src = img.getAttribute('src') || '';
+    if (src && !src.startsWith('data:') && !src.startsWith('http') && !src.startsWith('blob:')) {
+      const cleanSrc = src.trim();
+      if (cleanSrc.startsWith('iVBORw0KGgo')) {
+        img.setAttribute('src', `data:image/png;base64,${cleanSrc}`);
+      } else if (cleanSrc.startsWith('/9j/')) {
+        img.setAttribute('src', `data:image/jpeg;base64,${cleanSrc}`);
+      } else if (cleanSrc.startsWith('R0lGOD')) {
+        img.setAttribute('src', `data:image/gif;base64,${cleanSrc}`);
+      } else if (cleanSrc.startsWith('UklGR')) {
+        img.setAttribute('src', `data:image/webp;base64,${cleanSrc}`);
+      } else if (/^[a-zA-Z0-9+/=]{100,}$/.test(cleanSrc)) {
+        img.setAttribute('src', `data:image/png;base64,${cleanSrc}`);
+      }
+    }
+
+    img.classList.add('sd-doc-image');
+    const existingWidth = img.getAttribute('data-width') || (img.style.width && img.style.width.replace('%', '')) || (img.style.maxWidth && img.style.maxWidth.replace('%', '')) || '100';
+    img.setAttribute('data-width', existingWidth);
+    img.style.setProperty('width', `${existingWidth}%`);
+    img.style.setProperty('max-width', `${existingWidth}%`);
+    img.style.height = 'auto';
+    img.style.boxSizing = 'border-box';
+
+    // If not wrapped in .sd-doc-image-wrap, wrap it
+    let wrap = img.closest('.sd-doc-image-wrap');
+    if (!wrap) {
+      wrap = document.createElement('div');
+      const align = img.getAttribute('data-align') || 'center';
+      wrap.className = `sd-doc-image-wrap align-${align}`;
+      wrap.setAttribute('contenteditable', 'false');
+      wrap.setAttribute('data-align', align);
+      wrap.setAttribute('data-width', existingWidth);
+      wrap.style.textAlign = align;
+      wrap.style.margin = '14px 0';
+      wrap.style.width = '100%';
+      wrap.innerHTML = `<span class="sd-doc-pill-remove sd-image-remove" data-remove="1" title="Delete this image">×</span>`;
+      img.parentNode.insertBefore(wrap, img);
+      wrap.appendChild(img);
+    } else {
+      wrap.setAttribute('data-width', existingWidth);
+      const align = wrap.getAttribute('data-align') || 'center';
+      if (!wrap.classList.contains(`align-${align}`)) {
+        wrap.classList.add(`align-${align}`);
+      }
+      if (!wrap.querySelector('.sd-image-remove')) {
+        const rm = document.createElement('span');
+        rm.className = 'sd-doc-pill-remove sd-image-remove';
+        rm.setAttribute('data-remove', '1');
+        rm.title = 'Delete this image';
+        rm.textContent = '×';
+        wrap.prepend(rm);
+      }
+    }
+  });
 };
 
 const getCleanEditorHtml = (el) => {
@@ -207,6 +277,193 @@ const getCleanEditorHtml = (el) => {
   const clone = el.cloneNode(true);
   stripEditorState(clone);
   return clone.innerHTML;
+};
+
+// ---------- Google Docs-style editing helpers ----------
+// Temporary font face used to mark the exact selected runs (across paragraphs) before restyling them
+const STYLE_MARKER = 'sd-style-marker-7f3a';
+
+// Each inline property is marked with the browser's own command for that SAME property and a sentinel value,
+// so the browser only splits/clears that one property and every other style of the text is preserved.
+const INLINE_STYLE_MARKERS = {
+  fontFamily: {
+    cmd: 'fontName', arg: STYLE_MARKER,
+    test: el => (el.tagName === 'FONT' && el.getAttribute('face') === STYLE_MARKER) || firstFontName(el.style?.fontFamily) === STYLE_MARKER
+  },
+  color: {
+    cmd: 'foreColor', arg: '#010203',
+    test: el => (el.tagName === 'FONT' && (el.getAttribute('color') || '').toLowerCase() === '#010203') || el.style?.color === 'rgb(1, 2, 3)'
+  },
+  backgroundColor: {
+    cmd: 'hiliteColor', arg: '#010204',
+    test: el => el.style?.backgroundColor === 'rgb(1, 2, 4)'
+  },
+  fontSize: {
+    cmd: 'fontSize', arg: '7',
+    test: el => (el.tagName === 'FONT' && el.getAttribute('size') === '7') || el.style?.fontSize === 'xxx-large'
+  }
+};
+
+// Line spacing presets (the canvas "Single" line height is 1.25, so the others scale from it)
+const LINE_SPACING_OPTIONS = [
+  { label: 'Single', value: '1', css: '' },
+  { label: '1.15', value: '1.15', css: '1.44' },
+  { label: '1.5', value: '1.5', css: '1.88' },
+  { label: 'Double', value: '2', css: '2.5' }
+];
+
+// Text inside non-editable widgets (field pills, signature blocks, system tags, images) is never restyled
+const isInsideWidget = (node) => {
+  const el = node && (node.nodeType === 1 ? node : node.parentElement);
+  return !!el?.closest?.('[contenteditable="false"]');
+};
+
+const firstFontName = (stack) => String(stack || '').split(',')[0].trim().replace(/^["']|["']$/g, '');
+
+// Toolbar buttons must not steal focus from the document, so the user's selection stays put (like Google Docs)
+const keepEditorFocus = (e) => e.preventDefault();
+// Same as keepEditorFocus, delegated from a ribbon row: only buttons keep the caret (selects/inputs still need focus)
+const keepButtonFocus = (e) => {
+  if (e.target.closest?.('button') && !e.target.closest('select, input, textarea')) e.preventDefault();
+};
+
+// ---- Links (Google Docs style: Ctrl+K dialog, link bubble, autolink, paste-to-link) ----
+const SAFE_LINK_SCHEMES = /^(https?:|mailto:|tel:)/i;
+const HAS_SCHEME = /^\s*[a-z][a-z0-9+.-]*:/i;
+
+// Turn what the user typed into a safe href (adds https:// or mailto:), or '' if it cannot be a link
+const normalizeLinkUrl = (raw) => {
+  const v = String(raw || '').trim();
+  if (!v || /\s/.test(v)) return '';
+  if (SAFE_LINK_SCHEMES.test(v)) return /^https?:\/\/[^/]/i.test(v) || !/^https?:/i.test(v) ? v : '';
+  if (/^[#/]/.test(v)) return v; // in-page bookmark / site-relative
+  if (/^[^\s@/:]+@[^\s@/]+\.[^\s@/]+$/.test(v)) return `mailto:${v}`;
+  if (HAS_SCHEME.test(v) && !/^[^:/]+:\d+(\/|$)/.test(v)) return ''; // javascript:, data:, … are never allowed
+  if (!/^[^/?#]+\.[^/?#]+|^localhost(:\d+)?(\/|$)/i.test(v)) return '';
+  return `https://${v}`;
+};
+
+// Hrefs that are safe to open: http(s) / mailto / tel, or no scheme at all (relative / #bookmark)
+const isSafeHref = (href) => {
+  const v = String(href || '').trim();
+  return !!v && (!HAS_SCHEME.test(v) || SAFE_LINK_SCHEMES.test(v));
+};
+
+const displayLinkUrl = (href) => String(href || '').replace(/^mailto:/i, '').replace(/^tel:/i, '');
+
+// Fixed-position popover placement under (or, near the bottom of the screen, above) a rect
+const popoverPosFor = (rect, height, width = 380) => {
+  const vw = window.innerWidth || 1280;
+  const vh = window.innerHeight || 800;
+  const left = Math.max(8, Math.min(rect.left, vw - width - 8));
+  const below = rect.bottom + 8;
+  const top = below + height > vh - 8 ? Math.max(8, rect.top - height - 8) : below;
+  return { top: Math.round(top), left: Math.round(left) };
+};
+
+// Screen rect of a range (collapsed carets have no box, so fall back to the caret's element)
+const rangeRect = (range) => {
+  const rects = range.getClientRects();
+  if (rects.length) return range.collapsed ? rects[0] : range.getBoundingClientRect();
+  const node = range.startContainer;
+  const el = node.nodeType === 1 ? node : node.parentElement;
+  return el ? el.getBoundingClientRect() : { top: 120, bottom: 140, left: 200 };
+};
+
+// Saved / previewed documents: links open in a new tab; unsafe hrefs are dropped but their text is kept
+const finalizeLinks = (root) => {
+  root.querySelectorAll('a').forEach(a => {
+    const href = a.getAttribute('href');
+    if (href == null) return; // bookmark targets (<a id> / <a name>) stay as they are
+    if (!isSafeHref(href)) {
+      a.replaceWith(...a.childNodes);
+      return;
+    }
+    if (!href.trim().startsWith('#')) {
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer');
+    }
+  });
+};
+
+// Caret / selection as plain-text offsets so it survives innerHTML snapshots (undo / redo)
+const getSelectionOffsets = (root) => {
+  const sel = window.getSelection();
+  if (!root || !sel || !sel.rangeCount) return null;
+  const r = sel.getRangeAt(0);
+  if (!root.contains(r.startContainer) || !root.contains(r.endContainer)) return null;
+  try {
+    const pre = document.createRange();
+    pre.selectNodeContents(root);
+    pre.setEnd(r.startContainer, r.startOffset);
+    const start = pre.toString().length;
+    return { start, end: start + r.toString().length };
+  } catch {
+    return null;
+  }
+};
+
+const locateTextOffset = (root, offset) => {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let remaining = offset;
+  let node;
+  let last = null;
+  while ((node = walker.nextNode())) {
+    const len = node.nodeValue.length;
+    if (remaining <= len) return { node, offset: remaining };
+    remaining -= len;
+    last = node;
+  }
+  return last ? { node: last, offset: last.nodeValue.length } : { node: root, offset: root.childNodes.length };
+};
+
+const setSelectionOffsets = (root, offsets) => {
+  if (!root || !offsets) return false;
+  try {
+    const place = (pos, range, isStart) => {
+      const widget = pos.node !== root && pos.node.parentElement?.closest('[contenteditable="false"]');
+      if (widget && root.contains(widget)) {
+        if (isStart) range.setStartAfter(widget); else range.setEndAfter(widget);
+      } else if (isStart) {
+        range.setStart(pos.node, pos.offset);
+      } else {
+        range.setEnd(pos.node, pos.offset);
+      }
+    };
+    const range = document.createRange();
+    place(locateTextOffset(root, offsets.start), range, true);
+    if (offsets.end === offsets.start) range.collapse(true);
+    else place(locateTextOffset(root, offsets.end), range, false);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+// Remove one inline CSS property (and its legacy <font> attribute equivalent) from an element
+const clearInlineProp = (el, prop) => {
+  if (!el || el.nodeType !== 1) return;
+  if (el.style && el.style[prop]) el.style[prop] = '';
+  if (el.tagName === 'FONT') {
+    if (prop === 'fontFamily') el.removeAttribute('face');
+    if (prop === 'color') el.removeAttribute('color');
+    if (prop === 'fontSize') el.removeAttribute('size');
+  }
+  if (el.getAttribute('style') === '') el.removeAttribute('style');
+};
+
+// Does an ancestor (inside the editor) still set this inline property?
+const ancestorSetsProp = (node, prop, root) => {
+  let el = node?.parentElement;
+  while (el && el !== root) {
+    if (el.style?.[prop]) return true;
+    if (el.tagName === 'FONT' && ((prop === 'color' && el.getAttribute('color')) || (prop === 'fontFamily' && el.getAttribute('face')) || (prop === 'fontSize' && el.getAttribute('size')))) return true;
+    el = el.parentElement;
+  }
+  return false;
 };
 
 // Virtual grid of a table: grid[r][c] is the cell covering that slot (spanned cells repeat).
@@ -478,110 +735,204 @@ const TableGridPicker = ({ x, y, onPick, onClose }) => {
 // Read a field pill's configuration from its data-* attributes
 const readPillConfig = (pill) => {
   const key = (pill.getAttribute('data-field-key') || 'field').trim();
+  const mode = pill.getAttribute('data-field-mode') || 'input';
+  const rawType = pill.getAttribute('data-field-type') || 'text';
+  const type = mode === 'placeholder' ? 'text' : rawType;
   let options = [];
-  try {
-    options = JSON.parse(pill.getAttribute('data-options') || '[]');
-  } catch { options = []; }
+  if (mode !== 'placeholder') {
+    try {
+      options = JSON.parse(pill.getAttribute('data-options') || '[]');
+    } catch { options = []; }
+  }
   return {
     key,
     label: (pill.getAttribute('data-field-label') || key).trim(),
-    type: pill.getAttribute('data-field-type') || 'text',
-    mode: pill.getAttribute('data-field-mode') || 'input',
+    type,
+    mode,
     bold: pill.getAttribute('data-field-bold') === 'true',
     required: pill.getAttribute('data-required') !== 'false',
     placeholder: (pill.getAttribute('data-placeholder') || '').trim(),
     description: (pill.getAttribute('data-description') || '').trim(),
     options,
-    width: parseInt(pill.getAttribute('data-width'), 10) || null
+    width: mode === 'placeholder' ? null : (parseInt(pill.getAttribute('data-width'), 10) || null)
   };
 };
 
-// Native input markup for a field inside the document preview (interactive, never submitted)
-const previewInputHtml = (f) => {
-  const ph = `placeholder="${esc(f.placeholder)}"`;
-  if (f.type === 'textarea') return `<textarea rows="3" class="sd-input" ${ph}></textarea>`;
-  if (f.type === 'date') return '<input type="date" class="sd-input" />';
-  if (f.type === 'number') return `<input type="number" step="any" class="sd-input" ${ph} />`;
+// Inline lucide icon markup (matches the icons FillFormModal renders via React)
+const SVG_ATTRS = 'xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
+const infoSvg = (size, cls = '') => `<svg ${SVG_ATTRS} width="${size}" height="${size}" class="lucide lucide-info ${cls}"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>`;
+const penLineSvg = (size) => `<svg ${SVG_ATTRS} width="${size}" height="${size}" class="lucide lucide-pen-line"><path d="M12 20h9"></path><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"></path></svg>`;
+const clockSvg = (size) => `<svg ${SVG_ATTRS} width="${size}" height="${size}" class="lucide lucide-clock"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`;
+
+// Same input markup as FillFormModal.renderInputControl (interactive in preview, never submitted)
+const fillerInputHtml = (f) => {
+  const label = f.label || f.key;
+  const boldCls = f.bold ? ' is-bold' : '';
+  const boldStyle = f.bold ? ' style="font-weight: 700;"' : '';
+  const cls = `sd-doc-live-input${boldCls}`;
+  const ph = esc(f.placeholder || (label ? `Enter ${label}…` : ''));
+  if (f.type === 'textarea') {
+    return `<textarea rows="3" class="sd-doc-live-input sd-doc-live-textarea${boldCls}"${boldStyle} placeholder="${ph}"></textarea>`;
+  }
+  if (f.type === 'date') {
+    return `<input type="date" class="${cls}"${boldStyle} placeholder="${esc(f.placeholder || 'YYYY-MM-DD')}" />`;
+  }
+  if (f.type === 'number') {
+    return `<input type="number" step="any" class="${cls}"${boldStyle} placeholder="${ph}" />`;
+  }
   if (f.type === 'dropdown' || f.type === 'select') {
     const opts = (f.options || []).map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
-    return `<select class="sd-input"><option value="">-- Select an option --</option>${opts}</select>`;
+    return `<select class="${cls}"${boldStyle}><option value="">-- Select ${esc(label || 'option')} --</option>${opts}</select>`;
   }
   if (f.type === 'checkbox') {
-    return `<label class="sd-pv-check"><input type="checkbox" /> <span>${esc(f.placeholder || f.label || 'Confirm')}</span></label>`;
+    return `<label class="sd-doc-live-checkbox"><input type="checkbox" /><span>${esc(f.placeholder || f.label || 'I Confirm & Agree')}</span></label>`;
   }
-  return `<input type="text" class="sd-input" ${ph} />`;
+  return `<input type="text" class="${cls}"${boldStyle} placeholder="${ph}" />`;
 };
 
-// Turn the editor content into what a user would see: text stays as-is, widgets become live controls
+// Turn the editor content into the exact DOM the Fill Form sheet renders (same classes as FillFormModal)
 const buildPreviewHtml = (editorEl) => {
   const clone = editorEl.cloneNode(true);
   stripEditorState(clone);
 
   clone.querySelectorAll('.sd-doc-field-pill').forEach(pill => {
     const f = readPillConfig(pill);
+    const label = f.label || f.key;
+    const boldCls = f.bold ? ' is-bold' : '';
+    const boldStyle = f.bold ? ' style="font-weight: 700;"' : '';
     const wrap = document.createElement('span');
-    const isDirectInput = f.mode === 'input' && (f.width || f.type === 'textarea');
+    const isDirectInput = f.mode === 'input' || (f.mode !== 'placeholder' && (f.width || f.type === 'textarea'));
     if (!isDirectInput) {
-      wrap.className = `sd-pv-placeholder-tag ${f.bold ? 'is-bold' : ''}`;
-      wrap.title = `${f.label || f.key}${f.required ? ' (Required)' : ''}`;
-      if (f.bold) wrap.style.fontWeight = '700';
-      wrap.innerHTML = `<span class="sd-ph-brace">{{</span><span class="sd-ph-tag-title ${f.bold ? 'is-bold' : ''}">${esc(f.label || f.key)}</span>${f.required ? '<span class="sd-ph-star">*</span>' : ''}<span class="sd-ph-brace">}}</span>`;
+      // FillFormModal.renderPlaceholderInput (empty state)
+      wrap.className = `sd-live-slot-field sd-live-slot-inline${boldCls}`;
+      wrap.innerHTML = `<span class="sd-doc-live-placeholder-wrapper${boldCls}"><span role="button" tabindex="0" class="sd-doc-live-placeholder is-empty${f.required ? ' is-required' : ''}${boldCls}"${boldStyle} title="${esc(f.description ? `${label}: ${f.description}${f.required ? ' (Required)' : ''}` : `Click to fill {{${label}}}${f.required ? ' (Required)' : ''}`)}"><span class="sd-ph-tag-token${boldCls}"><span class="sd-ph-brace">{{</span><span class="sd-ph-tag-title${boldCls}"${boldStyle}>${esc(label)}</span>${f.required ? '<span class="sd-ph-star" title="Mandatory field">*</span>' : ''}${f.description ? `<span class="sd-ph-info-pill" title="${esc(f.description)}">${infoSvg(10)}</span>` : ''}<span class="sd-ph-brace">}}</span></span><span class="sd-ph-empty-print-dash${boldCls}"${boldStyle}>—</span></span><span class="sd-print-value sd-print-placeholder-filled">—</span></span>`;
     } else {
-      wrap.className = `sd-pv-field${f.type === 'textarea' || f.width === 100 ? ' is-block' : ''}`;
-      if (f.width) wrap.style.width = f.width === 100 ? '100%' : `calc(${f.width}% - 8px)`;
-      wrap.innerHTML = `<span class="sd-pv-label">${esc(f.label)}${f.required ? '<span class="sd-required"> *</span>' : ''}</span>${previewInputHtml(f)}`;
+      // FillFormModal.renderFieldInput (direct input box)
+      const isBlock = f.type === 'textarea' || f.width === 100;
+      const widthStyle = f.width
+        ? (f.width === 100 ? 'width: 100%; margin-right: 0;' : `width: calc(${f.width}% - 8px);`)
+        : (f.type === 'textarea' ? 'width: 100%; margin-right: 0;' : '');
+      wrap.className = `sd-live-slot-field sd-live-slot-direct${boldCls}`;
+      if (widthStyle) wrap.setAttribute('style', widthStyle);
+      wrap.innerHTML = `<span class="sd-doc-live-field-wrap${isBlock ? ' is-block' : ''}"><span class="sd-doc-live-field-label" title="${esc(label)}"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${esc(label)}</span>${f.required ? '<span class="sd-required"> *</span>' : ''}</span>${f.description ? `<span class="sd-doc-live-field-desc">${infoSvg(11, 'sd-desc-icon-inline')} ${esc(f.description)}</span>` : ''}${fillerInputHtml(f)}</span>`;
     }
     pill.replaceWith(wrap);
   });
 
+  // Signature and system-tag slots are resolved against the current user in FormPreviewPane
   clone.querySelectorAll('.sd-doc-sig-block').forEach(sig => {
-    const slot = (sig.getAttribute('data-sig-slot') || 'Submitter').trim();
-    const isSubmitter = slot.toLowerCase() === 'submitter';
-    const box = document.createElement('div');
-    box.className = 'sd-pv-sig';
-    box.innerHTML = `<strong>${esc(isSubmitter ? 'Applicant signature' : `${slot} approval signature`)}</strong><span>${isSubmitter ? 'Saved signature is stamped on submit' : `Added when ${esc(slot)} approves`}</span>`;
-    sig.replaceWith(box);
+    const slot = document.createElement('div');
+    slot.className = 'sd-live-slot-sig';
+    slot.setAttribute('data-sig-slot', (sig.getAttribute('data-sig-slot') || 'Submitter').trim());
+    sig.replaceWith(slot);
   });
 
   clone.querySelectorAll('.sd-doc-system-tag').forEach(tag => {
     const span = document.createElement('span');
     span.className = 'sd-pv-sys';
-    span.textContent = `[${(tag.getAttribute('data-sys-tag') || 'Auto').trim()}]`;
+    const name = (tag.getAttribute('data-sys-tag') || 'Auto').trim();
+    span.setAttribute('data-sys-tag', name);
+    span.textContent = `[${name}]`;
     tag.replaceWith(span);
   });
 
+  finalizeLinks(clone);
   return clone.innerHTML;
 };
 
-// Live preview of the document as a user will see it when filling it in
-const FormPreviewPane = ({ html, title, department, workflow, margins, fontFamily, fontSize }) => (
-  <aside className="sd-studio-preview-scroll" aria-label="Live form preview">
-    <div className="sd-pv-head">
-      <span className="sd-badge sd-badge-accent"><Eye size={11} /> Live preview — as users will fill it</span>
-      <span className="sd-muted">{title || 'Untitled form'} · {department}</span>
-    </div>
+const isSubmitterSlot = (slot) => ['submitter', 'applicant', 'originator'].includes(String(slot || '').toLowerCase());
 
-    <div className={`sd-word-page-sheet sd-pv-sheet margins-${margins}`} style={{ fontFamily, fontSize }}>
+// Same markup as FillFormModal.renderSignatureSlot (before submission)
+const fillerSignatureHtml = (slot, ctx) => {
+  if (isSubmitterSlot(slot)) {
+    const name = esc(ctx.userName);
+    const dept = ctx.userDept ? `<div class="sd-doc-signature-dept">${esc(ctx.userDept)}</div>` : '';
+    if (ctx.signatureImage) {
+      return `<div class="sd-doc-signature-block"><img src="${esc(ctx.signatureImage)}" alt="${name}'s signature" class="sd-doc-signature-img" /><div class="sd-doc-signature-name">${name}</div>${dept}</div>`;
+    }
+    return `<div class="sd-doc-signature-block is-unsigned"><button type="button" class="sd-doc-live-sig-draw-btn sd-print-hide" tabindex="-1">${penLineSvg(14)} Draw &amp; Save Signature</button><div class="sd-print-blank-sig-block"><span class="sd-print-line"></span><div class="sd-doc-signature-name">${name}</div>${dept}</div></div>`;
+  }
+  const s = esc(slot);
+  return `<div class="sd-doc-signature-block is-department is-pending"><div class="sd-doc-signature-pending-notice sd-print-hide">${clockSvg(12)} Pending ${s} Department Approval</div><div class="sd-print-blank-sig-block"><span class="sd-print-line"></span><div class="sd-doc-signature-name">${s} Approver</div><div class="sd-doc-signature-dept">${s}</div></div></div>`;
+};
+
+// Resolve signature slots / system tags exactly as FillFormModal does for a new submission
+const resolvePreviewHtml = (html, ctx) => {
+  if (!html || typeof document === 'undefined') return { html: html || '', hasSubmitterSig: false };
+  const box = document.createElement('div');
+  box.innerHTML = html;
+  let hasSubmitterSig = false;
+  box.querySelectorAll('.sd-live-slot-sig').forEach(node => {
+    const slot = node.getAttribute('data-sig-slot') || 'Submitter';
+    if (isSubmitterSlot(slot)) hasSubmitterSig = true;
+    node.innerHTML = fillerSignatureHtml(slot, ctx);
+  });
+  box.querySelectorAll('.sd-pv-sys[data-sys-tag]').forEach(node => {
+    const t = (node.getAttribute('data-sys-tag') || '').toLowerCase();
+    const value = t === 'form id' ? '[Auto-Generated on Submit]'
+      : t === 'submitted by' ? ctx.userName
+      : t === 'submitted date' ? ctx.today
+      : t === 'department' ? ctx.department
+      : t === 'version' ? `v${ctx.version}`
+      : node.textContent;
+    node.removeAttribute('data-sys-tag');
+    node.textContent = value;
+  });
+  return { html: box.innerHTML, hasSubmitterSig };
+};
+
+// Live preview of the document — renders the identical sheet users see in Fill Form
+const FormPreviewPane = ({ html, department, workflow, fontFamily, fontSize, currentUser, templateCode, version }) => {
+  const ctx = useMemo(() => ({
+    userName: currentUser?.name || 'Submitter',
+    userDept: currentUser?.department || department || '',
+    signatureImage: currentUser?.signatureImage || null,
+    department: department || 'Department',
+    version: version || '1.0',
+    today: new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+  }), [currentUser, department, version]);
+
+  const resolved = useMemo(() => resolvePreviewHtml(html, ctx), [html, ctx]);
+
+  return (
+    <aside className="sd-studio-preview-scroll sd-pv-filler-desk" aria-label="Live form preview">
       <div
-        className="sd-word-editor-body sd-pv-doc"
-        style={{ fontFamily, fontSize }}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-    </div>
+        className="sd-pv-filler-sheet size-a4 portrait margins-normal"
+        style={{ fontFamily: fontFamily || undefined, fontSize: fontSize || undefined }}
+      >
+        <div className="sd-word-page-header-mark">
+          <span>{department} — Enterprise Word Form</span>
+          <span>{templateCode || 'CONFIDENTIAL'}</span>
+        </div>
 
-    <div className="sd-pv-foot">
-      <div className="sd-preview-chain">
-        {['Applicant', ...normalizeWorkflowSteps(workflow)].map((step, i) => (
-          <span key={`${step}-${i}`} className="sd-preview-step">{i + 1}. {step}</span>
-        ))}
+        <div
+          className="sd-word-editor-body sd-pv-doc"
+          style={{ fontFamily: fontFamily || undefined, fontSize: fontSize || undefined }}
+          dangerouslySetInnerHTML={{ __html: resolved.html }}
+        />
+
+        {!resolved.hasSubmitterSig && (
+          <div
+            style={{ marginTop: '36px', paddingTop: '20px', borderTop: '1px solid #e2e8f0' }}
+            dangerouslySetInnerHTML={{ __html: fillerSignatureHtml('Submitter', ctx) }}
+          />
+        )}
       </div>
-      <div className="sd-preview-actions">
-        <button type="button" className="btn btn-primary" disabled>Sign &amp; submit</button>
-        <span className="sd-muted">Preview only — nothing is submitted</span>
+
+      <div className="sd-pv-foot">
+        <div className="sd-preview-chain">
+          {['Applicant', ...normalizeWorkflowSteps(workflow)].map((step, i) => (
+            <span key={`${step}-${i}`} className="sd-preview-step">{i + 1}. {step}</span>
+          ))}
+        </div>
+        <div className="sd-preview-actions">
+          <button type="button" className="btn btn-primary" disabled>Sign &amp; Submit Form</button>
+          <span className="sd-muted">Preview only — nothing is submitted</span>
+        </div>
       </div>
-    </div>
-  </aside>
-);
+    </aside>
+  );
+};
 
 // Safely normalize workflow entries to an array of clean department name strings
 const normalizeWorkflowSteps = (wf) => {
@@ -594,10 +945,19 @@ const normalizeWorkflowSteps = (wf) => {
   }).filter(Boolean);
 };
 
+// Read file into complete data:image/...;base64 Data URL scheme
+const fileToDataUrl = (file) => new Promise((resolve, reject) => {
+  if (!file) return reject(new Error('No file provided'));
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result));
+  reader.onerror = () => reject(new Error('Could not read image file'));
+  reader.readAsDataURL(file);
+});
+
 // Image Insert Dialog (Upload or Web URL)
 const ImageInsertDialog = ({ isOpen, onClose, onInsert, addToast }) => {
   const [tab, setTab] = useState('upload'); // 'upload' | 'url'
-  const [fileData, setFileData] = useState(null); // base64
+  const [fileData, setFileData] = useState(null); // full Data URI scheme (data:image/...)
   const [fileName, setFileName] = useState('');
   const [fileSize, setFileSize] = useState('');
   const [url, setUrl] = useState('');
@@ -616,8 +976,8 @@ const ImageInsertDialog = ({ isOpen, onClose, onInsert, addToast }) => {
       addToast?.('Invalid File', 'Please select an image file (PNG, JPG, SVG, WebP, GIF)', 'error');
       return;
     }
-    fileToBase64(file).then(base64 => {
-      setFileData(base64);
+    fileToDataUrl(file).then(dataUrl => {
+      setFileData(dataUrl);
       setFileName(file.name);
       setFileSize((file.size / 1024).toFixed(1) + ' KB');
       if (!alt) setAlt(file.name.replace(/\.[^.]+$/, ''));
@@ -875,10 +1235,14 @@ export const SmartWordStudio = ({
   const fontSizeDropdownRef = useRef(null);
   const textColorDropdownRef = useRef(null);
   const highlightDropdownRef = useRef(null);
+  const skipFsBlurCommitRef = useRef(false);
 
   // Editor formatting state
+  // fontFamily / fontSize are the DOCUMENT base font (saved with the template, never changed by caret moves).
+  // uiFontFamily / fontSizeDisplay reflect the font at the caret, like the Google Docs toolbar.
   const [fontFamily, setFontFamily] = useState(() => targetTemplate?.fontFamily || seed?.fontFamily || FONTS[0].value);
   const [fontSize, setFontSize] = useState(() => targetTemplate?.fontSize || seed?.fontSize || '11pt');
+  const [uiFontFamily, setUiFontFamily] = useState(() => targetTemplate?.fontFamily || seed?.fontFamily || FONTS[0].value);
   const [fontSizeDisplay, setFontSizeDisplay] = useState(() => parseInt(targetTemplate?.fontSize || seed?.fontSize || '11', 10) || 11);
   const [fontSizeInput, setFontSizeInput] = useState(() => String(parseInt(targetTemplate?.fontSize || seed?.fontSize || '11', 10) || 11));
   const [showFontSizeDropdown, setShowFontSizeDropdown] = useState(false);
@@ -889,17 +1253,38 @@ export const SmartWordStudio = ({
   const [highlightColor, setHighlightColor] = useState('#fef08a');
   const [showHighlightPicker, setShowHighlightPicker] = useState(false);
 
+  // Active inline and block formatting states (Google Docs style real-time tracking)
+  const [activeFormats, setActiveFormats] = useState({
+    bold: false,
+    italic: false,
+    underline: false,
+    strikeThrough: false,
+    justifyLeft: false,
+    justifyCenter: false,
+    justifyRight: false,
+    justifyFull: false,
+    insertUnorderedList: false,
+    insertOrderedList: false,
+    heading: 'p',
+    lineSpacing: '1',
+    isLink: false
+  });
+
   // Image insertion and interactive floating toolbar
   const [showImageModal, setShowImageModal] = useState(false);
   const [selectedImageEl, setSelectedImageEl] = useState(null); // { wrap, img }
   const [imageToolbarPos, setImageToolbarPos] = useState(null); // { top, left }
+  // Links: Ctrl+K dialog and the bubble shown while the caret is in a link (Google Docs)
+  const [linkDialog, setLinkDialog] = useState(null); // { anchor, text, originalText, textEditable, url, error, top, left }
+  const [linkBubble, setLinkBubble] = useState(null); // { anchor, href, top, left }
+  const linkRangeRef = useRef(null);
   const [margins, setMargins] = useState('normal'); // 'normal' | 'narrow' | 'wide'
   const [pageSize, setPageSize] = useState('A4'); // 'A4' | 'letter'
   const [orientation, setOrientation] = useState('portrait');
 
-  // ---- Undo / Redo (snapshot history of the editor HTML) ----
+  // ---- Undo / Redo (snapshot history of the editor HTML + caret position) ----
   // Native contentEditable undo cannot track our programmatic inserts/removals, so we keep our own stack.
-  const historyRef = useRef({ stack: [], index: -1 });
+  const historyRef = useRef({ stack: [], sels: [], index: -1 });
   const typingTimerRef = useRef(null);
   const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
 
@@ -924,10 +1309,20 @@ export const SmartWordStudio = ({
     if (!el) return;
     const h = historyRef.current;
     const html = getCleanEditorHtml(el);
-    if (h.stack[h.index] === html) return;
+    const caret = getSelectionOffsets(el);
+    if (h.stack[h.index] === html) {
+      // Content unchanged: just remember the latest caret for this state
+      if (caret) h.sels[h.index] = caret;
+      return;
+    }
     h.stack = h.stack.slice(0, h.index + 1);
+    h.sels = h.sels.slice(0, h.index + 1);
     h.stack.push(html);
-    if (h.stack.length > 100) h.stack.shift();
+    h.sels.push(caret);
+    if (h.stack.length > 100) {
+      h.stack.shift();
+      h.sels.shift();
+    }
     h.index = h.stack.length - 1;
     syncHistoryState();
   };
@@ -940,12 +1335,20 @@ export const SmartWordStudio = ({
     pushHistory();
   };
 
-  const handleEditorInput = () => {
+  // Typing is grouped into bursts (one undo step per pause); structural edits are their own step
+  const IMMEDIATE_INPUT_TYPES = ['insertParagraph', 'insertLineBreak', 'insertFromPaste', 'insertFromDrop', 'deleteByCut', 'deleteByDrag', 'insertOrderedList', 'insertUnorderedList'];
+  const handleEditorInput = (e) => {
+    const inputType = e?.nativeEvent?.inputType || '';
     if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = null;
+    if (IMMEDIATE_INPUT_TYPES.includes(inputType) || inputType.startsWith('format')) {
+      pushHistory();
+      return;
+    }
     typingTimerRef.current = setTimeout(() => {
       typingTimerRef.current = null;
       pushHistory();
-    }, 400);
+    }, 500);
   };
 
   const restoreHistory = (index) => {
@@ -959,10 +1362,22 @@ export const SmartWordStudio = ({
     setTableCtx(NO_TABLE_CTX);
     setActiveFieldEdit(null);
     setActiveSigEdit(null);
+    setSelectedImageEl(null);
+    setImageToolbarPos(null);
     setShowTextColorPicker(false);
     setShowHighlightPicker(false);
+    setLinkDialog(null);
+    setLinkBubble(null);
     syncHistoryState();
-    el.focus();
+    el.focus({ preventScroll: true });
+    // Put the caret back where the change happened (Google Docs behaviour) and keep it in view
+    if (setSelectionOffsets(el, h.sels[index])) {
+      const sel = window.getSelection();
+      const anchor = sel?.anchorNode;
+      const anchorEl = anchor && (anchor.nodeType === 1 ? anchor : anchor.parentElement);
+      anchorEl?.scrollIntoView?.({ block: 'nearest' });
+    }
+    saveSelection();
   };
 
   const handleUndo = () => {
@@ -1050,6 +1465,68 @@ export const SmartWordStudio = ({
     return null;
   };
 
+  // Inspect formatting at current selection or caret (Google Docs style)
+  const updateActiveFormats = () => {
+    if (!editorRef.current) return;
+    try {
+      const sel = window.getSelection();
+      if (!sel || !sel.anchorNode || !editorRef.current.contains(sel.anchorNode)) return;
+
+      const isBold = document.queryCommandState('bold');
+      const isItalic = document.queryCommandState('italic');
+      const isUnderline = document.queryCommandState('underline');
+      const isStrike = document.queryCommandState('strikeThrough');
+      const isLeft = document.queryCommandState('justifyLeft');
+      const isCenter = document.queryCommandState('justifyCenter');
+      const isRight = document.queryCommandState('justifyRight');
+      const isJustify = document.queryCommandState('justifyFull');
+      const isBullet = document.queryCommandState('insertUnorderedList');
+      const isNumbered = document.queryCommandState('insertOrderedList');
+
+      let heading = 'p';
+      let lineSpacing = '1';
+      const ed = editorRef.current;
+      const el = sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement;
+      const block = el?.closest('h1, h2, h3, h4, h5, h6, p, li, div');
+      if (block && ed.contains(block) && block !== ed) {
+        const tag = block.tagName.toLowerCase();
+        if (/^h[1-6]$/.test(tag)) heading = tag;
+        const lh = block.style.lineHeight;
+        if (lh) {
+          const opt = LINE_SPACING_OPTIONS.find(o => o.css === lh);
+          lineSpacing = opt ? opt.value : '';
+        }
+      }
+
+      // Show the font actually used at the caret (never touches the document base font)
+      if (el) {
+        const fam = firstFontName(window.getComputedStyle(el).fontFamily);
+        if (fam) {
+          const matched = FONTS.find(f => f.name.toLowerCase() === fam.toLowerCase());
+          setUiFontFamily(matched ? matched.value : fam);
+        }
+      }
+
+      const isLink = !!(sel && sel.rangeCount && getLinkAt(sel.getRangeAt(0).commonAncestorContainer));
+
+      setActiveFormats({
+        bold: isBold,
+        italic: isItalic,
+        underline: isUnderline,
+        strikeThrough: isStrike,
+        justifyLeft: isLeft,
+        justifyCenter: isCenter,
+        justifyRight: isRight,
+        justifyFull: isJustify,
+        insertUnorderedList: isBullet,
+        insertOrderedList: isNumbered,
+        heading,
+        lineSpacing,
+        isLink
+      });
+    } catch (_) {}
+  };
+
   const saveSelection = () => {
     const sel = window.getSelection();
     if (sel && sel.rangeCount && editorRef.current && editorRef.current.contains(sel.anchorNode)) {
@@ -1062,8 +1539,55 @@ export const SmartWordStudio = ({
         }
       }
     }
+    updateActiveFormats();
     updateTableContext();
+    updateLinkBubble();
   };
+
+  // Always call the latest handlers from long-lived DOM listeners
+  const latestHandlersRef = useRef({});
+  latestHandlersRef.current = {
+    saveSelection,
+    handleUndo: () => handleUndo(),
+    handleRedo: () => handleRedo(),
+    flushTyping,
+    hideLinkBubble: () => setLinkBubble(prev => (prev ? null : prev))
+  };
+
+  // Live selection change listener (Google Docs-like real-time toolbar feedback)
+  useEffect(() => {
+    const handleSelChange = () => {
+      const sel = window.getSelection();
+      if (!sel || !sel.anchorNode || !editorRef.current || !editorRef.current.contains(sel.anchorNode)) {
+        // Caret left the document (e.g. into the title box): the link bubble no longer applies
+        if (sel?.anchorNode && !sel.anchorNode.parentElement?.closest?.('.sd-link-bubble')) latestHandlersRef.current.hideLinkBubble();
+        return;
+      }
+      latestHandlersRef.current.saveSelection();
+    };
+    document.addEventListener('selectionchange', handleSelChange);
+    return () => document.removeEventListener('selectionchange', handleSelChange);
+  }, []);
+
+  // Native edit events: route browser undo/redo (context menu, Edit menu) through our history and
+  // snapshot the document before structural edits or the start of a typing burst
+  useEffect(() => {
+    const ed = editorRef.current;
+    if (!ed) return;
+    const onBeforeInput = (e) => {
+      const t = e.inputType || '';
+      if (t === 'historyUndo') { e.preventDefault(); latestHandlersRef.current.handleUndo(); return; }
+      if (t === 'historyRedo') { e.preventDefault(); latestHandlersRef.current.handleRedo(); return; }
+      const sel = window.getSelection();
+      const replacesSelection = !!(sel && sel.rangeCount && !sel.getRangeAt(0).collapsed);
+      const structural = ['insertParagraph', 'insertLineBreak', 'insertFromPaste', 'insertFromDrop', 'deleteByCut', 'deleteByDrag'].includes(t);
+      if (!typingTimerRef.current || structural || replacesSelection) {
+        latestHandlersRef.current.flushTyping();
+      }
+    };
+    ed.addEventListener('beforeinput', onBeforeInput);
+    return () => ed.removeEventListener('beforeinput', onBeforeInput);
+  }, []);
 
   const placeCaret = (el) => {
     const ed = editorRef.current;
@@ -1291,32 +1815,119 @@ export const SmartWordStudio = ({
       clearCellSelection();
     }
 
-    // Tab / Shift+Tab move between cells; Tab in the last cell adds a row
-    if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey && activeCell) {
+    // Tab / Shift+Tab: table cell navigation, list indent/outdent, or paragraph indentation (Google Docs style)
+    if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
-      const table = activeCell.closest('table');
-      const cells = Array.from(table.rows).flatMap(r => Array.from(r.cells));
-      const idx = cells.indexOf(activeCell) + (e.shiftKey ? -1 : 1);
-      if (idx < 0) return;
-      let target = cells[idx];
-      if (!target) {
-        insertRowAt(table, table.rows.length);
-        target = table.rows[table.rows.length - 1].cells[0];
-        pushHistory();
+      if (activeCell) {
+        const table = activeCell.closest('table');
+        const cells = Array.from(table.rows).flatMap(r => Array.from(r.cells));
+        const idx = cells.indexOf(activeCell) + (e.shiftKey ? -1 : 1);
+        if (idx < 0) return;
+        let target = cells[idx];
+        if (!target) {
+          insertRowAt(table, table.rows.length);
+          target = table.rows[table.rows.length - 1].cells[0];
+          pushHistory();
+        }
+        placeCaret(target);
+        saveSelection();
+        return;
       }
-      placeCaret(target);
+
+      // List items, or a selection across text: indent / outdent (Google Docs)
+      const sel = window.getSelection();
+      const li = sel?.anchorNode ? (sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement)?.closest('li') : null;
+      const hasRange = !!(sel && sel.rangeCount && !sel.getRangeAt(0).collapsed);
+      if (li || hasRange || e.shiftKey) {
+        handleIndent(e.shiftKey ? -1 : 1);
+        return;
+      }
+
+      // Normal text: insert a tab space without stealing focus
+      flushTyping();
+      document.execCommand('insertHTML', false, '&emsp;');
+      pushHistory();
       saveSelection();
       return;
     }
 
-    if (!(e.ctrlKey || e.metaKey)) return;
+    // Space key: Google Docs autolink (turns typed URL into a link upon space)
+    if (e.key === ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (autoLinkBeforeCaret()) {
+        e.preventDefault();
+        return;
+      }
+    }
+
+    if (!(e.ctrlKey || e.metaKey)) {
+      // Alt+Shift+5 = strikethrough (Google Docs)
+      if (e.altKey && e.shiftKey && e.code === 'Digit5') {
+        e.preventDefault();
+        execCmd('strikeThrough');
+      }
+      return;
+    }
     const k = e.key.toLowerCase();
+    const code = e.code || '';
+
+    // Ctrl+Alt+0..3: Normal text / Heading 1-3
+    if (e.altKey && !e.shiftKey && /^Digit[0-3]$/.test(code) && !e.getModifierState?.('AltGraph')) {
+      e.preventDefault();
+      const n = code.slice(-1);
+      handleFormatHeading(n === '0' ? 'p' : `h${n}`);
+      return;
+    }
+
+    if (e.shiftKey) {
+      const shiftActions = {
+        Digit7: () => execCmd('insertOrderedList'),
+        Digit8: () => execCmd('insertUnorderedList'),
+        KeyL: () => execCmd('justifyLeft'),
+        KeyE: () => execCmd('justifyCenter'),
+        KeyR: () => execCmd('justifyRight'),
+        KeyJ: () => execCmd('justifyFull'),
+        KeyX: () => execCmd('strikeThrough'),
+        Period: () => handleStepFontSize(1),
+        Comma: () => handleStepFontSize(-1),
+        KeyZ: () => handleRedo()
+      };
+      if (shiftActions[code]) {
+        e.preventDefault();
+        shiftActions[code]();
+      }
+      return;
+    }
+
     if (k === 'z') {
       e.preventDefault();
-      if (e.shiftKey) handleRedo(); else handleUndo();
+      handleUndo();
     } else if (k === 'y') {
       e.preventDefault();
       handleRedo();
+    } else if (k === 'b') {
+      e.preventDefault();
+      execCmd('bold');
+    } else if (k === 'i') {
+      e.preventDefault();
+      execCmd('italic');
+    } else if (k === 'u') {
+      e.preventDefault();
+      execCmd('underline');
+    } else if (k === 'k') {
+      e.preventDefault();
+      openLinkDialog();
+    } else if (k === 'p') {
+      e.preventDefault();
+      handlePrintStudioDoc();
+    } else if (code === 'Backslash') {
+      e.preventDefault();
+      handleClearFormatting();
+    } else if (code === 'BracketRight') {
+      e.preventDefault();
+      handleIndent(1);
+    } else if (code === 'BracketLeft') {
+      e.preventDefault();
+      handleIndent(-1);
     }
   };
 
@@ -1379,16 +1990,17 @@ export const SmartWordStudio = ({
 
   // Close modals on Escape key
   useEffect(() => {
-    if (!activeFieldEdit && !activeSigEdit) return;
+    if (!activeFieldEdit && !activeSigEdit && !linkDialog) return;
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
+        if (linkDialog) closeLinkDialog();
         if (activeFieldEdit) handleCancelFieldEdit();
         if (activeSigEdit) setActiveSigEdit(null);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeFieldEdit, activeSigEdit]);
+  }, [activeFieldEdit, activeSigEdit, linkDialog]);
 
   const [saving, setSaving] = useState(false);
   const [parsing, setParsing] = useState(false);
@@ -1400,7 +2012,10 @@ export const SmartWordStudio = ({
   // Initialize editor with the template to edit, review copy, merged review result, passed file, or blank
   useEffect(() => {
     if (templateToEdit) {
-      if (templateToEdit.fontFamily) setFontFamily(templateToEdit.fontFamily);
+      if (templateToEdit.fontFamily) {
+        setFontFamily(templateToEdit.fontFamily);
+        setUiFontFamily(templateToEdit.fontFamily);
+      }
       if (templateToEdit.fontSize) {
         setFontSize(templateToEdit.fontSize);
         const pt = parseInt(templateToEdit.fontSize, 10) || 11;
@@ -1410,6 +2025,7 @@ export const SmartWordStudio = ({
       if (editorRef.current && templateToEdit.htmlContent) {
         const loadedHtml = convertRawHtmlToStudio(templateToEdit.htmlContent, templateToEdit.fields);
         editorRef.current.innerHTML = loadedHtml;
+        normalizeEditorImages(editorRef.current);
         pushHistory();
       } else if (editorRef.current && !templateToEdit.htmlContent) {
         // Fetch original docx file from server, convert to base64, parse to HTML
@@ -1420,6 +2036,7 @@ export const SmartWordStudio = ({
             if (editorRef.current && parsed?.html) {
               const loadedHtml = convertRawHtmlToStudio(parsed.html, templateToEdit.fields);
               editorRef.current.innerHTML = loadedHtml;
+              normalizeEditorImages(editorRef.current);
               pushHistory();
             }
           })
@@ -1433,6 +2050,7 @@ export const SmartWordStudio = ({
         const fields = reviewSession.review?.settings?.fields || reviewSession.review?.fields || [];
         const loadedHtml = convertRawHtmlToStudio(reviewSession.html, fields);
         editorRef.current.innerHTML = loadedHtml;
+        normalizeEditorImages(editorRef.current);
         pushHistory();
       }
     } else if (resume) {
@@ -1440,6 +2058,7 @@ export const SmartWordStudio = ({
         const fields = resume.settings?.fields || targetTemplate?.fields || [];
         const loadedHtml = convertRawHtmlToStudio(resume.html, fields);
         editorRef.current.innerHTML = loadedHtml;
+        normalizeEditorImages(editorRef.current);
         pushHistory();
       }
     } else if (initialDocxFile) {
@@ -1474,15 +2093,482 @@ export const SmartWordStudio = ({
 
   const escapeHtml = (str) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+  // Return the selection to the editor. Toolbar buttons keep focus in the document (mousedown is prevented),
+  // but selects / inputs take focus, so fall back to the last range the user had in the document.
+  const restoreEditorSelection = () => {
+    const ed = editorRef.current;
+    if (!ed) return null;
+    const saved = savedRangeRef.current;
+    const savedValid = !!(saved && ed.contains(saved.commonAncestorContainer));
+    const wasFocused = document.activeElement === ed;
+    if (!wasFocused) ed.focus({ preventScroll: true });
+    const sel = window.getSelection();
+    if (!sel) return null;
+    const liveValid = sel.rangeCount && ed.contains(sel.anchorNode);
+    if (savedValid && (!wasFocused || !liveValid)) {
+      try {
+        sel.removeAllRanges();
+        sel.addRange(saved.cloneRange());
+      } catch (_) {}
+    }
+    return sel.rangeCount && ed.contains(sel.anchorNode) ? sel.getRangeAt(0) : null;
+  };
+
   // Format commands (Home Ribbon)
   const execCmd = (cmd, val = null) => {
+    if (!editorRef.current) return;
+    if (!restoreEditorSelection()) return;
+    flushTyping();
+    document.execCommand('styleWithCSS', false, false);
     document.execCommand(cmd, false, val);
-    if (editorRef.current) editorRef.current.focus();
+    saveSelection();
+    pushHistory();
+  };
+
+  // Paragraph styles (Normal text / Heading 1-3), applied to every paragraph in the selection
+  const handleFormatHeading = (tag) => {
+    if (!editorRef.current) return;
+    if (!restoreEditorSelection()) return;
+    flushTyping();
+    document.execCommand('formatBlock', false, `<${tag}>`);
+    saveSelection();
+    pushHistory();
+  };
+
+  // ---- Links (Google Docs: Ctrl+K, link bubble, autolink, paste a URL onto text) ----
+  const getLinkAt = (node) => {
+    const ed = editorRef.current;
+    const el = node && (node.nodeType === 1 ? node : node.parentElement);
+    const a = el?.closest?.('a[href]');
+    return a && ed && ed.contains(a) ? a : null;
+  };
+
+  const placeCaretAfterNode = (node) => {
+    const sel = window.getSelection();
+    const r = document.createRange();
+    r.setStartAfter(node);
+    r.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(r);
+  };
+
+  // Caret at the end of the document's last block (used when the document never had a caret)
+  const endOfDocumentRange = () => {
+    const ed = editorRef.current;
+    const r = document.createRange();
+    const last = ed.lastElementChild;
+    r.selectNodeContents(last && /^(P|H[1-6]|DIV|LI)$/.test(last.tagName) ? last : ed);
+    r.collapse(false);
+    return r;
+  };
+
+  const linkBubbleRect = (a) => a.getClientRects()[0] || a.getBoundingClientRect();
+
+  // Show the bubble while the caret / selection is inside a link
+  const updateLinkBubble = () => {
+    const sel = window.getSelection();
+    const a = sel && sel.rangeCount ? getLinkAt(sel.getRangeAt(0).commonAncestorContainer) : null;
+    setLinkBubble(prev => {
+      if (!a) return prev ? null : prev;
+      const href = a.getAttribute('href') || '';
+      const pos = popoverPosFor(linkBubbleRect(a), 40, 420);
+      if (prev && prev.anchor === a && prev.href === href && prev.top === pos.top && prev.left === pos.left) return prev;
+      return { anchor: a, href, ...pos };
+    });
+  };
+
+  const clearLinkHighlight = () => {
+    editorRef.current?.querySelectorAll('.sd-link-editing').forEach(a => {
+      a.classList.remove('sd-link-editing');
+      if (!a.getAttribute('class')) a.removeAttribute('class');
+    });
+  };
+
+  const showLinkHighlight = (anchor) => {
+    clearLinkHighlight();
+    if (anchor?.classList) anchor.classList.add('sd-link-editing');
+  };
+
+  // Ctrl+K / Link button: insert a link, or edit the link at the caret
+  const openLinkDialog = (forAnchor = null) => {
+    const ed = editorRef.current;
+    if (!ed) return;
+    let range;
+    if (forAnchor?.isConnected) {
+      range = document.createRange();
+      range.selectNodeContents(forAnchor);
+    } else {
+      range = restoreEditorSelection();
+      if (!range) {
+        ed.focus({ preventScroll: true });
+        range = endOfDocumentRange();
+      }
+    }
+    flushTyping();
+    setShowTextColorPicker(false);
+    setShowHighlightPicker(false);
+
+    const anchor = forAnchor?.isConnected
+      ? forAnchor
+      : getLinkAt(range.collapsed ? range.startContainer : range.commonAncestorContainer);
+    const selectedText = range.toString();
+    const blockOf = (n) => (n.nodeType === 1 ? n : n.parentElement)?.closest('p, h1, h2, h3, h4, h5, h6, li, td, th, div');
+    const simpleSelection = range.collapsed || (
+      blockOf(range.startContainer) === blockOf(range.endContainer) &&
+      !range.cloneContents().querySelector('[contenteditable="false"], img, table, br')
+    );
+    const textEditable = !!anchor || simpleSelection;
+    const text = anchor ? anchor.textContent : selectedText;
+
+    linkRangeRef.current = range.cloneRange();
+    showLinkHighlight(anchor);
+    setLinkBubble(null);
+    setLinkDialog({
+      anchor,
+      text,
+      originalText: text,
+      textEditable,
+      url: anchor ? (anchor.getAttribute('href') || '') : '',
+      error: '',
+      ...popoverPosFor(anchor ? anchor.getBoundingClientRect() : rangeRect(range), textEditable ? 178 : 132)
+    });
+  };
+
+  const closeLinkDialog = () => {
+    clearLinkHighlight();
+    const range = linkRangeRef.current;
+    linkRangeRef.current = null;
+    setLinkDialog(null);
+    const ed = editorRef.current;
+    if (!ed) return;
+    ed.focus({ preventScroll: true });
+    if (range && ed.contains(range.commonAncestorContainer)) {
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    saveSelection();
+  };
+
+  const applyLink = () => {
+    const d = linkDialog;
+    const ed = editorRef.current;
+    if (!d || !ed) return;
+    const href = normalizeLinkUrl(d.url);
+    if (!href) {
+      setLinkDialog({
+        ...d,
+        error: d.url.trim()
+          ? 'Not a valid link. Use a web address (example.com, https://…) or an email address.'
+          : 'Enter a link.'
+      });
+      return;
+    }
+    clearLinkHighlight();
+    ed.focus({ preventScroll: true });
+    const sel = window.getSelection();
+    let range = linkRangeRef.current;
+    if (!range || !ed.contains(range.commonAncestorContainer)) range = endOfDocumentRange();
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    const typed = d.textEditable ? (d.text || '') : '';
+    const label = typed.trim() ? typed : displayLinkUrl(href);
+    let a = d.anchor?.isConnected ? d.anchor : null;
+    if (a) {
+      // Editing an existing link: new address, and new text only if the user changed it
+      a.setAttribute('href', href);
+      if (d.textEditable && typed !== d.originalText && label !== a.textContent) a.textContent = label;
+    } else if (range.collapsed || (d.textEditable && typed !== d.originalText)) {
+      a = document.createElement('a');
+      a.setAttribute('href', href);
+      a.textContent = label;
+      range.deleteContents();
+      range.insertNode(a);
+    } else {
+      // Link the selected text as-is (keeps its formatting, works across lines)
+      document.execCommand('createLink', false, href);
+      a = null;
+    }
+    if (a?.isConnected) placeCaretAfterNode(a);
+    else sel.collapseToEnd();
+
+    linkRangeRef.current = null;
+    setLinkDialog(null);
+    pushHistory();
+    saveSelection();
+  };
+
+  const removeLink = (a) => {
+    const ed = editorRef.current;
+    if (!ed || !a?.isConnected) return;
+    flushTyping();
+    const last = a.lastChild;
+    a.replaceWith(...a.childNodes);
+    setLinkBubble(null);
+    ed.focus({ preventScroll: true });
+    if (last?.isConnected) placeCaretAfterNode(last);
+    pushHistory();
+    saveSelection();
+  };
+
+  const copyLinkToClipboard = (href) => {
+    if (!navigator.clipboard?.writeText) {
+      addToast?.('Copy failed', 'Clipboard is not available in this browser', 'error');
+      return;
+    }
+    navigator.clipboard.writeText(href)
+      .then(() => addToast?.('Link copied', displayLinkUrl(href), 'success'))
+      .catch(() => addToast?.('Copy failed', 'The browser blocked clipboard access', 'error'));
+  };
+
+  // Typing a space after a web address turns it into a link (Google Docs autolink). Returns true when handled.
+  const autoLinkBeforeCaret = () => {
+    const ed = editorRef.current;
+    const sel = window.getSelection();
+    if (!ed || !sel || !sel.rangeCount || !sel.isCollapsed) return false;
+    const node = sel.anchorNode;
+    if (!node || node.nodeType !== 3 || !ed.contains(node) || getLinkAt(node)) return false;
+    if (node.parentElement?.closest('[contenteditable="false"]')) return false;
+    const offset = sel.anchorOffset;
+    const before = node.nodeValue.slice(0, offset);
+    const m = before.match(/(?:^|[\s\u00a0(])((?:https?:\/\/|www\.)[^\s\u00a0<>"]+)$/i);
+    if (!m) return false;
+    const url = m[1].replace(/[.,;:!?'")\]]+$/, '');
+    if (!/^(https?:\/\/[^/.\s]+\.\S+|https?:\/\/localhost|www\.[^.\s]+\.\S+)/i.test(url)) return false;
+    const href = normalizeLinkUrl(url);
+    if (!href) return false;
+
+    flushTyping();
+    const start = before.length - m[1].length;
+    const r = document.createRange();
+    r.setStart(node, start);
+    r.setEnd(node, start + url.length);
+    const a = document.createElement('a');
+    a.setAttribute('href', href);
+    r.surroundContents(a);
+
+    // Insert the typed space outside the link (after any trailing punctuation)
+    const restOffset = offset - (start + url.length);
+    let rest = a.nextSibling;
+    if (!rest || rest.nodeType !== 3) {
+      rest = document.createTextNode('');
+      a.after(rest);
+    }
+    const nextChar = rest.nodeValue.charAt(restOffset);
+    rest.insertData(restOffset, !nextChar || /\s/.test(nextChar) ? '\u00a0' : ' ');
+    const caret = document.createRange();
+    caret.setStart(rest, restOffset + 1);
+    caret.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(caret);
+    pushHistory();
+    saveSelection();
+    return true;
+  };
+
+  // Pasting a URL: links the selected text, or inserts the URL as a link (Google Docs)
+  const pasteUrlAsLink = (e) => {
+    const plain = (e.clipboardData?.getData('text/plain') || '').trim();
+    if (!plain || /\s/.test(plain) || !/^(https?:\/\/|www\.)/i.test(plain)) return false;
+    const href = normalizeLinkUrl(plain);
+    const sel = window.getSelection();
+    const r = sel?.rangeCount ? sel.getRangeAt(0) : null;
+    if (!href || !r || !editorRef.current?.contains(r.commonAncestorContainer) || getLinkAt(r.commonAncestorContainer)) return false;
+    e.preventDefault();
+    flushTyping();
+    if (r.collapsed) {
+      const a = document.createElement('a');
+      a.setAttribute('href', href);
+      a.textContent = plain;
+      r.insertNode(a);
+      placeCaretAfterNode(a);
+    } else {
+      document.execCommand('createLink', false, href);
+      sel.collapseToEnd();
+    }
+    pushHistory();
+    saveSelection();
+    return true;
+  };
+
+  // Keep the link dialog / bubble attached to their text while the page scrolls or resizes
+  const hasLinkUi = !!linkBubble || !!linkDialog;
+  useEffect(() => {
+    if (!hasLinkUi) return;
+    const reposition = () => {
+      setLinkBubble(prev => {
+        if (!prev) return prev;
+        if (!prev.anchor.isConnected) return null;
+        return { ...prev, ...popoverPosFor(linkBubbleRect(prev.anchor), 40, 420) };
+      });
+      setLinkDialog(prev => {
+        if (!prev) return prev;
+        const rng = linkRangeRef.current;
+        const rect = prev.anchor?.isConnected ? prev.anchor.getBoundingClientRect() : (rng ? rangeRect(rng) : null);
+        return rect ? { ...prev, ...popoverPosFor(rect, prev.textEditable ? 178 : 132) } : prev;
+      });
+    };
+    document.addEventListener('scroll', reposition, true);
+    window.addEventListener('resize', reposition);
+    return () => {
+      document.removeEventListener('scroll', reposition, true);
+      window.removeEventListener('resize', reposition);
+    };
+  }, [hasLinkUi]);
+
+  useEffect(() => () => clearLinkHighlight(), []);
+
+  // Google Docs-style inline formatting (font family, size, text colour, highlight).
+  // With a selection: restyles exactly the selected text, across paragraphs and table cells, and overrides
+  // any nested formatting of the same kind. With only a caret: applies to the text typed next.
+  const applyInlineStyle = (prop, value) => {
+    const ed = editorRef.current;
+    const range = restoreEditorSelection();
+    if (!ed || !range) return;
+    const sel = window.getSelection();
+    const defaultFor = () => {
+      if (prop === 'color') return window.getComputedStyle(ed).color;
+      if (prop === 'backgroundColor') return 'transparent';
+      if (prop === 'fontSize') return fontSize;
+      return fontFamily;
+    };
+
+    if (range.collapsed) {
+      const host = range.startContainer.nodeType === 3 ? range.startContainer.parentElement : range.startContainer;
+      let caretSpan = host?.closest?.('span[data-sd-caret]');
+      if (caretSpan && (!ed.contains(caretSpan) || caretSpan.textContent.replace(/\u200B/g, '') !== '')) caretSpan = null;
+      if (!caretSpan) {
+        caretSpan = document.createElement('span');
+        caretSpan.setAttribute('data-sd-caret', '1');
+        caretSpan.appendChild(document.createTextNode('\u200B'));
+        range.insertNode(caretSpan);
+      }
+      caretSpan.style[prop] = value || (ancestorSetsProp(caretSpan, prop, ed) ? defaultFor() : '');
+      const zw = caretSpan.lastChild;
+      const r = document.createRange();
+      r.setStart(zw, zw.nodeValue.length);
+      r.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(r);
+      savedRangeRef.current = r.cloneRange();
+      saveSelection();
+      return;
+    }
+
+    flushTyping();
+    const marker = INLINE_STYLE_MARKERS[prop];
+    if (!marker) return;
+    document.execCommand('styleWithCSS', false, false);
+    document.execCommand(marker.cmd, false, marker.arg);
+    const liveRange = sel.rangeCount ? sel.getRangeAt(0) : null;
+    const marks = Array.from(ed.querySelectorAll('*'))
+      .filter(el => !isInsideWidget(el) && marker.test(el) && (!liveRange || liveRange.intersectsNode(el)));
+    if (!marks.length) return;
+    const styled = marks.map(mark => {
+      mark.querySelectorAll('*').forEach(el => {
+        if (!isInsideWidget(el)) clearInlineProp(el, prop);
+      });
+      let target = mark;
+      if (mark.tagName === 'FONT') {
+        // Convert legacy <font> into a styled span, keeping any other formatting it carried
+        const span = document.createElement('span');
+        if (mark.getAttribute('style')) span.setAttribute('style', mark.getAttribute('style'));
+        const face = mark.getAttribute('face');
+        const color = mark.getAttribute('color');
+        if (face && prop !== 'fontFamily') span.style.fontFamily = face;
+        if (color && prop !== 'color') span.style.color = color;
+        while (mark.firstChild) span.appendChild(mark.firstChild);
+        mark.replaceWith(span);
+        target = span;
+      }
+      target.style[prop] = '';
+      const finalValue = value || (ancestorSetsProp(target, prop, ed) ? defaultFor() : '');
+      if (finalValue) target.style[prop] = finalValue;
+      if (!target.getAttribute('style')) target.removeAttribute('style');
+      return target;
+    });
+
+    // Keep the same text selected, like Google Docs
+    const first = styled[0];
+    const last = styled[styled.length - 1];
+    const r = document.createRange();
+    r.setStart(first, 0);
+    r.setEnd(last, last.childNodes.length);
+    sel.removeAllRanges();
+    sel.addRange(r);
+    savedRangeRef.current = r.cloneRange();
+    saveSelection();
+    pushHistory();
   };
 
   const handleFontChange = (val) => {
-    setFontFamily(val);
-    execCmd('fontName', val);
+    setUiFontFamily(val);
+    applyInlineStyle('fontFamily', val);
+  };
+
+  // Paragraph-level blocks touched by the current selection (deepest block elements only)
+  const getSelectedBlocks = () => {
+    const ed = editorRef.current;
+    const range = restoreEditorSelection();
+    if (!ed || !range) return [];
+    const collect = () => {
+      const r = window.getSelection().getRangeAt(0);
+      const all = Array.from(ed.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, div'))
+        .filter(b => !isInsideWidget(b) && r.intersectsNode(b));
+      return all.filter(b => !all.some(o => o !== b && b.contains(o) && o.tagName !== 'LI'));
+    };
+    let blocks = collect();
+    if (!blocks.length) {
+      // Loose text directly in the page or a table cell: wrap it in a paragraph first
+      document.execCommand('formatBlock', false, '<p>');
+      blocks = collect();
+    }
+    return blocks;
+  };
+
+  // Increase / decrease indent (Google Docs: 0.5 inch steps; list items nest one level)
+  const handleIndent = (dir) => {
+    if (!restoreEditorSelection()) return;
+    flushTyping();
+    const blocks = getSelectedBlocks();
+    if (blocks.some(b => b.closest('li'))) {
+      document.execCommand(dir > 0 ? 'indent' : 'outdent');
+    } else {
+      blocks.forEach(b => {
+        const raw = b.style.marginLeft || '';
+        const cur = raw.endsWith('px') ? parseFloat(raw) * 0.75 : (parseFloat(raw) || 0);
+        const next = Math.max(0, Math.round((cur + dir * 36) * 100) / 100);
+        b.style.marginLeft = next ? `${next}pt` : '';
+        if (!b.getAttribute('style')) b.removeAttribute('style');
+      });
+    }
+    saveSelection();
+    pushHistory();
+  };
+
+  // Line spacing for every paragraph in the selection
+  const handleLineSpacing = (value) => {
+    const opt = LINE_SPACING_OPTIONS.find(o => o.value === value);
+    if (!opt || !restoreEditorSelection()) return;
+    flushTyping();
+    getSelectedBlocks().forEach(b => {
+      b.style.lineHeight = opt.css;
+      if (!b.getAttribute('style')) b.removeAttribute('style');
+    });
+    saveSelection();
+    pushHistory();
+  };
+
+  // Clear formatting (Ctrl+\): removes bold/italic/underline/strike, fonts, sizes, colours and highlights
+  const handleClearFormatting = () => {
+    const ed = editorRef.current;
+    if (!ed || !restoreEditorSelection()) return;
+    flushTyping();
+    document.execCommand('styleWithCSS', false, false);
+    document.execCommand('removeFormat');
+    saveSelection();
+    pushHistory();
   };
 
   // Close font size & color dropdowns on outside click
@@ -1503,214 +2589,42 @@ export const SmartWordStudio = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showFontSizeDropdown, showTextColorPicker, showHighlightPicker]);
 
-  // Google Docs style font-size applicator (works on selected text, or inserts styled insertion point)
+  // Google Docs style font size: applies to the selected text only (or to what is typed next at the caret)
   const applyFontSize = (val) => {
     const num = Math.max(1, Math.min(400, parseInt(val, 10) || 11));
-    const ptVal = `${num}pt`;
-    setFontSize(ptVal);
     setFontSizeDisplay(num);
     setFontSizeInput(String(num));
-
-    if (!editorRef.current) return;
-    editorRef.current.focus();
-
-    const sel = window.getSelection();
-    let range = null;
-    if (sel && sel.rangeCount && editorRef.current.contains(sel.anchorNode)) {
-      range = sel.getRangeAt(0);
-    } else if (savedRangeRef.current && editorRef.current.contains(savedRangeRef.current.commonAncestorContainer)) {
-      range = savedRangeRef.current;
-      sel.removeAllRanges();
-      sel.addRange(range);
-    }
-
-    if (range) {
-      if (!range.collapsed) {
-        const span = document.createElement('span');
-        span.style.fontSize = ptVal;
-        span.appendChild(range.extractContents());
-        range.insertNode(span);
-
-        const newRange = document.createRange();
-        newRange.selectNodeContents(span);
-        sel.removeAllRanges();
-        sel.addRange(newRange);
-        savedRangeRef.current = newRange.cloneRange();
-        pushHistory();
-      } else {
-        const span = document.createElement('span');
-        span.style.fontSize = ptVal;
-        const zwsp = document.createTextNode('\u200B');
-        span.appendChild(zwsp);
-        range.insertNode(span);
-
-        const newRange = document.createRange();
-        newRange.setStart(zwsp, 1);
-        newRange.setEnd(zwsp, 1);
-        sel.removeAllRanges();
-        sel.addRange(newRange);
-        savedRangeRef.current = newRange.cloneRange();
-      }
-    }
+    applyInlineStyle('fontSize', `${num}pt`);
   };
 
   const handleStepFontSize = (delta) => {
     const current = parseInt(fontSizeDisplay, 10) || 11;
-    const next = Math.max(1, Math.min(400, current + delta));
-    applyFontSize(next);
+    applyFontSize(Math.max(1, Math.min(400, current + delta)));
   };
 
+  // Typed font size is applied on Enter / blur, and only if it actually changed
   const commitInputSize = () => {
     const num = parseInt(fontSizeInput, 10);
     if (!isNaN(num) && num > 0 && num <= 400) {
-      applyFontSize(num);
+      if (num !== fontSizeDisplay) applyFontSize(num);
+      else setFontSizeInput(String(num));
     } else {
       setFontSizeInput(String(fontSizeDisplay));
     }
   };
 
-  const handleFontSizeChange = (val) => {
-    applyFontSize(val);
-  };
-
-  // Text Color applicator (works on selected text, or inserts styled insertion point)
+  // Text colour ('inherit' = Automatic / reset)
   const applyTextColor = (colorVal) => {
-    setTextColor(colorVal || '#000000');
-    if (!editorRef.current) return;
-    editorRef.current.focus();
-
-    const sel = window.getSelection();
-    let range = null;
-    if (sel && sel.rangeCount && editorRef.current.contains(sel.anchorNode)) {
-      range = sel.getRangeAt(0);
-    } else if (savedRangeRef.current && editorRef.current.contains(savedRangeRef.current.commonAncestorContainer)) {
-      range = savedRangeRef.current;
-      sel.removeAllRanges();
-      sel.addRange(range);
-    }
-
-    if (!range) return;
-
-    if (!range.collapsed) {
-      if (!colorVal || colorVal === 'inherit' || colorVal === 'initial') {
-        const frag = range.extractContents();
-        if (frag.querySelectorAll) {
-          frag.querySelectorAll('*').forEach(el => {
-            el.style.color = '';
-            if (!el.getAttribute('style')) el.removeAttribute('style');
-          });
-        }
-        const span = document.createElement('span');
-        span.style.color = 'inherit';
-        span.appendChild(frag);
-        range.insertNode(span);
-
-        const newRange = document.createRange();
-        newRange.selectNodeContents(span);
-        sel.removeAllRanges();
-        sel.addRange(newRange);
-        savedRangeRef.current = newRange.cloneRange();
-        pushHistory();
-        return;
-      }
-
-      const span = document.createElement('span');
-      span.style.color = colorVal;
-      span.appendChild(range.extractContents());
-      range.insertNode(span);
-
-      const newRange = document.createRange();
-      newRange.selectNodeContents(span);
-      sel.removeAllRanges();
-      sel.addRange(newRange);
-      savedRangeRef.current = newRange.cloneRange();
-      pushHistory();
-    } else {
-      const span = document.createElement('span');
-      if (colorVal && colorVal !== 'inherit') {
-        span.style.color = colorVal;
-      }
-      const zwsp = document.createTextNode('\u200B');
-      span.appendChild(zwsp);
-      range.insertNode(span);
-
-      const newRange = document.createRange();
-      newRange.setStart(zwsp, 1);
-      newRange.setEnd(zwsp, 1);
-      sel.removeAllRanges();
-      sel.addRange(newRange);
-      savedRangeRef.current = newRange.cloneRange();
-    }
+    const reset = !colorVal || colorVal === 'inherit' || colorVal === 'initial';
+    if (!reset) setTextColor(colorVal);
+    applyInlineStyle('color', reset ? null : colorVal);
   };
 
-  // Highlight Color applicator (works on selected text, or inserts styled insertion point)
+  // Highlight colour ('transparent' = No colour / clear)
   const applyHighlightColor = (bgVal) => {
-    setHighlightColor(bgVal || '#fef08a');
-    if (!editorRef.current) return;
-    editorRef.current.focus();
-
-    const sel = window.getSelection();
-    let range = null;
-    if (sel && sel.rangeCount && editorRef.current.contains(sel.anchorNode)) {
-      range = sel.getRangeAt(0);
-    } else if (savedRangeRef.current && editorRef.current.contains(savedRangeRef.current.commonAncestorContainer)) {
-      range = savedRangeRef.current;
-      sel.removeAllRanges();
-      sel.addRange(range);
-    }
-
-    if (!range) return;
-
-    if (!range.collapsed) {
-      if (!bgVal || bgVal === 'transparent' || bgVal === 'none') {
-        const frag = range.extractContents();
-        if (frag.querySelectorAll) {
-          frag.querySelectorAll('*').forEach(el => {
-            el.style.backgroundColor = '';
-            if (!el.getAttribute('style')) el.removeAttribute('style');
-          });
-        }
-        const span = document.createElement('span');
-        span.style.backgroundColor = 'transparent';
-        span.appendChild(frag);
-        range.insertNode(span);
-
-        const newRange = document.createRange();
-        newRange.selectNodeContents(span);
-        sel.removeAllRanges();
-        sel.addRange(newRange);
-        savedRangeRef.current = newRange.cloneRange();
-        pushHistory();
-        return;
-      }
-
-      const span = document.createElement('span');
-      span.style.backgroundColor = bgVal;
-      span.appendChild(range.extractContents());
-      range.insertNode(span);
-
-      const newRange = document.createRange();
-      newRange.selectNodeContents(span);
-      sel.removeAllRanges();
-      sel.addRange(newRange);
-      savedRangeRef.current = newRange.cloneRange();
-      pushHistory();
-    } else {
-      const span = document.createElement('span');
-      if (bgVal && bgVal !== 'transparent') {
-        span.style.backgroundColor = bgVal;
-      }
-      const zwsp = document.createTextNode('\u200B');
-      span.appendChild(zwsp);
-      range.insertNode(span);
-
-      const newRange = document.createRange();
-      newRange.setStart(zwsp, 1);
-      newRange.setEnd(zwsp, 1);
-      sel.removeAllRanges();
-      sel.addRange(newRange);
-      savedRangeRef.current = newRange.cloneRange();
-    }
+    const reset = !bgVal || bgVal === 'transparent' || bgVal === 'none';
+    if (!reset) setHighlightColor(bgVal);
+    applyInlineStyle('backgroundColor', reset ? null : bgVal);
   };
 
   // Image insertion and interactive controls
@@ -1718,15 +2632,27 @@ export const SmartWordStudio = ({
     if (!src || !editorRef.current) return;
     editorRef.current.focus();
 
+    let resolvedSrc = String(src || '').trim();
+    if (!resolvedSrc.startsWith('data:') && !resolvedSrc.startsWith('http') && !resolvedSrc.startsWith('blob:')) {
+      if (resolvedSrc.startsWith('iVBORw0KGgo')) resolvedSrc = `data:image/png;base64,${resolvedSrc}`;
+      else if (resolvedSrc.startsWith('/9j/')) resolvedSrc = `data:image/jpeg;base64,${resolvedSrc}`;
+      else if (resolvedSrc.startsWith('R0lGOD')) resolvedSrc = `data:image/gif;base64,${resolvedSrc}`;
+      else if (resolvedSrc.startsWith('UklGR')) resolvedSrc = `data:image/webp;base64,${resolvedSrc}`;
+      else if (/^[a-zA-Z0-9+/=]{100,}$/.test(resolvedSrc)) resolvedSrc = `data:image/png;base64,${resolvedSrc}`;
+    }
+
+    const wPct = parseInt(width, 10) || 50;
     const wrap = document.createElement('div');
-    wrap.className = 'sd-doc-image-wrap';
+    wrap.className = `sd-doc-image-wrap align-${align}`;
     wrap.setAttribute('data-align', align);
+    wrap.setAttribute('data-width', String(wPct));
     wrap.setAttribute('contenteditable', 'false');
     wrap.style.textAlign = align;
     wrap.style.margin = '14px 0';
+    wrap.style.width = '100%';
     wrap.innerHTML = `
       <span class="sd-doc-pill-remove sd-image-remove" data-remove="1" title="Delete this image">×</span>
-      <img src="${src}" alt="${escapeHtml(alt)}" class="sd-doc-image" style="max-width: ${width}%; height: auto; border-radius: 4px;" />
+      <img src="${resolvedSrc}" alt="${escapeHtml(alt)}" class="sd-doc-image" data-width="${wPct}" style="width: ${wPct}%; max-width: ${wPct}%; height: auto; border-radius: 4px;" />
     `;
 
     insertNodeAtCursor(wrap, wrap.querySelector('img'));
@@ -1735,6 +2661,7 @@ export const SmartWordStudio = ({
   };
 
   const handleEditorPaste = (e) => {
+    if (pasteUrlAsLink(e)) return;
     const items = e.clipboardData?.items;
     if (!items) return;
     for (let i = 0; i < items.length; i++) {
@@ -1742,8 +2669,8 @@ export const SmartWordStudio = ({
         const file = items[i].getAsFile();
         if (file) {
           e.preventDefault();
-          fileToBase64(file).then(base64 => {
-            insertImageAtCursor({ src: base64, alt: file.name || 'Pasted Image', width: 60, align: 'center' });
+          fileToDataUrl(file).then(dataUrl => {
+            insertImageAtCursor({ src: dataUrl, alt: file.name || 'Pasted Image', width: 60, align: 'center' });
             addToast?.('Image pasted', 'Image inserted into document from clipboard', 'info');
           }).catch(() => {
             addToast?.('Error', 'Failed to paste image', 'error');
@@ -1760,8 +2687,8 @@ export const SmartWordStudio = ({
       const file = files[0];
       if (file.type && file.type.startsWith('image/')) {
         e.preventDefault();
-        fileToBase64(file).then(base64 => {
-          insertImageAtCursor({ src: base64, alt: file.name, width: 60, align: 'center' });
+        fileToDataUrl(file).then(dataUrl => {
+          insertImageAtCursor({ src: dataUrl, alt: file.name, width: 60, align: 'center' });
           addToast?.('Image inserted', `Image "${file.name}" placed in document`, 'info');
         }).catch(() => {
           addToast?.('Error', 'Failed to insert dropped image', 'error');
@@ -1799,7 +2726,14 @@ export const SmartWordStudio = ({
 
   const updateImageWidth = (pct) => {
     if (!selectedImageEl?.img) return;
-    selectedImageEl.img.style.maxWidth = `${pct}%`;
+    const wPct = parseInt(pct, 10) || 100;
+    selectedImageEl.img.setAttribute('data-width', String(wPct));
+    selectedImageEl.img.style.setProperty('width', `${wPct}%`, 'important');
+    selectedImageEl.img.style.setProperty('max-width', `${wPct}%`, 'important');
+    if (selectedImageEl.wrap) {
+      selectedImageEl.wrap.setAttribute('data-width', String(wPct));
+      selectedImageEl.wrap.style.setProperty('width', '100%');
+    }
     setTimeout(() => {
       if (selectedImageEl?.img) {
         const rect = selectedImageEl.img.getBoundingClientRect();
@@ -1816,6 +2750,7 @@ export const SmartWordStudio = ({
     if (!selectedImageEl?.wrap) return;
     selectedImageEl.wrap.style.textAlign = align;
     selectedImageEl.wrap.setAttribute('data-align', align);
+    selectedImageEl.wrap.className = `sd-doc-image-wrap is-selected align-${align}`;
     setTimeout(() => {
       if (selectedImageEl?.img) {
         const rect = selectedImageEl.img.getBoundingClientRect();
@@ -1872,21 +2807,23 @@ export const SmartWordStudio = ({
 
   // Insert form placeholder / input widget
   const handleInsertField = (type = 'text', defaultLabel = 'New Field', mode = 'placeholder') => {
+    const actualType = mode === 'placeholder' ? 'text' : type;
+    const actualOptions = (mode === 'placeholder' || actualType !== 'dropdown') ? [] : ['Option 1', 'Option 2'];
     const key = `Field_${Date.now().toString(36).slice(-4).toUpperCase()}`;
     const span = document.createElement('span');
     span.className = `sd-doc-field-pill${mode === 'placeholder' ? ' is-placeholder' : ''}`;
     span.setAttribute('data-field-key', key);
     span.setAttribute('data-field-label', defaultLabel);
-    span.setAttribute('data-field-type', type);
+    span.setAttribute('data-field-type', actualType);
     span.setAttribute('data-field-mode', mode);
     span.setAttribute('data-field-bold', 'false');
     span.setAttribute('data-required', 'true');
     span.setAttribute('data-placeholder', '');
     span.setAttribute('data-description', '');
-    span.setAttribute('data-options', type === 'dropdown' ? JSON.stringify(['Option 1', 'Option 2']) : '[]');
+    span.setAttribute('data-options', JSON.stringify(actualOptions));
     span.contentEditable = 'false';
 
-    span.innerHTML = pillInnerHtml(defaultLabel, type, true, mode, false);
+    span.innerHTML = pillInnerHtml(defaultLabel, actualType, true, mode, false);
 
     const space = document.createTextNode(' ');
     const fragment = document.createDocumentFragment();
@@ -1902,14 +2839,14 @@ export const SmartWordStudio = ({
       isNew: true,
       key,
       label: defaultLabel,
-      type,
+      type: actualType,
       mode,
       bold: false,
       required: true,
       placeholder: '',
       description: '',
       width: 0,
-      options: type === 'dropdown' ? ['Option 1', 'Option 2'] : []
+      options: actualOptions
     });
   };
 
@@ -2004,23 +2941,30 @@ export const SmartWordStudio = ({
       return;
     }
 
-    const imgWrap = e.target.closest('.sd-doc-image-wrap');
-    const imgEl = e.target.closest('img.sd-doc-image') || imgWrap?.querySelector('img.sd-doc-image');
-    if (imgWrap && imgEl) {
+    const imgEl = e.target.closest('img');
+    if (imgEl && editorRef.current?.contains(imgEl)) {
       e.preventDefault();
       e.stopPropagation();
-      editorRef.current?.querySelectorAll('.sd-doc-image-wrap.is-selected').forEach(w => w.classList.remove('is-selected'));
-      imgWrap.classList.add('is-selected');
+      let imgWrap = imgEl.closest('.sd-doc-image-wrap');
+      if (!imgWrap) {
+        normalizeEditorImages(editorRef.current);
+        imgWrap = imgEl.closest('.sd-doc-image-wrap');
+      }
+      if (imgWrap) {
+        editorRef.current.querySelectorAll('.sd-doc-image-wrap.is-selected').forEach(w => w.classList.remove('is-selected'));
+        imgWrap.classList.add('is-selected');
+        imgEl.classList.add('sd-doc-image');
 
-      const rect = imgEl.getBoundingClientRect();
-      setSelectedImageEl({ wrap: imgWrap, img: imgEl });
-      setImageToolbarPos({
-        top: rect.top < 110 ? (rect.bottom + 10) : (rect.top - 42),
-        left: rect.left + (rect.width / 2)
-      });
-      setActiveFieldEdit(null);
-      setActiveSigEdit(null);
-      return;
+        const rect = imgEl.getBoundingClientRect();
+        setSelectedImageEl({ wrap: imgWrap, img: imgEl });
+        setImageToolbarPos({
+          top: rect.top < 110 ? (rect.bottom + 10) : (rect.top - 42),
+          left: rect.left + (rect.width / 2)
+        });
+        setActiveFieldEdit(null);
+        setActiveSigEdit(null);
+        return;
+      }
     }
 
     // Clicking outside image closes image toolbar
@@ -2036,18 +2980,21 @@ export const SmartWordStudio = ({
       e.stopPropagation();
       const key = fieldPill.getAttribute('data-field-key') || 'field';
       const label = fieldPill.getAttribute('data-field-label') || key;
-      const type = fieldPill.getAttribute('data-field-type') || 'text';
+      const rawType = fieldPill.getAttribute('data-field-type') || 'text';
       const mode = fieldPill.getAttribute('data-field-mode') || 'input';
+      const type = mode === 'placeholder' ? 'text' : rawType;
       const bold = fieldPill.getAttribute('data-field-bold') === 'true';
       const required = fieldPill.getAttribute('data-required') !== 'false';
       const placeholder = fieldPill.getAttribute('data-placeholder') || '';
       const description = fieldPill.getAttribute('data-description') || '';
       const width = parseInt(fieldPill.getAttribute('data-width'), 10) || 0;
       let options = [];
-      try {
-        options = JSON.parse(fieldPill.getAttribute('data-options') || '[]');
-      } catch {
-        options = [];
+      if (mode !== 'placeholder') {
+        try {
+          options = JSON.parse(fieldPill.getAttribute('data-options') || '[]');
+        } catch {
+          options = [];
+        }
       }
 
       setActiveFieldEdit({
@@ -2084,6 +3031,18 @@ export const SmartWordStudio = ({
     // Clicking outside any widget closes popovers
     setActiveFieldEdit(null);
     setActiveSigEdit(null);
+
+    const aTag = e.target.closest('a[href]');
+    if (aTag && editorRef.current?.contains(aTag)) {
+      const href = aTag.getAttribute('href') || '';
+      const pos = popoverPosFor(linkBubbleRect(aTag), 40, 420);
+      setLinkBubble({ anchor: aTag, href, ...pos });
+    } else {
+      setLinkBubble(null);
+    }
+    if (linkDialog) {
+      closeLinkDialog();
+    }
   };
 
   // Cancel / close field popover
@@ -2103,17 +3062,19 @@ export const SmartWordStudio = ({
     if (!activeFieldEdit?.element) return;
     const el = activeFieldEdit.element;
     const mode = updated.mode || 'input';
+    const type = mode === 'placeholder' ? 'text' : (updated.type || 'text');
+    const options = (mode === 'placeholder' || (type !== 'dropdown' && type !== 'select')) ? [] : (updated.options || []);
     const isBold = !!updated.bold;
     el.setAttribute('data-field-key', (updated.key || 'Field').trim());
     el.setAttribute('data-field-label', (updated.label || updated.key || 'Field').trim());
-    el.setAttribute('data-field-type', updated.type || 'text');
+    el.setAttribute('data-field-type', type);
     el.setAttribute('data-field-mode', mode);
     el.setAttribute('data-field-bold', isBold ? 'true' : 'false');
     el.setAttribute('data-required', updated.required ? 'true' : 'false');
     el.setAttribute('data-placeholder', (updated.placeholder || '').trim());
     el.setAttribute('data-description', (updated.description || '').trim());
-    el.setAttribute('data-options', JSON.stringify(updated.options || []));
-    applyPillWidth(el, updated.width);
+    el.setAttribute('data-options', JSON.stringify(options));
+    applyPillWidth(el, mode === 'placeholder' ? 0 : updated.width);
 
     if (mode === 'placeholder') {
       el.classList.add('is-placeholder');
@@ -2127,7 +3088,7 @@ export const SmartWordStudio = ({
       el.classList.remove('is-bold');
     }
 
-    el.innerHTML = pillInnerHtml((updated.label || updated.key || 'Field').trim(), updated.type || 'text', updated.required, mode, isBold);
+    el.innerHTML = pillInnerHtml((updated.label || updated.key || 'Field').trim(), type, updated.required, mode, isBold);
 
     setActiveFieldEdit(null);
     pushHistory();
@@ -2205,6 +3166,7 @@ export const SmartWordStudio = ({
 
       if (editorRef.current) {
         editorRef.current.innerHTML = docHtml;
+        normalizeEditorImages(editorRef.current);
         pushHistory();
       }
 
@@ -2229,6 +3191,18 @@ export const SmartWordStudio = ({
     if (!editorRef.current) return null;
     const clone = editorRef.current.cloneNode(true);
     stripEditorState(clone);
+
+    // Drop editor-only caret formatting markers (zero-width spaces / empty spans from "format next typed text")
+    clone.querySelectorAll('[data-sd-caret]').forEach(s => s.removeAttribute('data-sd-caret'));
+    const zwWalker = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT);
+    const zwTexts = [];
+    while (zwWalker.nextNode()) zwTexts.push(zwWalker.currentNode);
+    zwTexts.forEach(t => { if (t.nodeValue.includes('\u200B')) t.nodeValue = t.nodeValue.replace(/\u200B/g, ''); });
+    clone.querySelectorAll('span').forEach(s => { if (!s.childNodes.length) s.remove(); });
+    clone.querySelectorAll('[style=""]').forEach(el => el.removeAttribute('style'));
+    clone.querySelectorAll('span').forEach(s => {
+      if (!s.attributes.length) s.replaceWith(...s.childNodes);
+    });
 
     const fields = [];
     const signatureSlots = [];
@@ -2264,30 +3238,61 @@ export const SmartWordStudio = ({
       tag.replaceWith(document.createTextNode(`{{${name}}}`));
     });
 
+    finalizeLinks(clone);
     const cleanHtml = clone.innerHTML;
     return { cleanHtml, fields, signatureSlots, systemTags };
   };
 
-  const [printingDoc, setPrintingDoc] = useState(false);
+  const [isPrintingDoc, setIsPrintingDoc] = useState(false);
 
-  // Print current Word document authored in Studio
-  const handlePrintStudioDoc = async () => {
-    if (printingDoc) return;
-    try {
-      setPrintingDoc(true);
-      addToast('Preparing Word Document', 'Generating Microsoft Word document with authentic layout for print...', 'info');
-      const compiled = compileDocument();
-      if (!compiled) return;
-      const res = await apiService.htmlToDocx(compiled.cleanHtml, title.trim() || 'SmartDoc Form');
-      if (!res?.fileBase64) throw new Error('Could not convert editor to Word document');
-      await printWordDocument(res.fileBase64, { title: title.trim() || 'SmartDoc Word Form' });
-    } catch (err) {
-      console.error('Studio print error:', err);
-      addToast('Print Error', err.message || 'Failed to print document', 'error');
-    } finally {
-      setPrintingDoc(false);
+  // Print current Word document authored in Studio (WYSIWYG document printing, exactly like Fill Form)
+  const handlePrintStudioDoc = () => {
+    if (isPrintingDoc) return;
+    setIsPrintingDoc(true);
+
+    // Deselect any selected image or cell outline so it is pristine in print
+    if (editorRef.current) {
+      stripEditorState(editorRef.current);
     }
+    setSelectedImageEl(null);
+    setImageToolbarPos(null);
+    if (document.activeElement && typeof document.activeElement.blur === 'function') {
+      document.activeElement.blur();
+    }
+
+    document.body.classList.add('sd-printing-studio-doc');
+
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        window.print();
+        setTimeout(() => {
+          setIsPrintingDoc(false);
+          document.body.classList.remove('sd-printing-studio-doc');
+        }, 300);
+      }, 100);
+    });
   };
+
+  // Browser print lifecycle hooks for Studio (e.g. browser Ctrl+P or File > Print)
+  useEffect(() => {
+    const handleBefore = () => {
+      if (editorRef.current) stripEditorState(editorRef.current);
+      setSelectedImageEl(null);
+      setImageToolbarPos(null);
+      document.body.classList.add('sd-printing-studio-doc');
+    };
+    const handleAfter = () => {
+      document.body.classList.remove('sd-printing-studio-doc');
+      setIsPrintingDoc(false);
+    };
+    window.addEventListener('beforeprint', handleBefore);
+    window.addEventListener('afterprint', handleAfter);
+    return () => {
+      window.removeEventListener('beforeprint', handleBefore);
+      window.removeEventListener('afterprint', handleAfter);
+      document.body.classList.remove('sd-printing-studio-doc');
+    };
+  }, []);
 
   // Save and Publish Template (ask whether to send for review first)
   const handlePublish = async () => {
@@ -2724,11 +3729,11 @@ export const SmartWordStudio = ({
                   type="button"
                   className="btn btn-secondary btn-sm"
                   onClick={handlePrintStudioDoc}
-                  disabled={saving || parsing || printingDoc}
-                  title="Print authentic Word document just like printing in Microsoft Word"
+                  disabled={saving || parsing || isPrintingDoc}
+                  title="Print authentic Word document just like in Fill Form"
                 >
-                  {printingDoc ? <Loader2 size={14} className="sd-spin" /> : <Printer size={14} />}
-                  <span>{printingDoc ? 'Formatting…' : 'Print'}</span>
+                  {isPrintingDoc ? <Loader2 size={14} className="sd-spin" /> : <Printer size={14} />}
+                  <span>{isPrintingDoc ? 'Printing…' : 'Print'}</span>
                 </button>
                 <button
                   id="btn-save-studio-draft"
@@ -2820,16 +3825,20 @@ export const SmartWordStudio = ({
                   <div className="sd-ribbon-tools">
                     <div className="sd-btn-group">
                       <button
+                        id="btn-studio-undo"
                         className="sd-ribbon-btn"
                         title="Undo (Ctrl+Z)"
+                        onMouseDown={keepEditorFocus}
                         onClick={handleUndo}
                         disabled={!historyState.canUndo}
                       >
                         <Undo2 size={14} />
                       </button>
                       <button
+                        id="btn-studio-redo"
                         className="sd-ribbon-btn"
                         title="Redo (Ctrl+Y)"
+                        onMouseDown={keepEditorFocus}
                         onClick={handleRedo}
                         disabled={!historyState.canRedo}
                       >
@@ -2845,10 +3854,15 @@ export const SmartWordStudio = ({
                   <span className="sd-ribbon-group-title">Font</span>
                   <div className="sd-ribbon-tools">
                     <select
+                      id="select-studio-font-family"
                       className="sd-ribbon-select"
-                      value={fontFamily}
+                      title="Font"
+                      value={uiFontFamily}
                       onChange={e => handleFontChange(e.target.value)}
                     >
+                      {!FONTS.some(f => f.value === uiFontFamily) && uiFontFamily && (
+                        <option value={uiFontFamily}>{firstFontName(uiFontFamily)}</option>
+                      )}
                       {FONTS.map(f => (
                         <option key={f.name} value={f.value}>{f.name}</option>
                       ))}
@@ -2867,6 +3881,7 @@ export const SmartWordStudio = ({
                       </button>
                       <div className="sd-gdoc-fs-input-wrap">
                         <input
+                          id="input-studio-font-size"
                           type="text"
                           className="sd-gdoc-fs-input"
                           value={fontSizeInput}
@@ -2874,13 +3889,22 @@ export const SmartWordStudio = ({
                           onKeyDown={e => {
                             if (e.key === 'Enter') {
                               e.preventDefault();
+                              // applying moves focus back to the document; ignore the blur that follows
+                              skipFsBlurCommitRef.current = true;
                               commitInputSize();
-                              e.target.blur();
+                              restoreEditorSelection();
+                              setTimeout(() => { skipFsBlurCommitRef.current = false; }, 0);
+                            } else if (e.key === 'Escape') {
+                              e.preventDefault();
+                              skipFsBlurCommitRef.current = true;
+                              setFontSizeInput(String(fontSizeDisplay));
+                              restoreEditorSelection();
+                              setTimeout(() => { skipFsBlurCommitRef.current = false; }, 0);
                             }
                           }}
-                          onBlur={commitInputSize}
+                          onBlur={() => { if (!skipFsBlurCommitRef.current) commitInputSize(); }}
                           onFocus={e => e.target.select()}
-                          title="Font size (pt)"
+                          title="Font size (Ctrl+Shift+. / Ctrl+Shift+,)"
                         />
                         <button
                           type="button"
@@ -2924,16 +3948,16 @@ export const SmartWordStudio = ({
                     </div>
 
                     <div className="sd-btn-group">
-                      <button className="sd-ribbon-btn" title="Bold (Ctrl+B)" onClick={() => execCmd('bold')}>
+                      <button id="btn-studio-bold" className={`sd-ribbon-btn ${activeFormats.bold ? 'is-active' : ''}`} title="Bold (Ctrl+B)" onMouseDown={keepEditorFocus} onClick={() => execCmd('bold')}>
                         <Bold size={14} />
                       </button>
-                      <button className="sd-ribbon-btn" title="Italic (Ctrl+I)" onClick={() => execCmd('italic')}>
+                      <button id="btn-studio-italic" className={`sd-ribbon-btn ${activeFormats.italic ? 'is-active' : ''}`} title="Italic (Ctrl+I)" onMouseDown={keepEditorFocus} onClick={() => execCmd('italic')}>
                         <Italic size={14} />
                       </button>
-                      <button className="sd-ribbon-btn" title="Underline (Ctrl+U)" onClick={() => execCmd('underline')}>
+                      <button id="btn-studio-underline" className={`sd-ribbon-btn ${activeFormats.underline ? 'is-active' : ''}`} title="Underline (Ctrl+U)" onMouseDown={keepEditorFocus} onClick={() => execCmd('underline')}>
                         <Underline size={14} />
                       </button>
-                      <button className="sd-ribbon-btn" title="Strikethrough" onClick={() => execCmd('strikeThrough')}>
+                      <button id="btn-studio-strike" className={`sd-ribbon-btn ${activeFormats.strikeThrough ? 'is-active' : ''}`} title="Strikethrough (Alt+Shift+5)" onMouseDown={keepEditorFocus} onClick={() => execCmd('strikeThrough')}>
                         <Strikethrough size={14} />
                       </button>
                     </div>
@@ -3102,6 +4126,18 @@ export const SmartWordStudio = ({
                           </div>
                         )}
                       </div>
+
+                      {/* Insert / Edit Link (Google Docs style) */}
+                      <button
+                        id="btn-studio-insert-link"
+                        type="button"
+                        className={`sd-ribbon-btn ${activeFormats.isLink ? 'is-active' : ''}`}
+                        title="Insert link (Ctrl+K)"
+                        onMouseDown={keepEditorFocus}
+                        onClick={() => openLinkDialog()}
+                      >
+                        <LinkIcon size={14} />
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -3112,28 +4148,56 @@ export const SmartWordStudio = ({
                   <span className="sd-ribbon-group-title">Paragraph</span>
                   <div className="sd-ribbon-tools">
                     <div className="sd-btn-group">
-                      <button className="sd-ribbon-btn" title="Align Left" onClick={() => execCmd('justifyLeft')}>
+                      <button id="btn-studio-align-left" className={`sd-ribbon-btn ${activeFormats.justifyLeft ? 'is-active' : ''}`} title="Left align (Ctrl+Shift+L)" onMouseDown={keepEditorFocus} onClick={() => execCmd('justifyLeft')}>
                         <AlignLeft size={14} />
                       </button>
-                      <button className="sd-ribbon-btn" title="Align Center" onClick={() => execCmd('justifyCenter')}>
+                      <button id="btn-studio-align-center" className={`sd-ribbon-btn ${activeFormats.justifyCenter ? 'is-active' : ''}`} title="Center align (Ctrl+Shift+E)" onMouseDown={keepEditorFocus} onClick={() => execCmd('justifyCenter')}>
                         <AlignCenter size={14} />
                       </button>
-                      <button className="sd-ribbon-btn" title="Align Right" onClick={() => execCmd('justifyRight')}>
+                      <button id="btn-studio-align-right" className={`sd-ribbon-btn ${activeFormats.justifyRight ? 'is-active' : ''}`} title="Right align (Ctrl+Shift+R)" onMouseDown={keepEditorFocus} onClick={() => execCmd('justifyRight')}>
                         <AlignRight size={14} />
                       </button>
-                      <button className="sd-ribbon-btn" title="Justify" onClick={() => execCmd('justifyFull')}>
+                      <button id="btn-studio-align-justify" className={`sd-ribbon-btn ${activeFormats.justifyFull ? 'is-active' : ''}`} title="Justify (Ctrl+Shift+J)" onMouseDown={keepEditorFocus} onClick={() => execCmd('justifyFull')}>
                         <AlignJustify size={14} />
                       </button>
                     </div>
 
                     <div className="sd-btn-group">
-                      <button className="sd-ribbon-btn" title="Bullet List" onClick={() => execCmd('insertUnorderedList')}>
+                      <button id="btn-studio-bullets" className={`sd-ribbon-btn ${activeFormats.insertUnorderedList ? 'is-active' : ''}`} title="Bulleted list (Ctrl+Shift+8)" onMouseDown={keepEditorFocus} onClick={() => execCmd('insertUnorderedList')}>
                         <List size={14} />
                       </button>
-                      <button className="sd-ribbon-btn" title="Numbered List" onClick={() => execCmd('insertOrderedList')}>
+                      <button id="btn-studio-numbered" className={`sd-ribbon-btn ${activeFormats.insertOrderedList ? 'is-active' : ''}`} title="Numbered list (Ctrl+Shift+7)" onMouseDown={keepEditorFocus} onClick={() => execCmd('insertOrderedList')}>
                         <ListOrdered size={14} />
                       </button>
                     </div>
+
+                    <div className="sd-btn-group">
+                      <button id="btn-studio-outdent" className="sd-ribbon-btn" title="Decrease indent (Ctrl+[)" onMouseDown={keepEditorFocus} onClick={() => handleIndent(-1)}>
+                        <IndentDecrease size={14} />
+                      </button>
+                      <button id="btn-studio-indent" className="sd-ribbon-btn" title="Increase indent (Ctrl+])" onMouseDown={keepEditorFocus} onClick={() => handleIndent(1)}>
+                        <IndentIncrease size={14} />
+                      </button>
+                    </div>
+
+                    <div className="sd-line-spacing-wrap" title="Line spacing">
+                      <ListChevronsUpDown size={14} className="sd-line-spacing-icon" />
+                      <select
+                        id="select-studio-line-spacing"
+                        className="sd-ribbon-select sd-line-spacing-select"
+                        value={activeFormats.lineSpacing}
+                        onChange={e => handleLineSpacing(e.target.value)}
+                      >
+                        {activeFormats.lineSpacing === '' && <option value="">Custom</option>}
+                        {LINE_SPACING_OPTIONS.map(o => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <button id="btn-studio-clear-format" className="sd-ribbon-btn" title="Clear formatting (Ctrl+\)" onMouseDown={keepEditorFocus} onClick={handleClearFormatting}>
+                      <RemoveFormatting size={14} />
+                    </button>
                   </div>
                 </div>
 
@@ -3142,10 +4206,10 @@ export const SmartWordStudio = ({
                 <div className="sd-ribbon-group">
                   <span className="sd-ribbon-group-title">Headings</span>
                   <div className="sd-ribbon-tools">
-                    <button className="sd-ribbon-btn-text" onClick={() => execCmd('formatBlock', '<h1>')}>H1</button>
-                    <button className="sd-ribbon-btn-text" onClick={() => execCmd('formatBlock', '<h2>')}>H2</button>
-                    <button className="sd-ribbon-btn-text" onClick={() => execCmd('formatBlock', '<h3>')}>H3</button>
-                    <button className="sd-ribbon-btn-text" onClick={() => execCmd('formatBlock', '<p>')}>Normal</button>
+                    <button id="btn-studio-h1" className={`sd-ribbon-btn-text ${activeFormats.heading === 'h1' ? 'is-active' : ''}`} title="Heading 1 (Ctrl+Alt+1)" onMouseDown={keepEditorFocus} onClick={() => handleFormatHeading('h1')}>H1</button>
+                    <button id="btn-studio-h2" className={`sd-ribbon-btn-text ${activeFormats.heading === 'h2' ? 'is-active' : ''}`} title="Heading 2 (Ctrl+Alt+2)" onMouseDown={keepEditorFocus} onClick={() => handleFormatHeading('h2')}>H2</button>
+                    <button id="btn-studio-h3" className={`sd-ribbon-btn-text ${activeFormats.heading === 'h3' ? 'is-active' : ''}`} title="Heading 3 (Ctrl+Alt+3)" onMouseDown={keepEditorFocus} onClick={() => handleFormatHeading('h3')}>H3</button>
+                    <button id="btn-studio-normal" className={`sd-ribbon-btn-text ${activeFormats.heading === 'p' ? 'is-active' : ''}`} title="Normal text (Ctrl+Alt+0)" onMouseDown={keepEditorFocus} onClick={() => handleFormatHeading('p')}>Normal</button>
                   </div>
                 </div>
 
@@ -3185,7 +4249,7 @@ export const SmartWordStudio = ({
 
             {/* TAB 2: INSERT (Form Elements, Signatures, Tables) */}
             {activeRibbonTab === 'insert' && (
-              <div className="sd-ribbon-group-row">
+              <div className="sd-ribbon-group-row" onMouseDown={keepButtonFocus}>
                 {/* In-Text Placeholders */}
                 <div className="sd-ribbon-group">
                   <span className="sd-ribbon-group-title">In-Text Placeholders (Legal / Contracts)</span>
@@ -3194,33 +4258,33 @@ export const SmartWordStudio = ({
                       className="btn btn-secondary btn-sm"
                       style={{ borderColor: 'color-mix(in srgb, var(--primary-500) 45%, var(--border-color))' }}
                       onClick={() => handleInsertField('text', 'Party / Name', 'placeholder')}
-                      title="Insert clickable placeholder for legal name, party, address"
+                      title="Insert in-text text placeholder for legal name, party, address"
                     >
                       <Tag size={13} style={{ color: 'var(--primary-500)' }} /> Name / Text
                     </button>
                     <button
                       className="btn btn-secondary btn-sm"
                       style={{ borderColor: 'color-mix(in srgb, var(--primary-500) 45%, var(--border-color))' }}
-                      onClick={() => handleInsertField('date', 'Agreement Date', 'placeholder')}
-                      title="Insert clickable date placeholder (e.g. Effective Date)"
+                      onClick={() => handleInsertField('text', 'Agreement Date', 'placeholder')}
+                      title="Insert in-text date text placeholder (e.g. Effective Date)"
                     >
                       <Calendar size={13} style={{ color: 'var(--primary-500)' }} /> Date Placeholder
                     </button>
                     <button
                       className="btn btn-secondary btn-sm"
                       style={{ borderColor: 'color-mix(in srgb, var(--primary-500) 45%, var(--border-color))' }}
-                      onClick={() => handleInsertField('number', 'Contract Amount', 'placeholder')}
-                      title="Insert clickable amount/number placeholder"
+                      onClick={() => handleInsertField('text', 'Contract Amount', 'placeholder')}
+                      title="Insert in-text amount / number text placeholder"
                     >
                       <Hash size={13} style={{ color: 'var(--primary-500)' }} /> Amount / Number
                     </button>
                     <button
                       className="btn btn-secondary btn-sm"
                       style={{ borderColor: 'color-mix(in srgb, var(--primary-500) 45%, var(--border-color))' }}
-                      onClick={() => handleInsertField('dropdown', 'Governing Law', 'placeholder')}
-                      title="Insert clickable dropdown selection placeholder"
+                      onClick={() => handleInsertField('text', 'Governing Law', 'placeholder')}
+                      title="Insert in-text jurisdiction / governing law text placeholder"
                     >
-                      <ChevronDown size={13} style={{ color: 'var(--primary-500)' }} /> Dropdown Choice
+                      <FileText size={13} style={{ color: 'var(--primary-500)' }} /> Governing Law
                     </button>
                   </div>
                 </div>
@@ -3231,22 +4295,22 @@ export const SmartWordStudio = ({
                 <div className="sd-ribbon-group">
                   <span className="sd-ribbon-group-title">Form Controls & Fields</span>
                   <div className="sd-ribbon-tools">
-                    <button className="btn btn-secondary btn-sm" onClick={() => handleInsertField('text', 'Text Field', 'placeholder')}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => handleInsertField('text', 'Text Field', 'input')}>
                       <Type size={13} /> Text Box
                     </button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => handleInsertField('textarea', 'Detailed Notes', 'placeholder')}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => handleInsertField('textarea', 'Detailed Notes', 'input')}>
                       <FileText size={13} /> Long Text
                     </button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => handleInsertField('date', 'Date Needed', 'placeholder')}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => handleInsertField('date', 'Date Needed', 'input')}>
                       <Calendar size={13} /> Date Picker
                     </button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => handleInsertField('number', 'Quantity / Amount', 'placeholder')}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => handleInsertField('number', 'Quantity / Amount', 'input')}>
                       <Hash size={13} /> Number
                     </button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => handleInsertField('dropdown', 'Select Category', 'placeholder')}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => handleInsertField('dropdown', 'Select Category', 'input')}>
                       <ChevronDown size={13} /> Dropdown
                     </button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => handleInsertField('checkbox', 'I Confirm Terms', 'placeholder')}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => handleInsertField('checkbox', 'I Confirm Terms', 'input')}>
                       <CheckSquare size={13} /> Checkbox
                     </button>
                   </div>
@@ -3321,6 +4385,15 @@ export const SmartWordStudio = ({
                     <button className="btn btn-secondary btn-sm" onClick={() => execCmd('insertHorizontalRule')}>
                       Horizontal Rule
                     </button>
+                    <button
+                      id="btn-studio-insert-link-tab"
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      title="Insert or edit link (Ctrl+K)"
+                      onClick={() => openLinkDialog()}
+                    >
+                      <LinkIcon size={13} /> Link
+                    </button>
                   </div>
                 </div>
               </div>
@@ -3389,7 +4462,7 @@ export const SmartWordStudio = ({
 
             {/* TAB 5 (contextual): TABLE TOOLS — only while the caret is inside a table */}
             {activeRibbonTab === 'table' && tableCtx.inTable && (
-              <div className="sd-ribbon-group-row">
+              <div className="sd-ribbon-group-row" onMouseDown={keepButtonFocus}>
                 <div className="sd-ribbon-group">
                   <span className="sd-ribbon-group-title">Rows &amp; Columns</span>
                   <div className="sd-ribbon-tools">
@@ -3745,41 +4818,55 @@ export const SmartWordStudio = ({
                 }}
               >
                 <span className="sd-img-tb-label">Size:</span>
-                {[25, 50, 75, 100].map(pct => (
-                  <button
-                    key={pct}
-                    type="button"
-                    className={`sd-img-tb-btn ${selectedImageEl.img?.style?.maxWidth === `${pct}%` ? 'is-active' : ''}`}
-                    onClick={() => updateImageWidth(pct)}
-                  >
-                    {pct}%
-                  </button>
-                ))}
+                {[25, 50, 75, 100].map(pct => {
+                  const currentWidth = selectedImageEl.img?.getAttribute('data-width') ||
+                    (selectedImageEl.img?.style?.maxWidth && selectedImageEl.img.style.maxWidth.replace('%', '').trim()) ||
+                    (selectedImageEl.img?.style?.width && selectedImageEl.img.style.width.replace('%', '').trim());
+                  const isActive = currentWidth === String(pct);
+                  return (
+                    <button
+                      key={pct}
+                      type="button"
+                      className={`sd-img-tb-btn ${isActive ? 'is-active' : ''}`}
+                      onClick={() => updateImageWidth(pct)}
+                    >
+                      {pct}%
+                    </button>
+                  );
+                })}
                 <div className="sd-img-tb-divider" />
-                <button
-                  type="button"
-                  className="sd-img-tb-btn"
-                  title="Align Left"
-                  onClick={() => updateImageAlign('left')}
-                >
-                  <AlignLeft size={13} />
-                </button>
-                <button
-                  type="button"
-                  className="sd-img-tb-btn"
-                  title="Align Center"
-                  onClick={() => updateImageAlign('center')}
-                >
-                  <AlignCenter size={13} />
-                </button>
-                <button
-                  type="button"
-                  className="sd-img-tb-btn"
-                  title="Align Right"
-                  onClick={() => updateImageAlign('right')}
-                >
-                  <AlignRight size={13} />
-                </button>
+                {(() => {
+                  const currentAlign = selectedImageEl.wrap?.getAttribute('data-align') ||
+                    selectedImageEl.wrap?.style?.textAlign || 'center';
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        className={`sd-img-tb-btn ${currentAlign === 'left' ? 'is-active' : ''}`}
+                        title="Align Left"
+                        onClick={() => updateImageAlign('left')}
+                      >
+                        <AlignLeft size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        className={`sd-img-tb-btn ${currentAlign === 'center' ? 'is-active' : ''}`}
+                        title="Align Center"
+                        onClick={() => updateImageAlign('center')}
+                      >
+                        <AlignCenter size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        className={`sd-img-tb-btn ${currentAlign === 'right' ? 'is-active' : ''}`}
+                        title="Align Right"
+                        onClick={() => updateImageAlign('right')}
+                      >
+                        <AlignRight size={13} />
+                      </button>
+                    </>
+                  );
+                })()}
                 <div className="sd-img-tb-divider" />
                 <button
                   type="button"
@@ -3801,6 +4888,135 @@ export const SmartWordStudio = ({
                 >
                   <X size={12} />
                 </button>
+              </div>
+            )}
+
+            {/* Google Docs-style Link Bubble */}
+            {linkBubble && !linkDialog && (
+              <div
+                className="sd-link-bubble"
+                style={{ top: `${linkBubble.top}px`, left: `${linkBubble.left}px` }}
+                onMouseDown={e => e.stopPropagation()}
+              >
+                <a
+                  href={linkBubble.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="sd-link-bubble-url"
+                  title={linkBubble.href}
+                >
+                  <ExternalLink size={12} style={{ marginRight: 5, flexShrink: 0 }} />
+                  <span>{displayLinkUrl(linkBubble.href)}</span>
+                </a>
+                <div className="sd-link-bubble-divider" />
+                <button
+                  type="button"
+                  id="btn-link-bubble-copy"
+                  className="sd-link-bubble-btn"
+                  title="Copy link"
+                  onClick={() => copyLinkToClipboard(linkBubble.href)}
+                >
+                  <Copy size={13} />
+                </button>
+                <button
+                  type="button"
+                  id="btn-link-bubble-edit"
+                  className="sd-link-bubble-btn"
+                  title="Edit link"
+                  onClick={() => openLinkDialog(linkBubble.anchor)}
+                >
+                  <Pencil size={13} />
+                </button>
+                <button
+                  type="button"
+                  id="btn-link-bubble-remove"
+                  className="sd-link-bubble-btn sd-link-bubble-btn-danger"
+                  title="Remove link"
+                  onClick={() => removeLink(linkBubble.anchor)}
+                >
+                  <Unlink size={13} />
+                </button>
+              </div>
+            )}
+
+            {/* Google Docs-style Insert / Edit Link Popover Dialog */}
+            {linkDialog && (
+              <div
+                id="sd-link-dialog-popover"
+                className="sd-link-dialog-popover"
+                style={{ top: `${linkDialog.top}px`, left: `${linkDialog.left}px` }}
+                onMouseDown={e => e.stopPropagation()}
+              >
+                <div className="sd-link-dialog-head">
+                  <span>{linkDialog.anchor ? 'Edit link' : 'Insert link'}</span>
+                  <button
+                    type="button"
+                    className="sd-link-dialog-close"
+                    onClick={closeLinkDialog}
+                    title="Cancel (Esc)"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+                <div className="sd-link-dialog-body">
+                  {linkDialog.textEditable && (
+                    <div className="sd-link-dialog-row">
+                      <label className="sd-link-dialog-label">Text</label>
+                      <input
+                        id="input-link-dialog-text"
+                        type="text"
+                        className="sd-link-dialog-input"
+                        value={linkDialog.text}
+                        placeholder="Link text"
+                        onChange={e => setLinkDialog({ ...linkDialog, text: e.target.value })}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') { e.preventDefault(); applyLink(); }
+                          if (e.key === 'Escape') { e.preventDefault(); closeLinkDialog(); }
+                        }}
+                      />
+                    </div>
+                  )}
+                  <div className="sd-link-dialog-row">
+                    <label className="sd-link-dialog-label">Link</label>
+                    <div className="sd-link-dialog-input-wrap">
+                      <LinkIcon size={13} className="sd-link-input-icon" />
+                      <input
+                        id="input-link-dialog-url"
+                        type="text"
+                        className="sd-link-dialog-input sd-has-icon"
+                        autoFocus
+                        value={linkDialog.url}
+                        placeholder="Paste or type a link (e.g. google.com)"
+                        onChange={e => setLinkDialog({ ...linkDialog, url: e.target.value, error: '' })}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') { e.preventDefault(); applyLink(); }
+                          if (e.key === 'Escape') { e.preventDefault(); closeLinkDialog(); }
+                        }}
+                      />
+                    </div>
+                    {linkDialog.error && (
+                      <div className="sd-link-dialog-error">{linkDialog.error}</div>
+                    )}
+                  </div>
+                  <div className="sd-link-dialog-actions">
+                    <button
+                      type="button"
+                      id="btn-link-dialog-cancel"
+                      className="btn btn-secondary btn-sm"
+                      onClick={closeLinkDialog}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      id="btn-link-dialog-apply"
+                      className="btn btn-primary btn-sm"
+                      onClick={applyLink}
+                    >
+                      Apply
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -3962,12 +5178,13 @@ export const SmartWordStudio = ({
         {viewMode !== 'edit' && (
           <FormPreviewPane
             html={previewHtml}
-            title={title}
             department={activeDept}
             workflow={workflow}
-            margins={margins}
             fontFamily={fontFamily}
             fontSize={fontSize}
+            currentUser={currentUser}
+            templateCode={targetTemplate?.code}
+            version={targetTemplate?.version}
           />
         )}
         </div>
@@ -4056,7 +5273,7 @@ export const SmartWordStudio = ({
                     <span
                       className={`sd-doc-field-pill ${activeFieldEdit.mode === 'placeholder' ? 'is-placeholder' : ''} ${activeFieldEdit.bold ? 'is-bold' : ''}`}
                     >
-                      <span className="sd-doc-pill-icon">{fieldIcon(activeFieldEdit.type)}</span>
+                      <span className="sd-doc-pill-icon">{fieldIcon(activeFieldEdit.mode === 'placeholder' ? 'text' : activeFieldEdit.type)}</span>
                       <span className="sd-doc-pill-label" style={{ fontWeight: activeFieldEdit.bold ? 700 : 400 }}>
                         {`{{${(activeFieldEdit.label || activeFieldEdit.key || 'Field').trim()}}}`}
                       </span>
@@ -4065,7 +5282,7 @@ export const SmartWordStudio = ({
                           Bold
                         </span>
                       )}
-                      <span className="sd-doc-pill-tag">{activeFieldEdit.type}</span>
+                      <span className="sd-doc-pill-tag">{activeFieldEdit.mode === 'placeholder' ? 'text' : activeFieldEdit.type}</span>
                       {activeFieldEdit.mode === 'placeholder' && (
                         <span className="sd-doc-pill-tag" style={{ background: 'rgba(164, 251, 79, 0.15)', color: 'var(--primary-500, #a4fb4f)', borderColor: 'rgba(164, 251, 79, 0.35)' }}>
                           In-Text
@@ -4084,7 +5301,7 @@ export const SmartWordStudio = ({
                       <button
                         type="button"
                         className={`sd-segment-btn ${activeFieldEdit.mode === 'placeholder' ? 'is-active' : ''}`}
-                        onClick={() => setActiveFieldEdit(prev => ({ ...prev, mode: 'placeholder' }))}
+                        onClick={() => setActiveFieldEdit(prev => ({ ...prev, mode: 'placeholder', type: 'text', options: [] }))}
                       >
                         <Tag size={13} />
                         <span>In-Text Tag</span>
@@ -4146,18 +5363,39 @@ export const SmartWordStudio = ({
                 <div className="sd-field-two-col-grid" style={{ alignItems: 'flex-end' }}>
                   <div className="sd-field-setting-block">
                     <span className="sd-field-setting-label">Input Type</span>
-                    <select
-                      className="sd-input sd-input-modern"
-                      value={activeFieldEdit.type}
-                      onChange={e => setActiveFieldEdit(prev => ({ ...prev, type: e.target.value }))}
-                    >
-                      <option value="text">Short Text</option>
-                      <option value="textarea">Long Text (Textarea)</option>
-                      <option value="number">Number</option>
-                      <option value="date">Date Picker</option>
-                      <option value="dropdown">Dropdown Select</option>
-                      <option value="checkbox">Checkbox (Yes / No)</option>
-                    </select>
+                    {activeFieldEdit.mode === 'placeholder' ? (
+                      <div>
+                        <select
+                          className="sd-input sd-input-modern"
+                          disabled
+                          value="text"
+                          title="In-Text tags only support text input"
+                          style={{ opacity: 0.85, cursor: 'not-allowed' }}
+                        >
+                          <option value="text">Short Text (Text only for In-Text Tags)</option>
+                        </select>
+                        <span className="sd-hint" style={{ fontSize: '0.72rem', marginTop: '4px', display: 'block', color: 'var(--muted)' }}>
+                          In-Text tags only support text input. To use dropdowns, dates, or other controls, switch to Input Box.
+                        </span>
+                      </div>
+                    ) : (
+                      <select
+                        className="sd-input sd-input-modern"
+                        value={activeFieldEdit.type === 'select' ? 'dropdown' : activeFieldEdit.type}
+                        onChange={e => setActiveFieldEdit(prev => {
+                          const nextType = e.target.value;
+                          const nextOpts = (nextType === 'dropdown' && (!prev.options || prev.options.length === 0)) ? ['Option 1', 'Option 2'] : prev.options;
+                          return { ...prev, type: nextType, options: nextOpts };
+                        })}
+                      >
+                        <option value="text">Short Text</option>
+                        <option value="textarea">Long Text (Textarea)</option>
+                        <option value="number">Number</option>
+                        <option value="date">Date Picker</option>
+                        <option value="dropdown">Dropdown Select</option>
+                        <option value="checkbox">Checkbox (Yes / No)</option>
+                      </select>
+                    )}
                   </div>
 
                   <div className="sd-field-setting-block">
@@ -4173,6 +5411,57 @@ export const SmartWordStudio = ({
                   </div>
                 </div>
 
+                {/* Contextual: Dropdown Options (Positioned immediately below Input Type, only for Input Box) */}
+                {activeFieldEdit.mode !== 'placeholder' && (activeFieldEdit.type === 'dropdown' || activeFieldEdit.type === 'select') && (
+                  <div className="sd-field-contextual-box animate-fade-in" style={{ borderColor: 'rgba(164, 251, 79, 0.3)', background: 'rgba(164, 251, 79, 0.03)', padding: '12px 14px' }}>
+                    <div className="sd-field-setting-block">
+                      <div className="sd-flex-between">
+                        <span className="sd-field-setting-label" style={{ color: 'var(--primary-500, #a4fb4f)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <ChevronDown size={14} /> Dropdown Choices / Options *
+                        </span>
+                        <span className="sd-muted sd-xs">{(activeFieldEdit.options || []).length} choice{(activeFieldEdit.options || []).length === 1 ? '' : 's'}</span>
+                      </div>
+                      <input
+                        id="input-dropdown-options"
+                        className="sd-input sd-input-modern"
+                        value={(activeFieldEdit.options || []).join(', ')}
+                        placeholder="e.g. California, Delaware, New York, Texas"
+                        onChange={e => setActiveFieldEdit(prev => ({
+                          ...prev,
+                          options: e.target.value.split(',').map(s => s.trim()).filter(Boolean)
+                        }))}
+                        autoFocus={activeFieldEdit.isNew && (activeFieldEdit.type === 'dropdown' || activeFieldEdit.type === 'select')}
+                      />
+                      <div className="sd-flex-between sd-mt-xs" style={{ alignItems: 'flex-start', flexWrap: 'wrap', gap: '6px' }}>
+                        <span className="sd-hint" style={{ fontSize: '0.72rem' }}>Separate choices with commas</span>
+                        {(activeFieldEdit.options || []).length > 0 && (
+                          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', maxWidth: '75%', justifyContent: 'flex-end' }}>
+                            {activeFieldEdit.options.map((opt, idx) => (
+                              <span
+                                key={idx}
+                                className="sd-badge sd-badge-xs sd-badge-accent"
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 7px', fontSize: '0.72rem' }}
+                              >
+                                {opt}
+                                <span
+                                  style={{ cursor: 'pointer', opacity: 0.7, marginLeft: '2px' }}
+                                  title="Remove choice"
+                                  onClick={() => setActiveFieldEdit(prev => ({
+                                    ...prev,
+                                    options: (prev.options || []).filter((_, i) => i !== idx)
+                                  }))}
+                                >
+                                  ×
+                                </span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Help Description / Guidance for Form Filler */}
                 <div className="sd-field-row-group">
                   <div className="sd-field-setting-block">
@@ -4185,7 +5474,7 @@ export const SmartWordStudio = ({
                     <textarea
                       rows={2}
                       className="sd-input sd-input-modern"
-                      style={{ resize: 'vertical', minHeight: '52px' }}
+                      style={{ resize: 'vertical', minHeight: '44px' }}
                       value={activeFieldEdit.description || ''}
                       placeholder="e.g. Enter full legal entity name as shown on official incorporation documents."
                       onChange={e => setActiveFieldEdit(prev => ({ ...prev, description: e.target.value }))}
@@ -4224,25 +5513,6 @@ export const SmartWordStudio = ({
                           <option key={w} value={w}>{w}% of the row</option>
                         ))}
                       </select>
-                    </div>
-                  </div>
-                )}
-
-                {/* Contextual: Dropdown Options (Only if dropdown) */}
-                {activeFieldEdit.type === 'dropdown' && (
-                  <div className="sd-field-contextual-box">
-                    <div className="sd-field-setting-block">
-                      <span className="sd-field-setting-label">Dropdown Options (Comma separated)</span>
-                      <input
-                        className="sd-input sd-input-modern"
-                        value={(activeFieldEdit.options || []).join(', ')}
-                        placeholder="Option A, Option B, Option C"
-                        onChange={e => setActiveFieldEdit(prev => ({
-                          ...prev,
-                          options: e.target.value.split(',').map(s => s.trim()).filter(Boolean)
-                        }))}
-                      />
-                      <span className="sd-hint">Separate options with commas</span>
                     </div>
                   </div>
                 )}

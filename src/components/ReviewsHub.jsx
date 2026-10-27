@@ -6,6 +6,8 @@ import { SmartWordStudio } from './SmartWordStudio';
 import { ReviewChangesModal } from './ReviewChangesModal';
 import { SendForReviewModal } from './SendForReviewModal';
 import { sanitizeHtml } from './reviewDiff';
+import { buildAppUrl, tabLinkProps } from '../utils/router';
+import { useDeepLink } from '../utils/useDeepLink';
 import {
   Inbox, Send, ClipboardCheck, PencilLine, GitCompareArrows, Rocket, Ban, Check, Clock,
   FileText, X
@@ -157,15 +159,42 @@ export const ReviewsHub = () => {
     refreshReviews().catch(() => {});
   };
 
+  // Deep link: /reviews?review=<id>[&action=review|decide|publish]
+  // Without an explicit action, the next step for the current user is chosen from the review's phase.
+  useDeepLink(({ review, action }, { timedOut }) => {
+    if (!review) return true;
+    const r = templateReviews.find(x => String(x.id) === String(review));
+    if (!r) {
+      if (templateReviews.length === 0 && !timedOut) return false;
+      addToast('Review Not Found', 'The requested review does not exist or you are not part of it.', 'warn');
+      return true;
+    }
+    const isInitiator = r.initiatorId === currentUser.id;
+    setTab(isInitiator ? 'started' : 'assigned');
+    const mine = r.reviewers.find(v => v.userId === currentUser.id);
+    const mode = action || (!isInitiator ? 'review' : r.phase === 'AWAITING_DECISION' ? 'decide' : r.status === 'DECIDED' ? 'publish' : null);
+    if (mode === 'review' && !isInitiator && r.status === 'IN_REVIEW' && mine?.status === 'PENDING') openAsReviewer(r);
+    else if (mode === 'decide' && isInitiator && r.phase === 'AWAITING_DECISION') openDecisions(r);
+    else if (mode === 'publish' && isInitiator && r.status === 'DECIDED') openPublish(r);
+    else {
+      setTimeout(() => {
+        document.getElementById(`review-row-${r.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 150);
+    }
+    return true;
+  }, [templateReviews]);
+
+  const reviewUrl = (r, action) => buildAppUrl('reviews', { review: r.id, action });
+
   const renderAction = (r) => {
     const busy = busyId === r.id;
     if (tab === 'assigned') {
       const mine = r.reviewers.find(v => v.userId === currentUser.id);
       if (r.status === 'IN_REVIEW' && mine?.status === 'PENDING') {
         return (
-          <button type="button" id={`btn-review-${r.id}`} className="btn btn-primary btn-sm" onClick={() => openAsReviewer(r)} disabled={busy}>
+          <a id={`btn-review-${r.id}`} className="btn btn-primary btn-sm" aria-disabled={busy || undefined} {...tabLinkProps(reviewUrl(r, 'review'), () => { if (!busy) openAsReviewer(r); })}>
             <PencilLine size={14} /> {busy ? 'Opening…' : 'Review document'}
-          </button>
+          </a>
         );
       }
       if (mine?.status === 'SUBMITTED') {
@@ -176,16 +205,16 @@ export const ReviewsHub = () => {
 
     if (r.phase === 'AWAITING_DECISION') {
       return (
-        <button type="button" id={`btn-decide-${r.id}`} className="btn btn-primary btn-sm" onClick={() => openDecisions(r)} disabled={busy}>
+        <a id={`btn-decide-${r.id}`} className="btn btn-primary btn-sm" aria-disabled={busy || undefined} {...tabLinkProps(reviewUrl(r, 'decide'), () => { if (!busy) openDecisions(r); })}>
           <GitCompareArrows size={14} /> {busy ? 'Opening…' : 'Review changes'}
-        </button>
+        </a>
       );
     }
     if (r.status === 'DECIDED') {
       return (
-        <button type="button" id={`btn-publish-${r.id}`} className="btn btn-primary btn-sm" onClick={() => openPublish(r)} disabled={busy}>
+        <a id={`btn-publish-${r.id}`} className="btn btn-primary btn-sm" aria-disabled={busy || undefined} {...tabLinkProps(reviewUrl(r, 'publish'), () => { if (!busy) openPublish(r); })}>
           <Rocket size={14} /> {busy ? 'Opening…' : 'Continue to publish'}
-        </button>
+        </a>
       );
     }
     if (r.status === 'IN_REVIEW') {

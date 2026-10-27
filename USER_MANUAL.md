@@ -20,6 +20,7 @@ SmartDoc is an enterprise **Word-template forms & department approval workflow**
 13. [Statuses & Business Rules](#13-statuses--business-rules)
 14. [FAQ & Troubleshooting](#14-faq--troubleshooting)
 15. [Deployment (Single-Service Unified App)](#15-deployment-single-service-unified-app)
+16. [Disk / Object Storage & Backup Management](#16-disk--object-storage--backup-management)
 
 ---
 
@@ -67,6 +68,17 @@ SmartDoc is an enterprise **Word-template forms & department approval workflow**
 | **Activity Log** | Role-scoped ledger & audit trail (SHA-256 verified, CSV export, standalone window) | Everyone (role-scoped) |
 | **Users & Departments** | Administration & System Reset | Super admin only |
 
+### Opening Forms & Actions in a New Tab
+Every action that opens something has its own link, so you can work on several things side by side:
+- **Ctrl+Click** (Cmd+Click on macOS), **Middle-Click**, or **Right-Click → "Open link in new tab"** on any of these opens it in a new browser tab, straight into that action:
+  - Forms & Documents: **Fill form**, **Print**, **Edit template / Edit & Publish**, **Preview (eye)**, **View doc**, **Version History** (clock icon or version badge), **Word Form Studio**, folders, departments and breadcrumbs.
+  - Submissions & Approvals: any submission row or its **View** button.
+  - Reviews: **Review document**, **Review changes**, **Continue to publish**.
+  - Dashboard cards and lists, sidebar items, and notifications (opening a notification in a new tab also marks it read).
+- A normal click still opens the item in the current tab, exactly as before.
+- The links can be bookmarked or shared with colleagues (e.g. `/forms?action=fill&id=…`). Access rights are always enforced — if the recipient cannot see the form, they get a "Not Found" message.
+- Once the item has opened, the link details are cleared from the address bar, so refreshing the page will not reopen it.
+
 ### Collapsible Sidebar
 - **Toggle Button**: Click the collapse button in the sidebar header (`PanelLeftClose` / `PanelLeftOpen`) or at the bottom of the sidebar (`Collapse sidebar` with chevrons) to collapse the sidebar into a slim 72px icon rail.
 - **Keyboard Shortcut**: Press `Ctrl+B` (or `Cmd+B` on macOS) from anywhere in the application to toggle the sidebar instantly. Note that `Ctrl+B` is safely passed through as bold formatting whenever you are actively editing in Word Studio or typing in text inputs.
@@ -100,14 +112,108 @@ SmartDoc is an enterprise **Word-template forms & department approval workflow**
 
 ---
 
-# 4. Dashboard
+# 4. Dashboard (Smart Analytics Cockpit)
 
-Shows **real counts only**, with no demo data:
-- My pending approvals.
-- My submissions.
-- Available templates.
+The SmartDoc Dashboard is a comprehensive, interactive **Analytics Cockpit** (`SmartDashboard.jsx` & `DashboardCharts.jsx`) designed to give managers, department heads, and team members immediate clarity on workflow velocity, pending bottlenecks, and compliance health.
 
-Empty counts simply show zero until you start using the system.
+It operates strictly on **live data** with zero mock metrics. If no records exist in a selected time window or department, charts cleanly reflect zero states without crashing or displaying artificial numbers.
+
+---
+
+### 4.1 Scope & Time Horizon Controls
+At the top of the dashboard, use the interactive controls bar to dynamically reshape the entire analytics view:
+- **Workspace Scope Switcher**:
+  - **My Workspace**: Focuses exclusively on your submissions, decisions awaiting your action, and templates you author.
+  - **Department Drive**: Aggregates throughput, active templates, and approval bottlenecks for your assigned department.
+  - **Enterprise Global**: Provides an organization-wide executive view across all departments (especially valuable for administrators and leadership).
+- **Time Horizon Filter**:
+  - Choose between **7 Days**, **30 Days**, **90 Days**, or **All Time**.
+  - All smart statistics, timeline trend series, status distributions, and volume counters recalculate instantly on the client based on document creation and decision timestamps.
+- **Sync / Refresh Button**: Located in the top header action row with an animated indicator to pull fresh records from PostgreSQL on demand.
+
+---
+
+### 4.2 6-Card Smart Stats Grid
+Each card provides a high-level KPI accompanied by contextual micro-metrics and interactive click behavior:
+1. **Awaiting My Action / In Review Progress**:
+   - Displays forms currently waiting at your department's approval step (or your forms currently under review).
+   - Features an automatic **⚡ Urgent (<48h)** alert badge if any document is nearing or past its decision deadline.
+   - Click to jump straight into the Approvals Hub.
+2. **Approval Turnaround & SLA Velocity**:
+   - Calculates real-time average turnaround time from submission creation to final approval or rejection (e.g. `1.4 days avg` or `< 12 hrs avg`).
+   - Displays on-time SLA compliance rate (`% on-time SLA`) measuring documents decided before their expiry date.
+3. **Approval Pass Rate**:
+   - Percentage of completed forms approved vs rejected or revised.
+   - Subtitle displays a breakdown of `approved · revisions · rejected`.
+   - Click to filter recent submissions below by **Approved** status.
+4. **Revisions Requested (Objections Queue)**:
+   - Tracks forms with `OBJECTION_RAISED` requiring originator amendments.
+   - Highlights whether immediate revision is needed to unblock stalled approval chains.
+   - Click to filter recent submissions below by **Changes Requested**.
+5. **Digital PKI Cryptographic Coverage**:
+   - Percentage of submissions protected by cryptographic RSA-2048 and X.509 non-repudiation seals.
+   - Click to open the unified **Profile & Signature** modal on the PKI Certificate tab.
+6. **Active Catalog Throughput**:
+   - Measures how many published templates are actively being utilized versus the total templates available in the catalog.
+   - Displays the total submissions processed in the active time window.
+   - Click to open the Forms & Templates Explorer.
+
+---
+
+### 4.3 Interactive Data Visualizations (`DashboardCharts.jsx`)
+
+#### 1. Submission & Approval Velocity Trend (Area / Bar Chart)
+- **Visual Presentation**: Responsive SVG timeline plotting daily submission volume alongside approved completions with glowing gradient area fills under the curve.
+- **Mode Toggle**: Use the top-right button toggle to switch between **Smooth Area Trend** (cubic Bézier curve) and **Daily Volume Bars**.
+- **Interactive Hover Tooltips**: Hover over any data point or bar to inspect a floating dark tooltip showing the formatted calendar date, submissions count, approved count, and in-review/objection breakdowns.
+- **Click-to-Filter by Date**: Click any data point or bar to filter the recent submissions table below to only show documents submitted on that specific date. A tag pill appears allowing you to clear the date filter at any time.
+
+#### 2. Status Breakdown Donut Chart
+- **Visual Presentation**: Circular SVG donut chart with proportional arcs colored by status:
+  - **Approved** (Emerald Green `#10b981`)
+  - **In Review** (Theme Accent / Lime `var(--primary-500)`)
+  - **Changes Requested / Objections** (Amber `#f59e0b`)
+  - **Rejected** (Rose Red `#ef4444`)
+- **Dynamic Center Readout**: The center of the donut displays the total document count and overall pass rate by default. When you hover over any arc or legend pill, the center dynamically animates to display that specific status label, item count, and percentage share of the total.
+- **Click-to-Filter by Status**: Click any slice or legend button to instantly filter the submissions feed below to that status.
+
+#### 3. Department Workload & Pipeline
+- Compares throughput and pending approvals across all corporate departments (Human Resources, Finance, Legal, IT, Operations, etc.).
+- Segmented horizontal progress bars display the ratio of completed vs in-review documents.
+- Highlights department bottlenecks (e.g. `2 awaiting approval`).
+- Click any department row to filter the submissions feed to only show that department's documents.
+
+#### 4. Most Utilized Word Templates (Leaderboard)
+- Ranks corporate form templates by submission frequency.
+- Displays template title, department badge, usage count, pass rate, and document version.
+- Includes a direct **"Fill →"** action button to launch into form filling immediately.
+
+---
+
+### 4.4 Priority Action Radar & Live Submissions Explorer
+
+#### Priority Action Radar
+A focused inbox helping you stay ahead of pending obligations:
+- **Approvals Tab**: Submissions waiting at your current department step.
+- **Objections Tab**: Submissions you originated where reviewers requested changes, showing the reviewer's objection quote and due date.
+- **Urgent Tab**: Submissions with decision deadlines expiring within 48 hours or already overdue.
+- **Reviews Tab**: Pre-publication template reviews where you have been invited to review draft forms or where reviewers have submitted feedback.
+- Each item includes a direct **Eye** button to inspect the full document in `SubmissionDetailModal.jsx`.
+
+#### Live Searchable Submissions Feed
+- **Live Search**: Debounced search input filtering records in real time across title, document number (`FRM-2026-XXXX`), submitter name, and department.
+- **Status Filter Chips**: One-click status pills (`All`, `Review`, `Approved`, `Revisions`, `Rejected`) with live selection styling.
+- **Active Filter Banner**: Whenever a graph point, donut slice, department bar, or search query is active, a top banner displays the active filter tags with individual clear buttons and a **"Reset All"** action.
+- **Submission Rows**: Click anywhere on a submission row to open the full submission detail modal, inspect workflow progress, download PDFs, or approve/object.
+
+---
+
+### 4.5 Enterprise Quick Launch Dock
+Located at the bottom of the dashboard for rapid access to core workflows:
+- **Fill Form**: Jump straight into the template catalog to fill out and sign a new form.
+- **Approvals Queue**: Open your active decision queue with pending count indicator.
+- **Signature & PKI**: Quick status check for your digital signature and X.509 certificate with one-click access to the drawing pad.
+- **Activity Trail**: Navigate directly to the cryptographic audit log.
 
 ---
 
@@ -132,7 +238,9 @@ Regular users see folders read-only. The folder management buttons are hidden an
 - Click **Word Form Studio** (header) to create a template from a blank page, or open an existing `.doc` or `.docx` file in the studio.
 - Use the **quick uploader** for ready Word documents (`.doc` or `.docx`) with `{{placeholders}}`: detected fields, signature slots (`{{Signature:...}}` and `{{sig:...}}`), and system tags are extracted automatically. Authors can configure each field's Fill Style (`🏷️ Placeholder` vs `📝 Direct Input`), Mandatory toggle, and **Weight** (`Bold` vs `Normal`). Legacy `.doc` templates are automatically compiled to `.docx` format upon saving for seamless downstream filling and signature stamping.
 - **Move template**: choose a different folder within the department.
-- **Archive**: removes a template from active use (soft delete).
+- **Remove / Delete Template (Submission-Aware)**:
+  - If **no user has filled or submitted a form** for this template, it is **permanently deleted** from both the server disk drive (`storage/templates/`) and the database.
+  - If **one or more users have filled or submitted forms**, the template is **archived** (`status = 'ARCHIVED'`). The document file is preserved on disk so historical submissions can still be rendered, printed, and PKI-verified. The confirmation modal dynamically reflects whether the item will be permanently erased or archived.
 
 ## 5.4 Non-Editable Documents (PDF & Images)
 Admins can upload static reference documents that cannot be modified:
@@ -209,8 +317,8 @@ A Microsoft Word-style editor on an authentic A4 sheet canvas. **It opens blank 
 
 | Tab | What it does |
 |---|---|
-| **Home** | Undo / Redo (with `Ctrl+Z` / `Ctrl+Y`), Font family & size, bold, italic, underline, strikethrough, Text Color & Highlight Color (split palettes with 24 theme colors & custom hex), alignment, bullet / numbered lists, headings (Normal, H1–H3) |
-| **Insert Elements** | Form fields, signatures, system tags, tables (10×8 grid picker), dividers |
+| **Home** | Undo / Redo (with `Ctrl+Z` / `Ctrl+Y`), Font family & size (−/input/+ stepper), bold, italic, underline, strikethrough, Text Color & Highlight Color (split palettes with 24 theme colors & custom hex), alignment, bullet / numbered lists, Indent / Outdent, Line spacing (Single, 1.15, 1.5, Double), Clear formatting, Insert / Edit Link (`Ctrl+K`), headings (Normal, H1–H3) |
+| **Insert Elements** | Form fields, in-text placeholders, signatures, system tags, tables (10×8 grid picker), dividers, page breaks, Insert Link |
 | **Table Tools** | Contextual tab when inside a table: insert/delete rows/cols, merge/split cells, cell shading, borders, alignment |
 | **Page Layout** | Margins (Normal / Narrow / Wide), page size (A4 / Letter), orientation |
 | **Workflow & Approvals** | Department, destination folder, audience, decision deadline (days), approval steps |
@@ -218,22 +326,26 @@ A Microsoft Word-style editor on an authentic A4 sheet canvas. **It opens blank 
 ## 6.2 Form elements, In-Text Placeholders & field widths
 Place the cursor where you want the element, then click it in **Insert Elements**:
 - **Field types**: Short Text, Long Text, Date, Number, Dropdown, Checkbox.
-- **In-Text Placeholders (Legal & Contracts)**: Placeholders designed for flowing contracts, agreements, NDAs, and legal instruments where values like party names, execution dates, payment sums, and governing jurisdictions sit directly within paragraph prose. Quick-insert tools available:
+- **In-Text Placeholders (Legal & Contracts)**: Placeholders designed for flowing contracts, agreements, NDAs, and legal instruments where values like party names, execution dates, payment sums, and governing jurisdictions sit directly within paragraph prose. **In-Text tags strictly use text input type**:
   - **Party / Name** (`placeholder`, text)
-  - **Agreement Date** (`placeholder`, date)
-  - **Contract Amount** (`placeholder`, number)
-  - **Governing Law** (`placeholder`, dropdown)
+  - **Agreement Date** (`placeholder`, text)
+  - **Contract Amount** (`placeholder`, text)
+  - **Governing Law** (`placeholder`, text)
 - **Draft Staging & Clean Cancellation**:
   - Clicking any placeholder insertion tool stages the element directly in your document canvas and immediately opens the **Customize Form Field** modal.
   - If you click **Cancel**, **×**, or press **Escape**, the staged draft element is cleanly removed from the document canvas without leaving orphan tags or text fragments behind.
 - **Field Customization Options**: Click any inserted field pill inside the document canvas to adjust:
-  - **Field Format**: Switch between `🏷️ In-Text Placeholder (Dialog)` (opens a single-field dialog on click) and `📝 Direct Input Box` (renders an on-page input control).
+  - **Display Mode**: Switch between `🏷️ In-Text Tag` (flows inline within document sentences) and `📝 Input Box` (renders an on-page form control).
+    - **In-Text Tag Text-Only Enforcement**: In-Text tags strictly support text input type (`Short Text`). When In-Text Tag is selected, the Input Type selector is automatically locked to Short Text, and non-text controls (dropdown options, date pickers, numbers, checkboxes) are disabled to guarantee seamless inline typography.
+    - **Input Box Controls**: Selecting Input Box unlocks all input types (Short Text, Long Text, Date Picker, Number, Dropdown Select, Checkbox) and on-form grid row widths (Auto, 25%, 33%, 50%, 66%, 75%, 100%).
   - **Text Weight (for In-Text Placeholders)**: Switch between **Normal Text** (standard document body weight) and **Bold (700)** (heavier typographic emphasis for filled values like names, sums, or key contractual dates).
   - **Field Description & Guidance**: Add multi-line instructions and contextual guidance shown to users when filling this field in the right rail cards, single-field dialog, and tooltips.
   - Label (name) & placeholder prompt hint.
   - **Required (Mandatory)** toggle: Enforces that the placeholder must be filled before submission.
-  - **Field Width** (for direct inputs: Auto, 25%, 33%, 50%, 66%, 75%, 100% of row).
-  - Dropdown options list.
+  - **Dropdown Choices & Options**: When an **Input Box** field is set to **Dropdown Select**, a dedicated choices editor appears directly under the input type:
+    - View live option badges with one-click **×** deletion.
+    - Type or paste options as comma-separated values (e.g. `California, Delaware, New York, Texas`).
+    - SmartDoc automatically pre-fills sensible default choices (`Option 1`, `Option 2`) when first switching to a dropdown.
   - Quick remove (×) button.
 - **Backdrop Outside-Click Protection**: All field customizers, dialogs, and popovers feature outside-click protection so accidental clicks on the dark background never dismiss your work unexpectedly.
 - **Coexistence**: Direct input controls and in-text placeholders can freely coexist on the exact same document sheet.
@@ -268,24 +380,87 @@ When modifying an existing form template:
 - **Save as Draft**: Dedicated action to save the form as an unpublished draft without configuring an approval chain.
 - **Review Publishing (In-Place Update)**: Resuming and publishing a pre-publication review that was initiated from an existing template prompts for a Git commit message and updates that existing template in-place with an incremented version number (e.g. `v1.8` → `v1.9`), preventing duplicate template entries in the drive.
 
-## 6.8 Text Color & Highlight Color Tools
-Word Form Studio includes authentic Microsoft Word text styling tools in the **Home** ribbon:
-- **Text Color Tool (`Baseline` icon with color stripe)**:
-  - Click the main icon to apply the active font color directly to selected text.
-  - Click the dropdown arrow to open the **Text Color** popover palette.
-  - Choose from 24 curated enterprise theme colors, click **Automatic / Reset** to restore document default text color, or choose any custom hex value via the native color picker.
-- **Highlight Color Tool (`Highlighter` icon with color stripe)**:
-  - Click the main icon to apply the active highlight color directly to selected text.
-  - Click the dropdown arrow to open the **Highlight Color** popover palette.
-  - Choose from authentic highlighter tints (Classic Yellow, Electric Lime, Mint, Light Cyan, Sky Blue, Neon Pink, Soft Peach, Warm Amber, Lavender, Pastel Rose, and more).
-  - Click **No color / Clear** to remove text highlighting.
-- **Cursor Continuation**: If no text is selected, applying a color places the cursor inside a styled insertion point so subsequent typing inherits the selected text or highlight color.
+## 6.8 Text Styling, Google Docs Parity Formatting & History
+Word Form Studio features a high-fidelity inline formatting and history engine modeled after Google Docs and Microsoft Word:
+- **Selection-Scoped Formatting**:
+  - Changing font family, font size, bold, italic, underline, strikethrough, text color, or highlight color applies **strictly to the selected text range**.
+  - It does not restyle the whole document or alter the base document template defaults.
+  - If applied with a collapsed cursor (no text highlighted), the styling attaches to an invisible caret point so that newly typed characters immediately inherit the formatting.
+- **Font Size Stepper (− / Input / +)**:
+  - Click **−** or **+** to step font size down or up, or type any point size directly into the numeric box and press `Enter` to apply. Pressing `Escape` cancels changes and restores original size. Both actions seamlessly return focus to the document canvas.
+- **Text Color & Highlight Color Tools**:
+  - **Text Color Tool (`Baseline` icon with color stripe)**: Click the button to apply the current color, or click the dropdown arrow to pick from 24 curated enterprise theme colors, a custom hex picker, or **Automatic / Reset** to return to document base color.
+  - **Highlight Color Tool (`Highlighter` icon with color stripe)**: Click the button to highlight text, or use the dropdown to choose from curated highlighter tints (Yellow, Electric Lime, Mint, Cyan, Sky Blue, Pink, Peach, Amber, Lavender, Rose) or **No color / Clear** to remove highlighting.
+- **Paragraph Indentation**:
+  - Click **Increase Indent** (`Ctrl+]`) or **Decrease Indent** (`Ctrl+[`) in the Home ribbon to adjust paragraph margin by ±36pt.
+  - In bulleted or numbered lists, indentation automatically adjusts list nesting depth.
+- **Line Spacing Control**:
+  - Select between **Single (1.0)**, **1.15**, **1.5**, and **Double (2.0)** spacing directly from the ribbon dropdown to format line height without adding unwanted paragraph block gaps.
+- **Clear Formatting (`Ctrl+\`)**:
+  - Instantly strips inline font family, font size, colors, highlights, and inline text spans from the selection, reverting text back to the clean document base typography.
+- **Active Toolbar States & Focus Retention**:
+  - Ribbon buttons (`Bold`, `Italic`, `Underline`, `Strikethrough`, alignment, lists, headings, links) display live `.is-active` accent highlights matching the exact styling at the cursor.
+  - Toolbar controls prevent focus theft, ensuring you never lose your document cursor or selection when clicking ribbon tools.
+- **100-Step History Stack with Cursor Restoration**:
+  - Undo (`Ctrl+Z`) and Redo (`Ctrl+Y` / `Ctrl+Shift+Z`) maintain a complete 100-snapshot history stack.
+  - Typing is intelligently grouped in 500ms bursts; commands, pastes, cuts, and formatting changes create discrete undo points.
+  - Undoing or redoing automatically restores the cursor to the exact text position where the change occurred and scrolls it into view.
+  - Native browser Edit menu and context menu undo/redo actions are seamlessly routed through Studio history.
 
-## 6.9 Authentic Microsoft Word Document Printing
-Unlike ordinary web applications that print raw HTML pages via browser printing, SmartDoc features a dedicated Word Print Pipeline:
-- Clicking the **Print** button in the studio toolbar renders the document through the server's Word processing engine (`POST /api/forms/render-print-document`).
-- Generates genuine Word `.docx` pagination, authentic A4/Letter margins, Word-style table formatting, and embedded signatures.
-- Automatically opens the native print dialog formatted identically to printing directly from Microsoft Word.
+## 6.9 Hyperlinks & Interactive Link Quick Bubble (Google Docs Parity)
+Word Form Studio provides comprehensive Google Docs-parity hyperlink tools:
+- **Inserting a Hyperlink (`Ctrl+K`)**:
+  - Press `Ctrl+K` (or `Cmd+K` on macOS), click **Insert Link** in the Home ribbon, or click **Link** in the Insert Elements tab.
+  - The floating **Link Dialog (`#sd-link-dialog-popover`)** opens directly adjacent to your selection.
+  - **Text**: Displays the currently selected text, or allows entering custom link anchor text.
+  - **Link (URL)**: Enter any destination web address or email. Addresses lacking a protocol automatically default to `https://` (or `mailto:` if an email is detected).
+  - Press `Enter` to insert or apply changes; press `Escape` or click Cancel to close without saving.
+- **Interactive Link Quick Bubble (`.sd-link-bubble`)**:
+  - Moving the cursor into or clicking on any hyperlink in the document canvas displays a floating quick bubble directly above the link.
+  - **Target Display**: Shows the destination URL with a clean link icon.
+  - **Open in New Tab**: Single-click button opens the URL in a new browser tab with full security headers (`target="_blank" rel="noopener noreferrer"`).
+  - **Copy Link**: One-click clipboard copy with an instant confirmation toast (`Link copied to clipboard`).
+  - **Edit Link**: Re-opens the link popover dialog to update the anchor text or URL.
+  - **Remove Link (Unlink)**: Converts the hyperlink back into clean plain text while preserving the wording.
+- **Google Docs Autolink on Space**:
+  - Typing any valid web address (e.g. `https://example.com` or `www.smartdoc.com`) followed by `Space` automatically detects the URL and converts it into a clickable hyperlink.
+- **Paste URL to Link**:
+  - Highlighting any text in your document and pasting a valid URL (`Ctrl+V`) instantly converts that selected text into a hyperlink pointing to the pasted URL.
+- **Sanitization & Secure Export**:
+  - Previews, form filling sheets, and exported Word `.docx` documents run `finalizeLinks` to guarantee dangerous protocols (`javascript:`, `data:`) are stripped while all valid links carry `rel="noopener noreferrer"`.
+
+## 6.10 Word Form Studio Keyboard Shortcuts
+Word Form Studio supports the complete suite of Google Docs and Word productivity shortcuts:
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+Z` / `Cmd+Z` | Undo last edit (restores exact cursor position) |
+| `Ctrl+Y` / `Ctrl+Shift+Z` | Redo last edit |
+| `Ctrl+B` / `Cmd+B` | Toggle **Bold** |
+| `Ctrl+I` / `Cmd+I` | Toggle *Italic* |
+| `Ctrl+U` / `Cmd+U` | Toggle <u>Underline</u> |
+| `Ctrl+Shift+X` / `Alt+Shift+5` | Toggle ~~Strikethrough~~ |
+| `Ctrl+K` / `Cmd+K` | Insert or edit hyperlink |
+| `Ctrl+Shift+.` / `Ctrl+Shift+,` | Increase / Decrease font size |
+| `Ctrl+]` / `Ctrl+[` | Increase / Decrease paragraph indent (or list nesting) |
+| `Ctrl+\` | Clear formatting (resets inline styles to document base) |
+| `Ctrl+Shift+L` | Align text Left |
+| `Ctrl+Shift+E` | Align text Center |
+| `Ctrl+Shift+R` | Align text Right |
+| `Ctrl+Shift+J` | Justify text |
+| `Ctrl+Shift+7` | Toggle Numbered list |
+| `Ctrl+Shift+8` | Toggle Bulleted list |
+| `Ctrl+Alt+0` | Apply Normal text style |
+| `Ctrl+Alt+1` – `3` | Apply Heading 1, Heading 2, Heading 3 |
+| `Tab` | Insert em space; indents highlighted blocks/lists; moves to next table cell (adds row in final cell) |
+| `Shift+Tab` | Decreases list/block indent; moves to previous table cell |
+| `Ctrl+P` / `Cmd+P` | Authentic WYSIWYG Print document |
+
+## 6.11 Authentic WYSIWYG Document Printing (Zero Image Loss)
+SmartDoc features an authentic on-screen WYSIWYG document printing engine:
+- Clicking **Print** (`Ctrl+P` / `Cmd+P` or the printer icon in the top header) renders the live on-screen canvas sheet directly to the browser print engine with zero lossy intermediate conversions.
+- **Zero Image Loss & 100% Fidelity**: All embedded images, diagrams, logos, and signatures print at full resolution, exact widths (25%, 50%, 75%, 100%), and alignments (Left, Center, Right).
+- **Print Isolation**: Editor controls, ribbon toolbars, side panels, comments, and field remove buttons are cleanly excluded during print, generating a pristine white A4/Letter document sheet with professional headers and footers.
 
 ---
 
@@ -575,5 +750,23 @@ You do **not** need to deploy the frontend and backend as two separate services.
    - Directly hosts all static web assets from `dist/`.
    - Handles SPA fallback for direct navigation (`/dashboard`, `/forms`, `/approvals`, etc.).
    - Eliminates CORS configurations and separate domain requirements.
+
+---
+
+# 16. Disk / Object Storage & Backup Management
+
+SmartDoc stores binary files (Word templates, documents, attachments) directly on disk rather than in PostgreSQL table cells:
+
+- **Storage Location**: `storage/` directory in the application root:
+  - `storage/templates/`: Template files keyed by ID (e.g. `TMPL-1793011299603.docx`).
+  - `storage/submissions/`: Submission documents and rendered outputs.
+  - `storage/temp/`: Working scratchpad for streaming operations.
+- **Backups**:
+  - To back up your SmartDoc deployment, back up two elements:
+    1. The PostgreSQL database (e.g., `pg_dump smartdoc > backup.sql`).
+    2. The physical `storage/` folder.
+- **Zero-Downtime Migration**:
+  - When upgrading from legacy database storage, SmartDoc automatically migrates all template binaries from PostgreSQL to `storage/templates/` on boot, hashes each file with SHA-256, and clears `docx_base64` from PostgreSQL to free database memory.
+
 
 

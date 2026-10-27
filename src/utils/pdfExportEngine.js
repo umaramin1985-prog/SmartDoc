@@ -434,6 +434,10 @@ export async function exportWordToPdf(source, fileName = 'document.pdf', onProgr
       s.style.webkitFontSmoothing = 'antialiased';
       s.style.textRendering = 'geometricPrecision';
     });
+    renderRoot.querySelectorAll('img').forEach(img => {
+      img.style.maxWidth = '100%';
+      img.style.height = 'auto';
+    });
 
     let pdf = null;
     const totalPages = sections.length;

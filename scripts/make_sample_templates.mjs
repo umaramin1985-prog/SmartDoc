@@ -47,4 +47,10 @@ fs.writeFileSync(path.join(dir, 'Leave_Request_NoSigTags.docx'), buildDocx([
   'Reason: {{Reason}}'
 ]));
 
+fs.writeFileSync(path.join(dir, 'Blank_Word_Doc.docx'), buildDocx([
+  'ANNUAL GENERAL ANNOUNCEMENT',
+  'This is a regular announcement document without any fillable placeholders.',
+  'All employees are advised to review the corporate policies.'
+]));
+
 console.log('Created test templates in', dir);

@@ -143,11 +143,11 @@ export const AppProvider = ({ children }) => {
       setActiveTabState(tab);
     };
 
-    // Ensure initial canonical path matches
+    // Ensure initial canonical path matches (preserve deep-link query string, e.g. ?action=fill&id=…)
     const initialTab = getTabFromPath(window.location.pathname);
     const canonicalPath = getPathForTab(initialTab);
     if (window.location.pathname !== canonicalPath) {
-      window.history.replaceState({ tab: initialTab }, '', canonicalPath);
+      window.history.replaceState({ tab: initialTab }, '', canonicalPath + window.location.search + window.location.hash);
     }
 
     window.addEventListener('popstate', handlePopState);
@@ -500,8 +500,15 @@ export const AppProvider = ({ children }) => {
     return r;
   };
   const archiveTemplate = async (id) => {
-    const r = await run(() => apiService.archiveTemplate(id), 'Template removed', 'Existing submissions are kept.');
-    if (r) await refreshTemplates();
+    const r = await run(() => apiService.archiveTemplate(id));
+    if (r) {
+      if (r.action === 'deleted') {
+        addToast('Template Deleted', r.message || 'Document permanently deleted from drive.', 'success');
+      } else {
+        addToast('Template Archived', r.message || 'Existing submissions were preserved.', 'info');
+      }
+      await refreshTemplates();
+    }
     return r;
   };
 

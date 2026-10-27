@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { PageHeader, EmptyState, StatusBadge, formatDate } from './ui';
 import { SubmissionDetailModal } from './SubmissionDetailModal';
+import { buildAppUrl, tabLinkProps, tabOpenProps } from '../utils/router';
+import { useDeepLink } from '../utils/useDeepLink';
 import {
   Inbox, Send, Building2, CheckCircle2, Search, FileText, AlertTriangle, ArrowRight, Eye, X
 } from 'lucide-react';
@@ -34,11 +36,12 @@ const SubmissionTable = ({ rows, onOpen, showSubmitter = true, showDept = true, 
           const step = s.workflow?.[(s.currentWorkflowStep || 1) - 1];
           const isOriginator = s.submittedById === currentUserId;
           const hasObjection = s.status === 'OBJECTION_RAISED' && isOriginator;
+          const detailUrl = buildAppUrl('approvals', { submission: s.id });
 
           return (
             <tr
               key={s.id}
-              onClick={() => onOpen(s.id)}
+              {...tabOpenProps(detailUrl, () => onOpen(s.id))}
               tabIndex={0}
               onKeyDown={(e) => { if (e.key === 'Enter') onOpen(s.id); }}
               className={hasObjection ? 'sd-tr-highlight-warn' : ''}
@@ -81,13 +84,14 @@ const SubmissionTable = ({ rows, onOpen, showSubmitter = true, showDept = true, 
               <td>{formatDate(s.expiryDate)}</td>
               <td><StatusBadge status={s.status} /></td>
               <td style={{ textAlign: 'right' }} onClick={e => e.stopPropagation()}>
-                <button
+                <a
+                  id={`btn-view-submission-${s.id}`}
                   className="btn btn-secondary btn-xs"
-                  onClick={() => onOpen(s.id)}
+                  {...tabLinkProps(detailUrl, () => onOpen(s.id))}
                   title="View submission details"
                 >
                   <Eye size={13} /> View
-                </button>
+                </a>
               </td>
             </tr>
           );
@@ -98,11 +102,24 @@ const SubmissionTable = ({ rows, onOpen, showSubmitter = true, showDept = true, 
 );
 
 export const FormApprovals = () => {
-  const { isAdmin, isSuperAdmin, formSubmissions, myApprovalQueue, mySubmissions, departmentSubmissions, currentUser } = useApp();
+  const { isAdmin, isSuperAdmin, formSubmissions, myApprovalQueue, mySubmissions, departmentSubmissions, currentUser, addToast } = useApp();
   const [tab, setTab] = useState(isAdmin && myApprovalQueue.length > 0 ? 'queue' : 'mine');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [openId, setOpenId] = useState(null);
+
+  // Deep link: /approvals?submission=<id> opens that submission's detail modal
+  useDeepLink(({ submission }, { timedOut }) => {
+    if (!submission) return true;
+    const s = formSubmissions.find(x => String(x.id) === String(submission));
+    if (s) {
+      setOpenId(s.id);
+      return true;
+    }
+    if (formSubmissions.length === 0 && !timedOut) return false;
+    addToast('Submission Not Found', 'The requested submission does not exist or you do not have access to it.', 'warn');
+    return true;
+  }, [formSubmissions]);
 
   const deptForms = useMemo(
     () => departmentSubmissions || formSubmissions.filter(s => s.department === currentUser?.department),

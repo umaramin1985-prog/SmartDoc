@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Load .env
 import { generateUserCertificate } from './pkiEngine.js';
+import { purgeStorage } from './storageEngine.js';
 
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
@@ -238,7 +238,10 @@ export async function initPostgresDatabase() {
     ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS comments JSONB DEFAULT '[]';
     ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS font_family VARCHAR(128);
     ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS font_size VARCHAR(32);
-    ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS file_size INTEGER;
+    ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS file_size BIGINT;
+    ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS file_path VARCHAR(512);
+    ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS file_hash VARCHAR(128);
+    ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS mime_type VARCHAR(128);
 
     ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS folder_id VARCHAR(64) REFERENCES folders(id) ON DELETE SET NULL;
     ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS comments JSONB DEFAULT '[]';
@@ -418,6 +421,7 @@ export async function wipeAllData(actorName = 'Super Administrator') {
   // 2. Truncate all templates and folders
   await p.query('TRUNCATE TABLE form_templates CASCADE');
   await p.query('TRUNCATE TABLE folders CASCADE');
+  purgeStorage();
 
   // 3. Truncate messages and notifications
   await p.query('TRUNCATE TABLE department_messages CASCADE');
@@ -467,6 +471,7 @@ export async function wipeFormsOnly(actorName = 'Super Administrator') {
   // 2. Truncate templates and folders
   await p.query('TRUNCATE TABLE form_templates CASCADE');
   await p.query('TRUNCATE TABLE folders CASCADE');
+  purgeStorage();
 
   // 3. Clear form/submission-related notifications
   await p.query("DELETE FROM notifications WHERE link_type IN ('form', 'submission', 'review', 'template')");

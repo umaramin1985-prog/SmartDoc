@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { apiService } from '../services/apiService';
+import { buildAppUrl, tabLinkProps, tabOpenProps } from '../utils/router';
+import { useDeepLink } from '../utils/useDeepLink';
 import { PageHeader, EmptyState, StatusBadge, formatDate, fileToBase64, formatSize, Modal, downloadBlob } from './ui';
 import { TemplateUploadModal } from './TemplateUploadModal';
 import { BulkImportModal } from './BulkImportModal';
@@ -162,6 +164,100 @@ export const FormsHub = () => {
     setPrintDirect(false);
     setFillTemplate(t);
   };
+
+  // ---------- Open-in-new-tab links & deep links ----------
+  // Each action has a shareable URL (e.g. /forms?action=fill&id=…). Action elements are
+  // rendered as <a href> so Ctrl/Cmd/Shift/Middle-click or right-click "Open in new tab" work.
+  const tplUrl = (action, t) => buildAppUrl('forms', { action, id: t.id });
+  const locUrl = (dept, folderId) => buildAppUrl('forms', { dept, folder: folderId });
+  const newStudioUrl = () => buildAppUrl('forms', { action: 'new', dept: currentDept, folder: currentFolderId });
+
+  const openEditor = (t) => {
+    setTemplateToEdit(t);
+    setShowWordStudio(true);
+  };
+
+  const openNewStudio = () => {
+    setTemplateToEdit(null);
+    setShowWordStudio(true);
+  };
+
+  const openPreview = (t) => {
+    openDocumentPreview({ kind: 'template', id: t.id, title: t.title, fileName: t.fileName, fileType: t.fileType });
+  };
+
+  // Deep links (/forms?action=fill|edit|view|history|print|new&id=…, /forms?dept=…&folder=…)
+  // are applied once the data they need has loaded; return false to keep waiting.
+  useDeepLink(({ action, id, dept, folder }, { timedOut }) => {
+    if (!action && !dept && !folder) return true;
+    const templatesReady = formTemplates.length > 0 || timedOut;
+    const foldersReady = folders.length > 0 || timedOut;
+
+    // 1. New Word Form Studio document (optionally inside a department/folder)
+    if (action === 'new') {
+      if (folder && !foldersReady) return false;
+      const f = folder ? folders.find(x => String(x.id) === String(folder)) : null;
+      if (f) navigateTo(f.department, f.id);
+      else if (dept) navigateTo(dept, null);
+      if (isAdmin) openNewStudio();
+      else addToast('Access Denied', 'Only administrators can open Word Form Studio.', 'warn');
+      return true;
+    }
+
+    // 2. Template actions: fill | edit | view | history | print
+    if (action && id) {
+      const t = formTemplates.find(x => String(x.id) === String(id));
+      if (!t) {
+        if (!templatesReady) return false;
+        addToast('Form Not Found', 'The requested form does not exist, was archived, or you do not have access to it.', 'warn');
+        return true;
+      }
+      // Reveal the template's location in the explorer behind the opened modal
+      if (t.department) navigateTo(t.department, t.folderId || null);
+
+      const isNonEditable = t.isEditable === false;
+      const canManageTpl = isSuperAdmin || (t.department && canManageDepartment(t.department));
+      switch (action) {
+        case 'fill':
+          if (isNonEditable) openPreview(t);
+          else if (t.isDraft && !canManageTpl) addToast('Unpublished Draft', 'This form has not been published yet.', 'warn');
+          else handleStartFill(t);
+          break;
+        case 'print':
+          if (isNonEditable) openPreview(t);
+          else handlePrintTemplate(t);
+          break;
+        case 'edit':
+          if (!canManageTpl) addToast('Access Denied', 'You do not have rights to edit this template.', 'warn');
+          else if (isNonEditable) openPreview(t);
+          else openEditor(t);
+          break;
+        case 'history':
+          setVersionHistoryTarget(t);
+          break;
+        case 'view':
+        default:
+          openPreview(t);
+          break;
+      }
+      return true;
+    }
+
+    // 3. Explorer location: department and/or folder
+    if (folder) {
+      const f = folders.find(x => String(x.id) === String(folder));
+      if (!f) {
+        if (!foldersReady) return false;
+        addToast('Folder Not Found', 'The requested folder does not exist or you do not have access to it.', 'warn');
+        if (dept) navigateTo(dept, null);
+        return true;
+      }
+      navigateTo(f.department, f.id);
+    } else if (dept) {
+      navigateTo(dept, null);
+    }
+    return true;
+  }, [formTemplates, folders]);
 
   // Active context rights check
   const canManageCurrent = currentDept ? canManageDepartment(currentDept) : false;
@@ -433,7 +529,7 @@ export const FormsHub = () => {
         <div
           className={`sd-tree-item ${isSelected ? 'active' : ''}`}
           style={{ paddingLeft: `${depth * 14 + 18}px` }}
-          onClick={() => navigateTo(folder.department, folder.id)}
+          {...tabOpenProps(locUrl(folder.department, folder.id), () => navigateTo(folder.department, folder.id))}
         >
           <button
             type="button"
@@ -522,14 +618,13 @@ export const FormsHub = () => {
                 </span>
               ) : (
                 <div style={{ display: 'inline-flex', gap: '4px', alignItems: 'center' }}>
-                  <button
-                    type="button"
+                  <a
                     className="sd-badge sd-badge-accent sd-badge-xs sd-badge-clickable"
                     title="View version history and revisions"
-                    onClick={(e) => { e.stopPropagation(); setVersionHistoryTarget(t); }}
+                    {...tabLinkProps(tplUrl('history', t), (e) => { e.stopPropagation(); setVersionHistoryTarget(t); })}
                   >
                     v{t.version || 1}
-                  </button>
+                  </a>
                   {t.isDraft && (
                     <span className="sd-badge sd-badge-warn sd-badge-xs" style={{ background: 'rgba(234, 179, 8, 0.15)', color: '#fbbf24', borderColor: 'rgba(234, 179, 8, 0.4)' }} title="Unpublished Draft: Not available for regular users to fill.">
                       <FileEdit size={10} style={{ marginRight: '3px' }} /> Draft
@@ -568,13 +663,13 @@ export const FormsHub = () => {
           <div className="sd-template-footer-meta">
             <span className="sd-muted">Added {formatDate(t.createdAt)}</span>
             <div className="sd-template-quick-tools">
-              <button
+              <a
                 className="sd-icon-btn-sm"
                 title="Preview document"
-                onClick={() => openDocumentPreview({ kind: 'template', id: t.id, title: t.title, fileName: t.fileName, fileType: t.fileType })}
+                {...tabLinkProps(tplUrl('view', t), () => openPreview(t))}
               >
                 <Eye size={14} />
-              </button>
+              </a>
               <button
                 id={`btn-tpl-download-${t.id}`}
                 className="sd-icon-btn-sm"
@@ -590,14 +685,14 @@ export const FormsHub = () => {
               >
                 <Download size={14} />
               </button>
-              <button
+              <a
                 id={`btn-tpl-history-${t.id}`}
                 className="sd-icon-btn-sm"
                 title="Version History (Git log)"
-                onClick={(e) => { e.stopPropagation(); setVersionHistoryTarget(t); }}
+                {...tabLinkProps(tplUrl('history', t), (e) => { e.stopPropagation(); setVersionHistoryTarget(t); })}
               >
                 <History size={14} />
-              </button>
+              </a>
               {canManageTpl && (
                 <>
                   {!isNonEditable && (
@@ -637,38 +732,34 @@ export const FormsHub = () => {
 
           <div className="sd-template-footer-actions">
             {canManageTpl && !isNonEditable && (
-              <button
+              <a
+                id={`btn-tpl-edit-${t.id}`}
                 className="btn btn-secondary btn-sm sd-btn-flex"
                 title="Edit template definition in Word Studio"
-                onClick={() => {
-                  setTemplateToEdit(t);
-                  setShowWordStudio(true);
-                }}
+                {...tabLinkProps(tplUrl('edit', t), () => openEditor(t))}
               >
                 <Edit3 size={13} /> Edit template
-              </button>
+              </a>
             )}
             {!isNonEditable ? (
               <>
-                <button
+                <a
+                  id={`btn-tpl-print-${t.id}`}
                   className="btn btn-secondary btn-sm sd-btn-flex"
-                  onClick={() => handlePrintTemplate(t)}
+                  {...tabLinkProps(tplUrl('print', t), () => handlePrintTemplate(t))}
                   title="Print form (filled or blank)"
                 >
                   <Printer size={13} /> Print
-                </button>
+                </a>
                 {t.isDraft ? (
                   canManageTpl ? (
-                    <button
+                    <a
                       className="btn btn-primary btn-sm sd-btn-flex"
-                      onClick={() => {
-                        setTemplateToEdit(t);
-                        setShowWordStudio(true);
-                      }}
+                      {...tabLinkProps(tplUrl('edit', t), () => openEditor(t))}
                       title="Open in Word Studio to configure approval chain and publish"
                     >
                       <Sparkles size={13} /> Edit &amp; Publish
-                    </button>
+                    </a>
                   ) : (
                     <button
                       className="btn btn-secondary btn-sm sd-btn-flex"
@@ -679,12 +770,13 @@ export const FormsHub = () => {
                     </button>
                   )
                 ) : (t.workflow && t.workflow.length > 0) ? (
-                  <button
+                  <a
+                    id={`btn-tpl-fill-${t.id}`}
                     className="btn btn-primary btn-sm sd-btn-flex"
-                    onClick={() => handleStartFill(t)}
+                    {...tabLinkProps(tplUrl('fill', t), () => handleStartFill(t))}
                   >
                     <PenSquare size={13} /> Fill form
-                  </button>
+                  </a>
                 ) : (
                   <button
                     className="btn btn-secondary btn-sm sd-btn-flex"
@@ -696,12 +788,12 @@ export const FormsHub = () => {
                 )}
               </>
             ) : (
-              <button
+              <a
                 className="btn btn-primary btn-sm sd-btn-flex"
-                onClick={() => openDocumentPreview({ kind: 'template', id: t.id, title: t.title, fileName: t.fileName, fileType: t.fileType })}
+                {...tabLinkProps(tplUrl('view', t), () => openPreview(t))}
               >
                 <Eye size={13} /> View doc
-              </button>
+              </a>
             )}
           </div>
         </div>
@@ -740,14 +832,13 @@ export const FormsHub = () => {
             </span>
           ) : (
             <div style={{ display: 'inline-flex', gap: '4px', alignItems: 'center' }}>
-              <button
-                type="button"
+              <a
                 className="sd-badge sd-badge-accent sd-badge-clickable"
                 title="View version history and revisions"
-                onClick={(e) => { e.stopPropagation(); setVersionHistoryTarget(t); }}
+                {...tabLinkProps(tplUrl('history', t), (e) => { e.stopPropagation(); setVersionHistoryTarget(t); })}
               >
                 Word Form v{t.version || 1}
-              </button>
+              </a>
               {(!t.workflow || t.workflow.length === 0) && (
                 <span className="sd-badge sd-badge-warn" title="No approval workflow configured">
                   <AlertTriangle size={10} /> No Approvers
@@ -770,13 +861,13 @@ export const FormsHub = () => {
         <td><span className="sd-muted">{formatDate(t.createdAt)}</span></td>
         <td style={{ textAlign: 'right' }}>
           <div className="sd-btn-row sd-justify-end">
-            <button
+            <a
               className="sd-icon-btn"
               title="Preview document"
-              onClick={() => openDocumentPreview({ kind: 'template', id: t.id, title: t.title, fileName: t.fileName, fileType: t.fileType })}
+              {...tabLinkProps(tplUrl('view', t), () => openPreview(t))}
             >
               <Eye size={15} />
-            </button>
+            </a>
             <button
               id={`btn-tbl-tpl-download-${t.id}`}
               className="sd-icon-btn"
@@ -792,13 +883,13 @@ export const FormsHub = () => {
             >
               <Download size={15} />
             </button>
-            <button
+            <a
               className="sd-icon-btn"
               title="Version History (Git log)"
-              onClick={() => setVersionHistoryTarget(t)}
+              {...tabLinkProps(tplUrl('history', t), () => setVersionHistoryTarget(t))}
             >
               <History size={15} />
-            </button>
+            </a>
             {canManageTpl && (
               <>
                 {!isNonEditable && (
@@ -832,40 +923,34 @@ export const FormsHub = () => {
                   <Trash2 size={15} />
                 </button>
                 {!isNonEditable && (
-                  <button
+                  <a
                     className="btn btn-secondary btn-xs"
                     title="Edit template definition in Word Studio"
-                    onClick={() => {
-                      setTemplateToEdit(t);
-                      setShowWordStudio(true);
-                    }}
+                    {...tabLinkProps(tplUrl('edit', t), () => openEditor(t))}
                   >
                     <Edit3 size={13} /> Edit template
-                  </button>
+                  </a>
                 )}
               </>
             )}
             {!isNonEditable ? (
               <>
-                <button
+                <a
                   className="btn btn-secondary btn-xs"
-                  onClick={() => handlePrintTemplate(t)}
+                  {...tabLinkProps(tplUrl('print', t), () => handlePrintTemplate(t))}
                   title="Print form (filled or blank)"
                 >
                   <Printer size={12} /> Print
-                </button>
+                </a>
                 {t.isDraft ? (
                   canManageTpl ? (
-                    <button
+                    <a
                       className="btn btn-primary btn-xs"
-                      onClick={() => {
-                        setTemplateToEdit(t);
-                        setShowWordStudio(true);
-                      }}
+                      {...tabLinkProps(tplUrl('edit', t), () => openEditor(t))}
                       title="Open in Word Studio to configure approval chain and publish"
                     >
                       <Sparkles size={12} /> Publish
-                    </button>
+                    </a>
                   ) : (
                     <button
                       className="btn btn-secondary btn-xs"
@@ -876,12 +961,12 @@ export const FormsHub = () => {
                     </button>
                   )
                 ) : (t.workflow && t.workflow.length > 0) ? (
-                  <button
+                  <a
                     className="btn btn-primary btn-xs"
-                    onClick={() => handleStartFill(t)}
+                    {...tabLinkProps(tplUrl('fill', t), () => handleStartFill(t))}
                   >
                     <PenSquare size={13} /> Fill
-                  </button>
+                  </a>
                 ) : (
                   <button
                     className="btn btn-secondary btn-xs"
@@ -893,12 +978,12 @@ export const FormsHub = () => {
                 )}
               </>
             ) : (
-              <button
+              <a
                 className="btn btn-primary btn-xs"
-                onClick={() => openDocumentPreview({ kind: 'template', id: t.id, title: t.title, fileName: t.fileName, fileType: t.fileType })}
+                {...tabLinkProps(tplUrl('view', t), () => openPreview(t))}
               >
                 <Eye size={13} /> View
-              </button>
+              </a>
             )}
           </div>
         </td>
@@ -939,17 +1024,14 @@ export const FormsHub = () => {
                 >
                   <FolderPlus size={16} /> New Folder
                 </button>
-                <button
+                <a
                   id="btn-explorer-word-studio"
                   className="btn btn-primary"
-                  onClick={() => {
-                    setTemplateToEdit(null);
-                    setShowWordStudio(true);
-                  }}
+                  {...tabLinkProps(newStudioUrl(), openNewStudio)}
                   title="Open Word Form Studio to design or customize Word form templates"
                 >
                   <FileText size={16} /> Word Form Studio
-                </button>
+                </a>
               </>
             )}
           </div>
@@ -977,14 +1059,13 @@ export const FormsHub = () => {
             {breadcrumbs.map((b, idx) => (
               <React.Fragment key={idx}>
                 {idx > 0 && <span className="sd-address-sep"><ChevronRight size={13} /></span>}
-                <button
-                  type="button"
+                <a
                   className={`sd-address-crumb ${idx === breadcrumbs.length - 1 ? 'is-current' : ''}`}
-                  onClick={() => navigateTo(b.dept, b.folderId)}
+                  {...tabLinkProps(locUrl(b.dept, b.folderId), () => navigateTo(b.dept, b.folderId))}
                 >
                   {idx === 0 ? <HardDrive size={13} /> : idx === 1 ? <Building2 size={13} /> : <Folder size={13} />}
                   <span>{b.label}</span>
-                </button>
+                </a>
               </React.Fragment>
             ))}
 
@@ -1103,7 +1184,7 @@ export const FormsHub = () => {
             {/* Quick Access Root */}
             <div
               className={`sd-tree-item ${currentDept === null ? 'active' : ''}`}
-              onClick={() => navigateTo(null, null)}
+              {...tabOpenProps(locUrl(null, null), () => navigateTo(null, null))}
             >
               <span className="sd-tree-icon"><HardDrive size={15} /></span>
               <span className="sd-tree-label">All Departments</span>
@@ -1124,7 +1205,7 @@ export const FormsHub = () => {
                   <div key={dept.id} className="sd-tree-dept-node">
                     <div
                       className={`sd-tree-item ${isDeptSelected ? 'active' : ''}`}
-                      onClick={() => navigateTo(dept.name, null)}
+                      {...tabOpenProps(locUrl(dept.name, null), () => navigateTo(dept.name, null))}
                     >
                       <button
                         type="button"
@@ -1236,7 +1317,7 @@ export const FormsHub = () => {
                             <div
                               key={dept.id}
                               className="sd-card sd-dept-drive-card"
-                              onClick={() => navigateTo(dept.name, null)}
+                              {...tabOpenProps(locUrl(dept.name, null), () => navigateTo(dept.name, null))}
                               tabIndex={0}
                               onKeyDown={(e) => { if (e.key === 'Enter') navigateTo(dept.name, null); }}
                             >
@@ -1272,12 +1353,12 @@ export const FormsHub = () => {
                                     <FolderPlus size={13} /> New Folder
                                   </button>
                                 )}
-                                <button
+                                <a
                                   className="sd-link sd-small"
-                                  onClick={() => navigateTo(dept.name, null)}
+                                  {...tabLinkProps(locUrl(dept.name, null), () => navigateTo(dept.name, null))}
                                 >
                                   Open Department &rarr;
-                                </button>
+                                </a>
                               </div>
                             </div>
                           );
@@ -1308,7 +1389,7 @@ export const FormsHub = () => {
                                 <tr
                                   key={dept.id}
                                   className="sd-tr-folder"
-                                  onClick={() => navigateTo(dept.name, null)}
+                                  {...tabOpenProps(locUrl(dept.name, null), () => navigateTo(dept.name, null))}
                                 >
                                   <td>
                                     <div className="sd-table-name-cell">
@@ -1352,12 +1433,12 @@ export const FormsHub = () => {
                                           <FolderPlus size={14} />
                                         </button>
                                       )}
-                                      <button
+                                      <a
                                         className="btn btn-secondary btn-sm"
-                                        onClick={() => navigateTo(dept.name, null)}
+                                        {...tabLinkProps(locUrl(dept.name, null), () => navigateTo(dept.name, null))}
                                       >
                                         Open &rarr;
-                                      </button>
+                                      </a>
                                     </div>
                                   </td>
                                 </tr>
@@ -1424,12 +1505,12 @@ export const FormsHub = () => {
                         >
                           <FolderPlus size={15} /> Create Folder
                         </button>
-                        <button
+                        <a
                           className="btn btn-primary"
-                          onClick={() => setShowWordStudio(true)}
+                          {...tabLinkProps(newStudioUrl(), openNewStudio)}
                         >
                           <FileText size={15} /> Word Form Studio
-                        </button>
+                        </a>
                       </div>
                     )}
                   />
@@ -1453,7 +1534,7 @@ export const FormsHub = () => {
                               <div
                                 key={f.id}
                                 className="sd-folder-tile"
-                                onClick={() => navigateTo(f.department, f.id)}
+                                {...tabOpenProps(locUrl(f.department, f.id), () => navigateTo(f.department, f.id))}
                                 tabIndex={0}
                                 onKeyDown={(e) => { if (e.key === 'Enter') navigateTo(f.department, f.id); }}
                               >
@@ -1525,7 +1606,7 @@ export const FormsHub = () => {
                           const subCount = folders.filter(x => x.parentId === f.id).length;
                           const tplCount = formTemplates.filter(x => x.folderId === f.id).length;
                           return (
-                            <tr key={f.id} className="sd-tr-folder" onClick={() => navigateTo(f.department, f.id)}>
+                            <tr key={f.id} className="sd-tr-folder" {...tabOpenProps(locUrl(f.department, f.id), () => navigateTo(f.department, f.id))}>
                               <td>
                                 <div className="sd-table-name-cell">
                                   <Folder size={17} className="sd-icon-folder" />
@@ -1848,31 +1929,47 @@ export const FormsHub = () => {
         </div>
       )}
 
-      {/* 7. Confirm Remove Template Modal */}
-      {confirmRemoveTemplate && (
-        <div className="sd-modal-backdrop">
-          <div className="sd-modal sd-modal-sm" role="alertdialog">
-            <header className="sd-modal-header">
-              <h2 className="sd-modal-title">Remove template?</h2>
-            </header>
-            <div className="sd-modal-body">
-              <p><strong>{confirmRemoveTemplate.title}</strong> will no longer be available to fill. Forms already submitted keep working.</p>
+      {/* 7. Confirm Remove / Delete Template Modal */}
+      {confirmRemoveTemplate && (() => {
+        const submissionCount = (formSubmissions || []).filter(s => s.templateId === confirmRemoveTemplate.id).length;
+        const hasSubmissions = submissionCount > 0;
+        return (
+          <div className="sd-modal-backdrop">
+            <div className="sd-modal sd-modal-sm" role="alertdialog">
+              <header className="sd-modal-header">
+                <h2 className="sd-modal-title">
+                  {hasSubmissions ? 'Archive template?' : 'Delete template?'}
+                </h2>
+              </header>
+              <div className="sd-modal-body">
+                {hasSubmissions ? (
+                  <p>
+                    <strong>{confirmRemoveTemplate.title}</strong> has <strong>{submissionCount}</strong> filled submission{submissionCount === 1 ? '' : 's'} on record.
+                    It will be <strong>archived</strong> so existing submissions and audit records remain intact, but it will be removed from your active drive.
+                  </p>
+                ) : (
+                  <p>
+                    No user has filled or submitted a form for <strong>{confirmRemoveTemplate.title}</strong> yet.
+                    It will be <strong>permanently deleted</strong> from your drive and physical storage.
+                  </p>
+                )}
+              </div>
+              <footer className="sd-modal-footer">
+                <button className="btn btn-secondary" onClick={() => setConfirmRemoveTemplate(null)}>Cancel</button>
+                <button
+                  className="btn btn-danger"
+                  onClick={async () => {
+                    await archiveTemplate(confirmRemoveTemplate.id);
+                    setConfirmRemoveTemplate(null);
+                  }}
+                >
+                  {hasSubmissions ? 'Archive' : 'Delete permanently'}
+                </button>
+              </footer>
             </div>
-            <footer className="sd-modal-footer">
-              <button className="btn btn-secondary" onClick={() => setConfirmRemoveTemplate(null)}>Cancel</button>
-              <button
-                className="btn btn-danger"
-                onClick={async () => {
-                  await archiveTemplate(confirmRemoveTemplate.id);
-                  setConfirmRemoveTemplate(null);
-                }}
-              >
-                Remove
-              </button>
-            </footer>
           </div>
-        </div>
-      )}
+        );
+      })()}
       {/* 8. Send Template for Review Modal */}
       {sendForReviewTarget && (
         <SendForReviewModal

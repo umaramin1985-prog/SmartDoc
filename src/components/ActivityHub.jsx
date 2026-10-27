@@ -5,7 +5,7 @@ import { UserAvatar, formatDate } from './ui';
 import {
   Activity, History, ExternalLink, Download, RefreshCw, Search,
   ShieldCheck, Filter, FileText, CheckCircle2, AlertTriangle,
-  XCircle, Folder, Lock, User, Check, Clock, Layers,
+  XCircle, Folder, Lock, User, Check, Clock, Layers, Trash2,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown
 } from 'lucide-react';
 
@@ -198,6 +198,8 @@ export const ActivityHub = ({ isStandalone = false }) => {
         return { label: 'Template Moved', tone: 'cyan', icon: Folder };
       case 'TEMPLATE_ARCHIVED':
         return { label: 'Template Archived', tone: 'gray', icon: Folder };
+      case 'TEMPLATE_DELETED':
+        return { label: 'Template Deleted', tone: 'red', icon: Trash2 };
       case 'FOLDER_CREATED':
       case 'FOLDER_RENAMED':
         return { label: type === 'FOLDER_RENAMED' ? 'Folder Renamed' : 'Folder Created', tone: 'cyan', icon: Folder };

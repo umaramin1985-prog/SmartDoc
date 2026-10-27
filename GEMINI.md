@@ -11,7 +11,7 @@
 
 ## 1. Route & Component Mapping (`SmartSidebar.jsx` → `App.jsx`)
 
-1. `dashboard` → `<SmartDashboard />`
+1. `dashboard` → `<SmartDashboard />` ("Smart Cockpit": interactive scope switcher, time window filters, 6 smart metric cards, interactive SVG velocity trend & status donut charts, department workload bars, priority radar, live searchable feed + `<DashboardCharts />`)
 2. `forms` → `<FormsHub />` ("Forms & Templates": Windows Explorer + `<SmartWordStudio />`, `<TemplateUploadModal />`, `<BulkImportModal />`, `<FillFormModal />`, `<TemplatePermissionsModal />`, `<VersionHistoryModal />`)
 3. `reviews` → `<ReviewsHub />` (+ `<ReviewChangesModal />`, `<SendForReviewModal />`)
 4. `approvals` → `<FormApprovals />` ("Submissions & Approvals" + `<SubmissionDetailModal />`)

@@ -4,7 +4,7 @@ import { initials, UserAvatar } from './ui';
 import { NotificationBell } from './NotificationBell';
 import { ACCENT_COLORS } from './ColorThemePicker';
 import SmartDocLogoIcon from './SmartDocLogoIcon';
-import { getPathForTab } from '../utils/router';
+import { getPathForTab, tabLinkProps } from '../utils/router';
 import {
   LayoutGrid, FolderOpen, FileText, CheckCircle2, MessageSquare, Settings,
   LogOut, PenLine, ClipboardCheck, Camera,
@@ -32,12 +32,8 @@ export const SmartSidebar = () => {
     <aside className={`smart-sidebar ${sidebarCollapsed ? 'is-collapsed' : ''}`} aria-label="Main sidebar">
       <div className="smart-sidebar-brand-row">
         <a
-          href="/"
           className="smart-sidebar-brand"
-          onClick={(e) => {
-            e.preventDefault();
-            setActiveTab('dashboard');
-          }}
+          {...tabLinkProps('/', () => setActiveTab('dashboard'))}
           title={sidebarCollapsed ? "SmartDoc - Forms & Approvals" : undefined}
         >
           <div className="smart-brand-icon-box">
@@ -71,12 +67,8 @@ export const SmartSidebar = () => {
           <a
             key={id}
             id={`nav-${id}-btn`}
-            href={getPathForTab(id)}
             className={`smart-nav-item ${activeTab === id ? 'active' : ''}`}
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveTab(id);
-            }}
+            {...tabLinkProps(getPathForTab(id), () => setActiveTab(id))}
             title={sidebarCollapsed ? `${label}${badge > 0 ? ` (${badge})` : ''}` : undefined}
           >
             <div className="smart-nav-icon-wrap">

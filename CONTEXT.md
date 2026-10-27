@@ -19,6 +19,7 @@
 | Backend | Node/Express (`server/server.js`, port 3001; Vite proxies `/api`) |
 | PKI Engine | Native `node:crypto` (RSA-2048, SHA-256) + `node-forge` (`server/pkiEngine.js`) for X.509 v3 Digital Certificates |
 | Database | PostgreSQL (`server/pgDb.js`), auto-creates DB + tables on start, seeds super admin from `.env` |
+| File Storage | Native Disk / Object Storage Engine (`server/storageEngine.js`) — decouples binary files from PostgreSQL into physical storage (`storage/templates/`, `storage/submissions/`, `storage/temp/`), with SHA-256 integrity hashing and zero-copy streaming (`streamTemplateFile`) |
 | Word engine | `docxtemplater` + `pizzip` + `word-extractor` + `mammoth` + `html-to-docx` (`server/docxEngine.js`) — universal parser and editor for `.docx` and legacy `.doc` (Word 97-2004 OLE2 / RTF) |
 
 `.env` keys: PG connection (host/port/user/password/db) and `SUPER_ADMIN_USERNAME` / `SUPER_ADMIN_PASSWORD`.
@@ -65,6 +66,17 @@ No mock data is ever seeded — only the super admin.
     - **Word Form Studio (`SmartWordStudio.jsx`)**: Validates against duplicate document titles in the active folder before publishing or saving drafts; highlights conflict badge in the editor header.
     - **Move Template (`FormsHub.jsx`)**: Validates destination folder before moving; displays `Name Conflict` badge on conflicting destination folder items in the Move dialog and blocks execution.
     - **Backend API & Database**: `findDuplicateTemplateInFolder()` enforces uniqueness on `POST /api/forms/templates`, `POST /api/forms/templates/bulk-import`, `PUT /api/forms/templates/:id`, and `PUT /api/forms/templates/:id/move`, returning HTTP 409 Conflict with descriptive messages.
+- **Submission-Aware Deletion vs. Archival Rule**:
+  - **Zero Submissions on Record**: If no user has ever filled or submitted a form against the template (`COUNT(form_submissions WHERE template_id = $1) === 0`), clicking Remove **permanently deletes** the template:
+    - Removes the physical document file from disk storage (`deleteTemplateFile(t.id, t.file_path)`).
+    - Unlinks any `published_template_id` references in `template_reviews`.
+    - Permanently deletes the record from PostgreSQL (`DELETE FROM form_templates WHERE id = $1`).
+    - Writes `TEMPLATE_DELETED` to the audit log.
+  - **Submissions Exist on Record**: If one or more users have filled or submitted forms against the template (`COUNT > 0`), the template is **soft-archived** (`status = 'ARCHIVED'`):
+    - The physical document file is preserved on disk so that past submissions can still render the original Word document, be printed, and verify cryptographic PKI RSA-2048 digital signatures.
+    - The database record is updated to `status = 'ARCHIVED'`, hiding it from active drive folders while preserving historical audit non-repudiation.
+    - Writes `TEMPLATE_ARCHIVED` to the audit log.
+  - **Dynamic UI Confirmation Modal (`FormsHub.jsx`)**: The confirmation dialog checks `formSubmissions` in real time, displaying "Delete template?" with permanent deletion details when count is 0, or "Archive template?" with the submission count and audit explanation when submissions exist.
 
 ---
 
@@ -74,7 +86,7 @@ SmartDoc uses native HTML5 History API client-side routing (`src/utils/router.js
 
 | `activeTab` | Canonical URL | URL Aliases | Component | Document Title | Who |
 |---|---|---|---|---|---|
-| `dashboard` | `/` | `/dashboard` | `SmartDashboard.jsx` — real counts only (my pending approvals, my submissions, templates) | `SmartDoc \| Dashboard` | all |
+| `dashboard` | `/` | `/dashboard` | `SmartDashboard.jsx` — **Smart Cockpit** (scope switcher, time horizon filters, 6 smart metric cards, interactive SVG velocity trend & status donut charts, department workload bars, priority radar, live searchable feed) | `SmartDoc \| Dashboard` | all |
 | `forms` | `/forms` | `/templates`, `/forms-templates` | `FormsHub.jsx` — **Forms & Templates** (Windows Explorer departments & nested folders tree, template studio, search, view modes) | `SmartDoc \| Forms & Templates` | all |
 | `reviews` | `/reviews` | — | `ReviewsHub.jsx` — **Pre-Publication Reviews** (Assigned to me / Started by me, reviewer feedback, diffs, accept/reject) | `SmartDoc \| Pre-Publication Reviews` | all |
 | `approvals` | `/approvals` | `/submissions`, `/submissions-approvals` | `FormApprovals.jsx` — **Submissions & Approvals** (tabs: My Action Required / My Submissions / All Department Submissions) | `SmartDoc \| Submissions & Approvals` | all |
@@ -89,9 +101,27 @@ SmartDoc uses native HTML5 History API client-side routing (`src/utils/router.js
   - **Standalone Window Mode (`/activity?popup=true`)**: Accessible via the "Separate Window" button (`window.open`). Renders an independent, focused activity monitoring window without app navigation chrome.
   - **Security & Non-Repudiation**: Every recorded event has a cryptographic SHA-256 integrity hash and verified flag. Includes real-time CSV export.
 
-- **Sidebar Navigation**: Links render as semantic `<a href={getPathForTab(id)}>` anchors with `e.preventDefault()`, preserving native link UX (hover status bar, right click copy link) while preventing full page reloads.
-- **Refresh & PopState**: Page reload reads `window.location.pathname` on initial state resolution. Browser `popstate` events keep `activeTab` and `document.title` in sync.
-- **Auth & Guarding**: Logging in preserves the requested URL; `/settings` is protected such that non-superadmins navigating to `/settings` are automatically redirected to `/dashboard`.
+- **Sidebar Navigation**: Links render as semantic `<a href={getPathForTab(id)}>` anchors using `tabLinkProps` — a plain click navigates in-app without a reload, while Ctrl/Cmd/Shift/Middle-click and right-click → "Open link in new tab" work natively.
+- **Refresh & PopState**: Page reload reads `window.location.pathname` on initial state resolution (the query string is preserved when an alias path is canonicalised). Browser `popstate` events keep `activeTab` and `document.title` in sync.
+- **Auth & Guarding**: Logging in preserves the requested URL (including deep-link query params); `/settings` is protected such that non-superadmins navigating to `/settings` are automatically redirected to `/dashboard`.
+- **Deep Links & Open in New Tab (`src/utils/router.js`, `src/utils/useDeepLink.js`)**:
+  - Every action that opens something has a shareable URL. Deep-link query keys (`DEEP_LINK_KEYS`): `action`, `id`, `dept`, `folder`, `submission`, `review` (unrelated params are preserved).
+
+    | URL | Opens |
+    |---|---|
+    | `/forms?action=fill&id=<templateId>` | Fill Form (requires workflow; drafts only for managers; PDF/image → preview) |
+    | `/forms?action=print&id=…` | Fill Form in direct-print mode |
+    | `/forms?action=edit&id=…` | Word Form Studio for that template (requires `canManageDepartment`) |
+    | `/forms?action=view&id=…` | Document preview |
+    | `/forms?action=history&id=…` | Version History modal |
+    | `/forms?action=new[&dept=…&folder=…]` | New Word Form Studio document (admins) |
+    | `/forms?dept=<name>[&folder=<folderId>]` | Explorer location |
+    | `/approvals?submission=<id>` | Submission detail modal |
+    | `/reviews?review=<id>[&action=review\|decide\|publish]` | Review overlay (action auto-chosen from phase when omitted) |
+  - Helpers: `buildAppUrl(tab, params)`, `getDeepLinkParams()`, `clearDeepLinkParams()`, `isNewTabClick(e)`, `tabLinkProps(url, handler)` (for `<a>` action buttons: plain click → `preventDefault` + in-app handler; modifier/middle click → native new tab), `tabOpenProps(url, handler, onNewTab?)` (for non-anchor containers such as tree nodes, folder tiles, table rows, list items, notification items: Ctrl/Cmd/Shift-click or middle-click → `window.open(url, '_blank', 'noopener')`; nested buttons/links are ignored).
+  - `useDeepLink(resolve, deps)` captures params at mount, re-runs `resolve(params, { timedOut })` as data loads (8s timeout → "Not Found" toast), then strips the params with `history.replaceState` so refresh/in-app navigation does not reopen the item. Used by `FormsHub`, `FormApprovals`, `ReviewsHub`.
+  - Link-enabled elements: FormsHub (Fill, Print, Edit template, Edit & Publish, Preview eye, View doc, Version History icon + version badge, Word Form Studio buttons, breadcrumbs, tree nodes, department cards/rows/"Open" links, folder tiles/rows), FormApprovals (rows + View), ReviewsHub (Review document / Review changes / Continue to publish), SmartDashboard (header buttons, stat cards, panel links, submission list items + eye), NotificationBell items (submission/review/template targets; opening in a new tab marks the notification read), SmartSidebar.
+  - Anchor-buttons keep their existing `btn` / `sd-icon-btn` / `sd-badge-clickable` / `sd-address-crumb` / `sd-link` classes; `App.css` normalises them (`a.btn` etc.: no underline, `line-height: normal`, focus ring) and styles busy links via `a.btn[aria-disabled="true"]`.
 - **Production SPA Serving**: `server/server.js` serves `dist/` static files and provides a wildcard fallback to `dist/index.html` for all non-API GET routes.
 - **Collapsible Sidebar (`SmartSidebar.jsx`)**:
   - Global `sidebarCollapsed` state in `AppContext.jsx` persisted in `localStorage` (`smartdoc_sidebar_collapsed`).
@@ -105,12 +135,20 @@ SmartDoc uses native HTML5 History API client-side routing (`src/utils/router.js
   - Full union of MS Word document editor and custom form builder on an authentic A4 sheet canvas.
   - **Typographic Line Spacing**: Document canvas uses authentic MS Word single line spacing (`line-height: 1.25`, `margin: 0` on `<p>` and `<div>`, `min-height: 1.25em`) ensuring zero/minimal vertical gap between consecutive lines and within table cells. Pressing Enter moves directly to the next line without an artificial paragraph block gap.
   - Word Ribbon interface:
-    - **Home**: **Undo / Redo** (custom snapshot history of the editor HTML, max 100 steps; also `Ctrl+Z`, `Ctrl+Y` / `Ctrl+Shift+Z` inside the canvas), font family, font size, bold, italic, underline, strikethrough, paragraph alignment, bullet/numbered lists, headings (H1, H2, H3, normal).
-    - **Insert Elements**: In-document interactive form fields (Text Box, Long Text, Date Picker, Number, Dropdown, Checkbox), In-Text Placeholders (Party / Name, Agreement Date, Contract Amount, Governing Law), Signatures (Submitter & Department approval slots), System tags (`{{Form ID}}`, `{{Submitted By}}`, `{{Submitted Date}}`, `{{Department}}`, `{{Version}}`), Tables, Dividers.
+    - **Home** (Google Docs parity): **Undo / Redo**, font family, font size (−/input/+), bold, italic, underline, strikethrough, text colour, highlight, **Insert link** (`#btn-studio-insert-link` / `Ctrl+K`), alignment, bullet/numbered lists, **Decrease / Increase indent** (`handleIndent`, ±36pt or list nesting), **Line spacing** select (`LINE_SPACING_OPTIONS`: Single / 1.15 / 1.5 / Double), **Clear formatting** (`handleClearFormatting`), headings (H1, H2, H3, Normal via `handleFormatHeading`). Toolbar buttons show live `is-active` state at the caret and never steal focus (`keepEditorFocus` on Home buttons, delegated `keepButtonFocus` on the Insert and Table Tools rows); selects/inputs restore the saved selection via `restoreEditorSelection()`.
+      - **Inline style engine** (`applyInlineStyle(prop, value)` + `INLINE_STYLE_MARKERS`): font family / size / colour / highlight apply **only to the selection** (multi-paragraph safe, nested overrides cleared, `contenteditable=false` widgets untouched); with a collapsed caret a `span[data-sd-caret]` carries the style to the next typed text. `fontFamily` / `fontSize` state is the **document base** (saved on the template); `uiFontFamily` / `fontSizeDisplay` only reflect the caret. Font-size input commits on Enter/blur only when changed, Escape reverts; both return focus to the page. `compileDocument` strips caret spans, zero-width spaces and empty styles.
+      - **Links (Google Docs parity)**:
+        - **Insert / Edit Link Popover (`#sd-link-dialog-popover`)**: Triggered via `Ctrl+K` / `Cmd+K` or ribbon buttons (`#btn-studio-insert-link` on Home, `#btn-studio-insert-link-tab` on Insert Elements). Supports editing custom anchor text (when selection is simple or inside existing link) and URL address. URL normalisation automatically prefixes `https://` or `mailto:`, rejecting dangerous schemes (`javascript:`, `data:`).
+        - **Interactive Link Quick Bubble (`.sd-link-bubble`)**: Positioned dynamically near any link under the caret/cursor. Provides single-click **Open** (`target="_blank" rel="noopener noreferrer"`), **Copy link** to clipboard, **Edit** (re-opens dialog), and **Remove link** (unwraps `<a>` into plain text).
+        - **Autolink & Paste-to-link**: Typing space after a URL automatically converts it into a formatted link; pasting a URL over highlighted text transforms the selection into a clickable link.
+        - **Sanitization & Export (`finalizeLinks`)**: Previews and compiled templates ensure all external links have `target="_blank" rel="noopener noreferrer"`, while stripping any malicious protocols without dropping text content.
+      - **History**: 100-step snapshot stack (`historyRef` with `stack` + `sels` caret offsets). Typing is grouped in 500ms bursts; Enter/paste/cut/drop and every ribbon command are separate steps (`flushTyping()`). Undo/redo restores the caret where the change happened and scrolls it into view. Native `beforeinput` `historyUndo` / `historyRedo` (context menu / Edit menu) are routed through Studio history.
+      - **Shortcuts**: `Ctrl+Z`, `Ctrl+Y` / `Ctrl+Shift+Z`, `Ctrl+B/I/U`, `Ctrl+K` (link), `Ctrl+Shift+X` / `Alt+Shift+5` (strikethrough), `Ctrl+Shift+L/E/R/J` (align), `Ctrl+Shift+7/8` (numbered / bulleted list), `Ctrl+Alt+0–3` (Normal / H1–H3), `Ctrl+Shift+.` / `,` (font size ±), `Ctrl+]` / `Ctrl+[` (indent / outdent), `Ctrl+\` (clear formatting), `Tab` (em space; indents with a selection or in a list; `Shift+Tab` outdents; moves between cells in tables).
+    - **Insert Elements**: In-document interactive form fields (Text Box, Long Text, Date Picker, Number, Dropdown, Checkbox), In-Text Placeholders (Party / Name, Agreement Date, Contract Amount, Governing Law), Signatures (Submitter & Department approval slots), System tags (`{{Form ID}}`, `{{Submitted By}}`, `{{Submitted Date}}`, `{{Department}}`, `{{Version}}`), Tables, Dividers, Link (`#btn-studio-insert-link-tab`).
     - **Page Layout**: Margins (normal, narrow, wide), Page sizes (A4, Letter), Orientation (portrait, landscape).
     - **Workflow & Approvals**: Department selector, destination folder, audience, decision deadline (days), and sequential approval steps auto-synced with document signatures.
-  - In-document widgets: interactive field pills (`.sd-doc-field-pill`), signature blocks (`.sd-doc-sig-block`) and system tags (`.sd-doc-system-tag`). Each has an **×** quick-remove button (`data-remove`); clicking a field/signature opens an inline popover for labels, required/mandatory toggle, types, placeholders, dropdown options, **Field Format switcher** (`🏷️ In-Text Placeholder (Dialog)` vs `📝 Direct Input Box`), **Text Weight switcher** (Normal Text vs Bold `font-weight: 700` for in-text placeholders, stored in `data-field-bold` and compiled into `fields[].bold`), and **Field Width** (Auto / 25 / 33 / 50 / 66 / 75 / 100 % of the row, stored as `data-width` and saved in `fields[].width`). All mutations (insert, edit, remove, typing, docx load) are recorded for undo/redo.
-  - **Live form preview**: header toggle **Edit / Side by side / Preview** (`viewMode`). `FormPreviewPane` renders the whole document as users would see it: the editor HTML is cloned and converted by `buildPreviewHtml` (text/tables/headings kept; in-text placeholders become styled preview chips `.sd-pv-placeholder-chip` honoring configured bold weight; direct input fields become live inline inputs at their configured `width`; signature blocks become signature boxes; system tags become `[Tag]` markers), rebuilt on every history snapshot, plus the approval chain and a disabled submit button. Inputs are interactive but never submitted.
+  - In-document widgets: interactive field pills (`.sd-doc-field-pill`), signature blocks (`.sd-doc-sig-block`) and system tags (`.sd-doc-system-tag`). Each has an **×** quick-remove button (`data-remove`); clicking a field/signature opens the **Customize Form Field** modal for labels, required/mandatory toggle, types, placeholders, **Display Mode** (`🏷️ In-Text Tag` vs `📝 Input Box`). **In-Text tags strictly use text input type** (`type === 'text'`); when In-Text Tag is active, the Input Type selector is locked to Short Text and other controls (dropdown options, dates, numbers) are disabled/hidden. Switching to **Input Box** unlocks all form control types (Short Text, Long Text, Date, Number, Dropdown Select with prominent live badge pills, and Checkbox). Also supports **Text Weight switcher** (Normal Text vs Bold `font-weight: 700` for in-text placeholders, stored in `data-field-bold` and compiled into `fields[].bold`), and **Field Width** (Auto / 25 / 33 / 50 / 66 / 75 / 100 % of the row, stored as `data-width` and saved in `fields[].width`). All mutations (insert, edit, remove, typing, docx load) are recorded for undo/redo.
+  - **Live form preview (identical to Fill Form)**: header toggle **Edit / Side by side / Preview** (`viewMode`). `FormPreviewPane` renders the exact same sheet as `FillFormModal` (no extra badge/title row above it): `.sd-pv-filler-sheet` shares the `.sd-form-filler-sheet` styles (820px A4, same padding, same desk background `.sd-pv-filler-desk`) with the `.sd-word-page-header-mark` header (`{Department} — Enterprise Word Form` / template code). `buildPreviewHtml` emits the same DOM/classes as the fill form: direct inputs → `.sd-live-slot-direct > .sd-doc-live-field-wrap` with `.sd-doc-live-input` (placeholder `Enter {Label}…`, dropdown first option `-- Select {Label} --`), in-text tags → `.sd-live-slot-inline > .sd-doc-live-placeholder` tokens, signatures → `.sd-live-slot-sig` and system tags → `.sd-pv-sys`, which `resolvePreviewHtml` fills against the current user (`fillerSignatureHtml`: saved signature or "Draw & Save Signature", pending department blocks; Form ID / Submitted By / Date / Department / Version values). A submitter signature block is appended when the document has none, exactly like Fill Form. Rebuilt on every history snapshot; inputs are interactive but never submitted.
   - **Word-style tables**: Insert tab → **Table ▾** opens `TableGridPicker` (10×8 hover grid) to insert any R×C table at the caret. While the caret is inside a table a contextual **Table Tools** ribbon tab (`#tab-table-tools`) appears with: Insert Row Above/Below, Column Left/Right, Delete Row/Column/Table, **Merge Cells / Split Cell**, cell Shading, horizontal/vertical alignment, Borders, Table Width and Equal Columns. Interactions: drag across cells to select a range (`.sd-cell-selected`, editor-only; stripped from history, compile and preview via `stripEditorState`), drag a column border to resize, `Tab` / `Shift+Tab` move between cells (Tab in the last cell adds a row), `Delete` clears the selected cells. Field pills, signatures and system tags work inside cells. Module helpers: `buildTableGrid`, `cellsInRange`, `mergeRange`, `splitCell`, `insertRowAt/insertColAt`, `deleteRowAt/deleteColAt`, `createTableElement`; component handler `runTableOp`. All table edits are undoable and shown in the preview. Manual column widths reset to equal after adding/deleting a column.
   - **Send for Review & Review Modes**:
     - **No "Send for review" on Form Creation / Edit**: The Word Form Studio editor is strictly reserved for authoring, editing, and publishing/committing templates. Sending for review is not placed on form creation or edit actions.
@@ -151,7 +189,7 @@ SmartDoc uses native HTML5 History API client-side routing (`src/utils/router.js
   - Bottom status bar: Displays dynamic `Total Storage: X KB/MB` for the current explorer view.
   - Contextual modals: Create folder (with target department selector if at root), Rename folder, Delete folder (with safe re-parenting of sub-items), Move template to folder.
 - `ui.jsx` — shared: `Modal` (configured with outside-click immunity so dialogues never close accidentally when clicking the backdrop; closed only via explicit action buttons or Esc), `StatusBadge`, `EmptyState`, `PageHeader`, `WorkflowTrack`, `formatDate`, `formatSize`, `initials`, `roleLabel`, `fileToBase64`, `downloadBlob`.
-- `TemplateUploadModal.jsx` — document uploader for `.docx`, `.pdf`, and image files. `.docx` files can be uploaded with or without initial `{{placeholders}}`; custom placeholders can be defined in-modal or added anytime after upload in **Word Form Studio** (`SmartWordStudio.jsx`). Authors can set each field's Fill Style to `🏷️ Placeholder (Dialog)` (default for in-text legal tags) or `📝 Direct Input`, and configure **Weight** (`Bold` vs `Normal`). Features a quick-switcher link to the Bulk Importer.
+- `TemplateUploadModal.jsx` — document uploader for `.docx`, `.doc`, `.pdf`, and image files. Modernized card architecture: **Template Details & Storage**, **Detected Placeholders** (clean monospace badge pills `{{tag}}` rendered only when detected in document; manual in-modal placeholder builder and empty-state alerts removed in favor of rich visual authoring in **Word Form Studio** `SmartWordStudio.jsx`), and **Sequential Approval Chain** with connected visual pipeline and draft mode. Features real-time folder collision detection and quick-switcher to the Bulk Importer.
 - `BulkImportModal.jsx` — **Enterprise Bulk Document Importer**: supports multi-file drag-and-drop and computer browsing for batch importing Word Form Templates (`.doc`, `.docx`), Adobe PDFs (`.pdf`), and image documents (`.png`, `.jpg`, `.jpeg`, `.webp`). Features staged files queue table with editable document titles, file size indicators, format detection badges, batch destination selectors (Department, Folder, Audience visibility), and a visual sequential Department Approval Workflow chain builder automatically applied to all imported Word form templates to guarantee they are immediately valid and fillable.
 - `TemplatePermissionsModal.jsx` — granular form access rights manager (All Users company-wide, Specific Departments multi-select grid with owning dept badge, or Specific Persons with live search).
 - `VersionHistoryModal.jsx` — Git-like revision log showing version badges, author, timestamps, change summaries, and rollback / inspection.
@@ -239,7 +277,7 @@ handles blob downloads, `parseDocx`, `htmlToDocx`, notification endpoints, and t
 | `POST /api/forms/templates/:id/render-print-document` | `{ values, blank, customHtml }` → `.docx` buffer formatted for authentic Word printing (filled or pristine blank with handwriting lines) |
 | `POST /api/forms/templates` | admin (forced to own dept) / superadmin; supports `htmlContent`, `folderId`, `reviewId`, `isDraft: boolean`, and `status: 'DRAFT'` bypassing mandatory workflow requirement |
 | `POST /api/forms/templates/bulk-import` | `{ department, folderId, audience, defaultExpiryDays, files }` — bulk intake of docx/doc/pdf/images; all imported files are strictly saved as unpublished drafts (`status: 'DRAFT'`, `workflow: []`) |
-| `PUT /api/forms/templates/:id` | admin of owning dept / superadmin; updates template in-place with Git-style version commit; supports transitioning from `DRAFT` to `ACTIVE` (validates workflow on publish) or saving draft updates |
+| `PUT /api/forms/templates/:id` | admin of owning dept / superadmin; updates template in-place with Git-style version commit; sequentially indexes parameters `$1` through `$22` without omissions; supports transitioning from `DRAFT` to `ACTIVE` (validates workflow on publish) or saving draft updates |
 | `PUT /api/forms/templates/:id/move` | `{ folderId }` — moves template within department; requires dept admin |
 | `DELETE /api/forms/templates/:id` | soft archive |
 | `GET /api/template-reviews` | reviews involving current user (as initiator or reviewer) |
@@ -303,7 +341,7 @@ Tables in use:
 - `users` (incl. `signature_image`, `pki_certificate_pem`, `pki_public_key_pem`, `pki_private_key_pem`, `pki_serial_number`, `pki_fingerprint`, `pki_issued_at`, `pki_expires_at`)
 - `departments`
 - `folders` (`id`, `name`, `department`, `parent_id`, `created_by_id`, `created_by_name`, `created_at`, `updated_at`)
-- `form_templates` (`docx_base64`, `docx_filename`, `html_content`, `font_family`, `font_size`, `file_type`, `file_size`, `is_editable`, `access_type`, `allowed_departments`, `allowed_users`, `version_history`, `comments`, `audience`, `fields`, `workflow`, `signature_slots`, `system_tags`, `folder_id`, archived flag)
+- `form_templates` (`id`, `unique_code`, `title`, `department`, `description`, `folder_id`, `status`, `file_type`, `file_size`, `file_path`, `file_hash`, `mime_type`, `docx_filename`, `is_editable`, `access_type`, `allowed_departments`, `allowed_users`, `version`, `version_history`, `comments`, `audience`, `fields`, `workflow`, `signature_slots`, `system_tags`, `html_content`, `font_family`, `font_size`, `docx_base64` [migrated to disk & released as NULL])
 - `form_submissions` (`folder_id`, workflow, version history, signatures, comments, `pki_signature` JSONB envelope)
 - `notifications` (`id`, `user_id`, `title`, `message`, `type`, `link_type`, `link_id`, `is_read`, `created_at`)
 - `template_reviews` (`id`, `title`, `department`, `folder_id`, `base_html`, `base_fields`, `base_workflow`, `status`, `decisions`, `merged_html`, `notes`, `initiator_id`, `initiator_name`, `published_template_id`)
@@ -313,7 +351,79 @@ Tables in use:
 
 ---
 
-## 9. Revision Log
+## 9. Native Disk / Object Storage Engine (`server/storageEngine.js`)
+
+SmartDoc decouples binary files from PostgreSQL into a high-performance native disk and object storage architecture:
+- **Base Storage Directory (`storage/`)**:
+  - `storage/templates/`: Stores original Word (`.docx`, `.doc`), PDF (`.pdf`), and image files. Files are keyed by unique template identifier (e.g. `TMPL-1793011299603.docx`).
+  - `storage/submissions/`: Stores rendered and signed submission artifacts.
+  - `storage/temp/`: Isolated scratchpad for streaming operations and file conversions.
+- **Database Lean Metadata**:
+  - `file_path`: Relative path to storage root (`templates/TMPL-...`).
+  - `file_hash`: Cryptographic SHA-256 integrity hash of binary contents.
+  - `file_size`: Exact byte length of the file on disk.
+  - `mime_type`: Standardized IANA MIME type for proper HTTP response headers.
+  - `docx_base64`: Kept as optional legacy fallback, but completely released (`NULL`) for disk-backed records, freeing PostgreSQL memory and table bloat.
+- **Zero-Copy Streaming (`streamTemplateFile`)**:
+  - Template downloads (`GET /api/forms/templates/:id/file`) stream binary data directly from disk to client responses via `fs.createReadStream`, bypassing Node.js heap memory limits.
+- **Automatic Startup Migration (`migrateDatabaseTemplatesToDisk`)**:
+  - On backend server startup, queries all templates. Any existing template storing base64 data in PostgreSQL is automatically written to disk, verified with SHA-256, and its database row updated with `file_path`, `file_size`, and `file_hash`, with `docx_base64` set to `NULL` to immediately shrink database footprint.
+- **Factory Reset Synchronization**:
+  - `purgeStorage()` is integrated directly with `wipeAllData` and `wipeFormsOnly` in `server/pgDb.js`, guaranteeing 100% synchronization between database records and disk storage during administrative resets.
+
+---
+
+## 10. Revision Log
+
+- **2026-10-27** — Interactive Smart Dashboard & Analytics Cockpit:
+  - **Smart Stats Grid (6 High-Insight Cards)**: Added computed enterprise metrics with zero mock data:
+    1. *Awaiting My Action / In Review* with urgent SLA indicator (deadline <48h).
+    2. *Approval Velocity & SLA Turnaround* computing average turnaround hours/days and on-time SLA rate.
+    3. *Approval Pass Rate* with approval vs objection vs rejection breakdown.
+    4. *Revisions Requested* highlighting active objections needing resubmission.
+    5. *Digital PKI Cryptographic Coverage* measuring non-repudiation and RSA-2048 signing coverage.
+    6. *Active Catalog Throughput* tracking templates utilized vs total published.
+  - **Interactive SVG Charts (`DashboardCharts.jsx`)**:
+    - *Submission & Approval Velocity Trend*: responsive SVG Area & Line chart with smooth Bézier splines, gradient fill, mode toggle between Area Line and Daily Volume Bars, interactive hover tooltips with exact counts, glowing pulse dots, and click-to-filter submissions by date.
+    - *Status Breakdown Donut*: SVG donut chart with segment arcs (Approved, In Review, Objections, Rejected), glowing hover states, animated center display showing selected status and percentage of total, and interactive legend pills filtering feed by status.
+    - *Department Workload & Pipeline*: horizontal comparative bars showing department throughput, pending approvals, and bottleneck indicators with click-to-filter by department.
+    - *Most Utilized Word Templates*: catalog leaderboard ranking forms by usage count with pass rate and direct "Fill Form" actions.
+  - **Interactive Scope & Time Filtering**:
+    - Workspace scope switcher (*My Workspace* / *My Department* / *Enterprise Global*).
+    - Time horizon selector (*7 Days* / *30 Days* / *90 Days* / *All Time*).
+    - Live active filter banner with tag chips and 1-click reset.
+  - **Priority Action Radar & Live Submissions Explorer**:
+    - Multi-tab priority inbox: *Approvals Queue*, *Objections to Fix*, *Urgent SLA (<48h)*, and *Pre-Publication Reviews*.
+    - Searchable live submissions feed with debounced text search, status pills, and direct `SubmissionDetailModal` integration.
+  - **Enterprise Quick Launch Dock**: 1-click action shortcuts for Fill Form, Approvals Queue, Signature & PKI, and Activity Trail.
+
+- **2026-10-27** — Open Forms & Actions in a New Tab (Deep Links):
+  - Added deep-link URL helpers and new-tab click helpers to `src/utils/router.js` and the `useDeepLink` hook (`src/utils/useDeepLink.js`).
+  - Converted action buttons in `FormsHub`, `FormApprovals`, `ReviewsHub`, `SmartDashboard`, `SmartSidebar` to `<a href>` links; containers (tree, tiles, rows, list/notification items) support Ctrl/Middle-click via `tabOpenProps`.
+  - `AppContext` now preserves `location.search` when canonicalising alias paths on load.
+  - See §3 "Deep Links & Open in New Tab" for the URL scheme.
+
+- **2026-10-27** — Document Image Layout & Sizing Normalization:
+  - **Universal Responsive Image Constraints (`src/App.css`, `src/index.css`)**:
+    - Added universal `max-width: 100% !important; height: auto !important; box-sizing: border-box;` constraint across `.sd-word-editor-body img`, `.sd-word-page-sheet img`, `.sd-doc-image-wrap img`, `.sd-pv-doc img`, `.sd-rv-doc img`, `.sd-docx-host img`, `.docx-wrapper img`, and `section.docx img`.
+    - Prevents large screenshots, photos, and high-resolution document images from overflowing the A4 printable page boundaries into the backdrop.
+  - **Automatic Document Image Normalization (`src/components/SmartWordStudio.jsx`)**:
+    - Built `normalizeEditorImages(root)` to automatically detect and wrap raw `<img>` tags loaded from `.docx` files or pasted into the canvas.
+    - Adds interactive hover selection, quick-delete (`×`) controls, and floating Size toolbar (`25%`, `50%`, `75%`, `100%`) and Alignment buttons (`Left`, `Center`, `Right`) on any clicked image.
+    - Updated `stripEditorState` to automatically strip editor-only delete buttons (`.sd-image-remove`) from published documents, live form previews, and print outputs.
+  - **Print & PDF Export Protection (`src/utils/pdfExportEngine.js`, `src/utils/wordPrintEngine.js`)**:
+    - Enforced `maxWidth: 100%` on all images during razor-sharp PDF canvas generation and Word printing.
+
+- **2026-10-27** — Native Disk / Object Storage Engine Migration:
+  - **Decoupled Binary Storage from PostgreSQL (`server/storageEngine.js`)**:
+    - Created dedicated storage subsystem managing `storage/templates/`, `storage/submissions/`, and `storage/temp/`.
+    - Added database schema columns: `file_path` VARCHAR(512), `file_hash` VARCHAR(128) (SHA-256), `file_size` BIGINT, and `mime_type` VARCHAR(128).
+    - Updated `POST /api/forms/templates` and `POST /api/forms/templates/bulk-import` to write uploaded and imported files directly to physical disk.
+    - Updated `GET /api/forms/templates/:id/file` to stream files directly from disk via `fs.createReadStream` with fallback to database base64.
+    - Updated `POST /api/forms/templates/:id/render-print-document` and `GET /api/forms/submissions/:id/document` to load Word templates from physical disk files.
+    - Built automatic migration worker (`migrateDatabaseTemplatesToDisk`) running on server boot that automatically exports existing database template binaries to disk, verifies file hashes, and releases PostgreSQL `docx_base64` TEXT columns.
+    - Synchronized system reset hooks (`wipeAllData`, `wipeFormsOnly`) with `purgeStorage()` to cleanly purge physical storage alongside database truncations.
+    - Added `storage/` directory to `.gitignore`.
 
 - **2026-10-25** — Authentic Microsoft Word Document Printing Engine:
   - **MS Word-Grade Document Print Engine (`src/utils/wordPrintEngine.js`)**:
@@ -826,4 +936,46 @@ Tables in use:
         - Dedicated **Download Document Modal** (`#download-document-modal`) for Word templates providing interactive format cards:
           - **Microsoft Word**: Download original `.docx` format compatible with Microsoft Word and SmartDoc Studio.
           - **PDF Document**: Save print-ready, high-resolution `.pdf` file with live progress indicator.
+  - **Word Form Studio Image Insertion & Dynamic Width Scaling Fixes (`SmartWordStudio.jsx`, `App.css`) (2026-10-27)**:
+    - **Issues Identified**:
+      1. **Broken Image Icon on Insert / Paste**: Inserting or pasting images into Word Form Studio resulted in broken image icons (e.g. `combined_id_card`) because `fileToBase64` stripped the `data:image/...;base64,` prefix. The browser interpreted headless base64 strings as relative web paths (`http://localhost:3001/forms/iVBORw...`).
+      2. **Width Sizing Buttons Not Resizing Images**: Clicking floating toolbar percentage buttons (`25%`, `50%`, `75%`, `100%`) highlighted the button but failed to resize the image because `.sd-word-editor-body img` had a conflicting `max-width: 100% !important;` in `App.css`, overriding inline style assignments.
+    - **Fixes Applied**:
+      - **Complete Data URI Scheme (`fileToDataUrl`)**: Replaced raw base64 stripping with `FileReader.readAsDataURL(file)` in `ImageInsertDialog`, paste, and drop handlers to retain complete, valid Data URIs.
+      - **Automatic Canvas Image Healing**: Added self-healing in `normalizeEditorImages` and `insertImageAtCursor` that inspects any `src` lacking URI schemes and prefixes appropriate MIME headers (`iVBORw0KGgo` → PNG, `/9j/` → JPEG, `R0lGOD` → GIF, `UklGR` → WebP), instantly restoring broken images already on the canvas.
+      - **Explicit CSS Attribute Overrides**: Removed global `!important` from general `.sd-word-editor-body img` rules and introduced targeted override classes: `.sd-doc-image[data-width="25"]`, `[data-width="50"]`, `[data-width="75"]`, `[data-width="100"]` with `!important` width and max-width.
+      - **Synchronized Wrapper & Image Styling**: Updated `updateImageWidth` to set both `width` and `max-width` on the image element as well as the `.sd-doc-image-wrap` container.
+      - **Live Toolbar Active State**: Toolbar buttons for size (`25%`, `50%`, `75%`, `100%`) and alignment (`Left`, `Center`, `Right`) now dynamically evaluate both `data-width` / `data-align` and inline styles, immediately lighting up in the theme's active accent color.
+  - **Word Form Studio Authentic WYSIWYG Printing & Zero Image Loss Fix (`SmartWordStudio.jsx`, `App.css`) (2026-10-27)**:
+    - **Issue Identified**:
+      - Clicking **Print** in Word Form Studio (`SmartWordStudio.jsx`) was stripping/omitting images from the print output (e.g. Access screenshots disappeared in the print preview dialog, leaving only raw text and generating 5 fragmented sheets of paper).
+      - **Root Cause**: The previous print flow passed HTML through server-side `htmlToDocx` conversion to create a `.docx` file and rendered it in a hidden off-screen iframe via `docx-preview`. The `.docx` OOXML relationship packaging and offscreen iframe failed to render large base64 screenshot images before printing was triggered, while also corrupting document margins and page flow.
+    - **Fix Applied**:
+      - **Direct On-Screen WYSIWYG Document Printing**: Unified Word Studio printing with the exact high-fidelity pattern used in **Fill Form** (`FillFormModal.jsx`). Studio printing now directly renders the live on-screen canvas sheet (`.sd-word-page-sheet`) to the browser print engine with zero conversion round-trips.
+      - **Zero Image Loss & 100% Fidelity**: Since images are already decoded and rendered in DOM, every image (embedded screenshots, logos, signatures, diagrams) prints at full resolution, exact width (`25%`, `50%`, `75%`, `100%`), and chosen alignment (Left, Center, Right).
+      - **Complete Print Isolation Stylesheet (`App.css`)**: Injected print isolation rules for `body.sd-printing-studio-doc` and `body:has(.sd-studio-container)` in `@media print`, cleanly hiding all editor chrome (ribbon, header, sidebars, toolbars, workflow bar, comments pane, popovers, remove buttons) while formatting the pristine white document sheet with authentic header and footer marks.
+      - **Browser Lifecycle Hooks & Shortcut**: Added `beforeprint` and `afterprint` window listeners and `Ctrl+P` / `Cmd+P` shortcut handling in Word Studio.
+  - **Word Form Studio Google Docs Parity & Full Action Validation (`SmartWordStudio.jsx`, `App.css`) (2026-10-27)**:
+    - **Bugs fixed**:
+      1. Changing font family or size restyled the **whole document** (and moving the caret into differently styled text switched the whole document's font). Now only the selection / next typed text changes; the document base font is separate from the caret display.
+      2. Font / size / colour / highlight used `extractContents()` into one span, breaking multi-paragraph selections and leaving nested styles that overrode the new value. Replaced with the `applyInlineStyle` marker engine.
+      3. Ribbon active states (B/I/U/S, alignment, lists, headings) were computed but never shown.
+      4. Ribbon buttons stole focus and lost the selection; selects/inputs didn't restore it.
+      5. Undo/redo dropped the caret at the top of the document; native Edit-menu undo bypassed Studio history.
+    - **Added**: indent / outdent, line spacing, clear formatting, Google Docs keyboard shortcuts, stable ids on ribbon controls (`btn-studio-*`, `select-studio-*`, `input-studio-font-size`).
+    - **Google Docs Insert Link & Link Bubble (`SmartWordStudio.jsx`, `App.css`) (2026-10-27)**:
+      - Added full Google Docs-style Link support:
+        1. **`Ctrl+K` Shortcut & Ribbon Buttons**: `#btn-studio-insert-link` in Home ribbon (lights up with `.is-active` when the caret is in a link) and `#btn-studio-insert-link-tab` in Insert Elements.
+        2. **Floating Link Dialog (`#sd-link-dialog-popover`)**: Edit text & URL, automatic `https://` / `mailto:` scheme detection, validation error messaging, Escape to close, Enter to submit.
+        3. **Floating Link Quick Bubble (`.sd-link-bubble`)**: Displays target URL, single-click external open in new tab with security attributes (`target="_blank" rel="noopener noreferrer"`), copy to clipboard with toast notification, edit pencil, and quick unlink/remove.
+        4. **Google Docs Autolink on Space**: Typing a URL followed by Space automatically transforms into an `<a>` link.
+        5. **Paste URL to Link**: Pasting a web address over selected text automatically creates an anchor tag preserving highlighted text.
+        6. **Full Undo/Redo & Clean Compilation**: Link creation, edits, and unlinks push to the 100-step history stack; `compileDocument` and `buildPreviewHtml` run `finalizeLinks` to guarantee sanitized, secure hyperlinks.
+    - **Validation**: 90 automated in-browser checks across 3 validation suites (Home ribbon formatting, fonts, sizes, colours, lists, headings, indent, spacing, shortcuts, undo/redo with caret; Insert tab fields/placeholders/signatures/system tags/HR; table insert, Tab navigation, row/column insert/delete, merge/split, delete; Page Layout; Edit / Side by side / Preview; Link dialog, Link bubble, autolink, edit link, remove link) all passed with zero console errors.
+  - **Submission-Aware Template Deletion & Disk Cleanup (`server/server.js`, `FormsHub.jsx`, `AppContext.jsx`, `ActivityHub.jsx`) (2026-10-27)**:
+    - **Permanent Delete for Zero Submissions**: If a template/document has no filled or submitted forms on record (`COUNT(form_submissions WHERE template_id = $1) === 0`), deleting it permanently removes the binary file from physical disk storage (`storage/templates/`) via `deleteTemplateFile`, deletes the row from `form_templates`, and logs `TEMPLATE_DELETED`.
+    - **Archival for Existing Submissions**: If users have submitted forms against the template, deleting it soft-archives the record (`status = 'ARCHIVED'`) and preserves the file on disk so existing submissions can still render the original document, be printed, and verify PKI signatures.
+    - **Dynamic Confirmation Dialog**: `FormsHub.jsx` inspects `formSubmissions` in real time, rendering "Delete template?" (permanent deletion) when count is 0, or "Archive template?" (archive explanation) when submissions exist.
+    - **Drive Cleanup**: Purged orphaned disk files and DB records that had zero submissions on record.
+
 

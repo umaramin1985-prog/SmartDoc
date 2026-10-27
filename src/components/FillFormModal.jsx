@@ -554,7 +554,7 @@ export const FillFormModal = ({
       if (f) {
         placed.add(f.key);
         const isBold = isFieldBold(f);
-        const isDirect = f.mode === 'input' && (f.width || f.type === 'textarea');
+        const isDirect = f.mode === 'input' || (f.mode !== 'placeholder' && (f.width || f.type === 'textarea'));
         const widthStyle = (isDirect && f.width)
           ? (f.width === 100 ? 'width: 100%; margin-right: 0;' : `width: calc(${f.width}% - 8px);`)
           : (isDirect && f.type === 'textarea' ? 'width: 100%; margin-right: 0;' : '');
@@ -576,7 +576,7 @@ export const FillFormModal = ({
       if (f) {
         placed.add(f.key);
         const isBold = isFieldBold(f);
-        const isDirect = f && f.mode === 'input' && (f.width || f.type === 'textarea');
+        const isDirect = f && (f.mode === 'input' || (f.mode !== 'placeholder' && (f.width || f.type === 'textarea')));
         const widthStyle = (isDirect && f?.width)
           ? (f.width === 100 ? 'width: 100%; margin-right: 0;' : `width: calc(${f.width}% - 8px);`)
           : (isDirect && f?.type === 'textarea' ? 'width: 100%; margin-right: 0;' : '');
@@ -1050,7 +1050,7 @@ export const FillFormModal = ({
 
   // Render on-form field wrapper (branches between in-text placeholder and direct input)
   const renderFieldInput = (f, key) => {
-    const isDirectInput = f.mode === 'input' && (f.width || f.type === 'textarea');
+    const isDirectInput = f.mode === 'input' || (f.mode !== 'placeholder' && (f.width || f.type === 'textarea'));
     if (!isDirectInput) {
       return renderPlaceholderInput(f, key);
     }

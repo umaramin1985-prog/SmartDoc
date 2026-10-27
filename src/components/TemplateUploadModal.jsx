@@ -5,17 +5,10 @@ import { Modal, fileToBase64 } from './ui';
 import { PrePublishReviewPromptModal } from './PrePublishReviewPromptModal';
 import { SendForReviewModal } from './SendForReviewModal';
 import {
-  UploadCloud, FileText, ArrowUp, ArrowDown, X, Plus, PenLine, Info, Loader2, Lock,
-  Image as ImageIcon, CheckCircle2, Folder, Building2, HelpCircle, Trash2, Bold,
-  FolderInput, FileEdit, AlertTriangle
+  UploadCloud, FileText, X, Plus, PenLine, Info, Loader2, Lock,
+  Image as ImageIcon, FolderInput, FileEdit, AlertTriangle, GitMerge, Tag,
+  ChevronUp, ChevronDown, RefreshCw
 } from 'lucide-react';
-
-const FIELD_TYPES = [
-  { value: 'text', label: 'Short text' },
-  { value: 'textarea', label: 'Long text' },
-  { value: 'number', label: 'Number' },
-  { value: 'date', label: 'Date' }
-];
 
 const guessType = (key) => {
   const k = key.toLowerCase();
@@ -44,12 +37,6 @@ export const TemplateUploadModal = ({ onClose, initialDepartment, initialFolderI
   const [fields, setFields] = useState([]);
   const [signatureSlots, setSignatureSlots] = useState([]);
   const [systemTags, setSystemTags] = useState([]);
-
-  // Adding custom placeholders in modal
-  const [newFieldKey, setNewFieldKey] = useState('');
-  const [newFieldType, setNewFieldType] = useState('text');
-  const [newFieldRequired, setNewFieldRequired] = useState(false);
-  const [newFieldBold, setNewFieldBold] = useState(false);
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -137,36 +124,6 @@ export const TemplateUploadModal = ({ onClose, initialDepartment, initialFolderI
     setParsing(false);
   };
 
-  const handleAddCustomField = () => {
-    const raw = newFieldKey.trim();
-    if (!raw) return;
-    const cleanKey = raw.replace(/[^a-zA-Z0-9_\s-]/g, '').trim();
-    if (!cleanKey) return;
-    if (fields.some(f => f.key.toLowerCase() === cleanKey.toLowerCase())) {
-      setParseError(`Placeholder "${cleanKey}" already exists`);
-      return;
-    }
-    setFields(prev => [...prev, {
-      key: cleanKey,
-      label: cleanKey,
-      type: newFieldType,
-      mode: 'placeholder',
-      bold: newFieldBold,
-      required: newFieldRequired,
-      description: '',
-      placeholder: ''
-    }]);
-    setNewFieldKey('');
-    setNewFieldRequired(false);
-    setNewFieldBold(false);
-    setParseError('');
-  };
-
-  const removeField = (keyToRemove) => {
-    setFields(prev => prev.filter(f => f.key !== keyToRemove));
-  };
-
-  const updateField = (key, patch) => setFields(prev => prev.map(f => (f.key === key ? { ...f, ...patch } : f)));
   const moveStep = (i, dir) => setWorkflow(prev => {
     const next = [...prev];
     const j = i + dir;
@@ -391,7 +348,7 @@ export const TemplateUploadModal = ({ onClose, initialDepartment, initialFolderI
                 id="input-template-file"
                 type="file"
                 accept=".docx,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,application/pdf,.pdf,image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
-                hidden
+                style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', width: '1px', height: '1px' }}
                 onChange={(e) => { handleFile(e.target.files?.[0]); e.target.value = ''; }}
               />
             </div>
@@ -443,8 +400,9 @@ export const TemplateUploadModal = ({ onClose, initialDepartment, initialFolderI
               className="btn btn-secondary btn-sm"
               onClick={() => { setFile(null); setFields([]); setSignatureSlots([]); setSystemTags([]); }}
               title="Choose a different file"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
             >
-              Change File
+              <RefreshCw size={13} /> Change File
             </button>
           </div>
         )}
@@ -479,7 +437,13 @@ export const TemplateUploadModal = ({ onClose, initialDepartment, initialFolderI
               </div>
             </div>
 
-            <div className="sd-upload-form-group">
+            <div className="sd-upload-card">
+              <div className="sd-card-section-header">
+                <div className="sd-card-section-title">
+                  <FileText size={16} /> Document Details &amp; Storage
+                </div>
+              </div>
+
               <div className="sd-grid-2">
                 <label className="sd-field">
                   <span className="sd-label">Document Name *</span>
@@ -539,279 +503,206 @@ export const TemplateUploadModal = ({ onClose, initialDepartment, initialFolderI
 
         {/* ======================================================== */}
         {/* CASE B: Fillable Word Template (.docx)                   */}
-        {/* Full sequential setup: details -> fields -> workflow     */}
+        {/* Streamlined cards: Details -> Detected Fields (if any) -> Workflow */}
         {/* ======================================================== */}
         {file && isDocx && (
           <div className="sd-upload-section-group animate-fade-in">
-            {/* Step 1: Template Information */}
-            <section className="sd-section">
-              <h3 className="sd-section-title"><span className="sd-step-num">1</span> Template Details &amp; Storage</h3>
-              <div className="sd-upload-form-group">
-                <div className="sd-grid-2">
-                  <label className="sd-field">
-                    <span className="sd-label">Template Name *</span>
-                    <input
-                      id="input-template-title"
-                      className="sd-input"
-                      value={title}
-                      onChange={e => setTitle(e.target.value)}
-                      placeholder="e.g. Equipment Request Form"
-                    />
-                  </label>
-
-                  <label className="sd-field">
-                    <span className="sd-label">Owning Department</span>
-                    {isSuperAdmin ? (
-                      <select className="sd-input" value={department} onChange={e => setDepartment(e.target.value)}>
-                        {departments.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
-                      </select>
-                    ) : (
-                      <input className="sd-input" value={currentUser.department} disabled />
-                    )}
-                  </label>
-                </div>
-
-                <div className="sd-grid-2">
-                  <label className="sd-field">
-                    <span className="sd-label">Destination Folder</span>
-                    <select className="sd-input" value={folderId} onChange={e => setFolderId(e.target.value)}>
-                      <option value="">📁 (Root of {activeDept})</option>
-                      {deptFolders.map(f => (
-                        <option key={f.id} value={f.id}>📁 {f.name}</option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="sd-field">
-                    <span className="sd-label">Who Can Access This Form</span>
-                    <select className="sd-input" value={audience} onChange={e => setAudience(e.target.value)}>
-                      <option value="DEPARTMENT">Members of the owning department</option>
-                      <option value="ALL">Everyone in the company</option>
-                    </select>
-                  </label>
-                </div>
-
-                <div className="sd-grid-2">
-                  <label className="sd-field">
-                    <span className="sd-label">Default Decision Deadline (days)</span>
-                    <input
-                      className="sd-input"
-                      type="number"
-                      min="1"
-                      max="365"
-                      value={expiryDays}
-                      onChange={e => setExpiryDays(e.target.value)}
-                    />
-                  </label>
-
-                  <label className="sd-field">
-                    <span className="sd-label">Description (Optional)</span>
-                    <input
-                      className="sd-input"
-                      value={description}
-                      onChange={e => setDescription(e.target.value)}
-                      placeholder="Brief description shown in explorer"
-                    />
-                  </label>
+            {/* Card 1: Template Details & Storage */}
+            <div className="sd-upload-card">
+              <div className="sd-card-section-header">
+                <div className="sd-card-section-title">
+                  <FileText size={16} /> Template Details &amp; Storage
                 </div>
               </div>
-            </section>
 
-            {/* Step 2: Form Placeholders / Fields */}
-            <section className="sd-section">
-              <div className="sd-flex-between sd-mb-xs">
-                <h3 className="sd-section-title">
-                  <span className="sd-step-num">2</span> Form Placeholders / Fields ({fields.length})
-                </h3>
-              </div>
-
-              {fields.length === 0 ? (
-                <div className="sd-alert sd-alert-info sd-mb-sm">
-                  <Info size={16} />
-                  <div>
-                    <strong>No placeholders detected in this Word file yet.</strong>
-                    <div className="sd-small sd-mt-xs">
-                      You can add custom placeholders below right now, or publish this document and add placeholders anytime later in <strong>Word Form Studio</strong> (via "Edit form").
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="sd-table-wrap sd-card sd-mb-sm">
-                  <table className="sd-table">
-                    <thead>
-                      <tr>
-                        <th>Placeholder Tag</th>
-                        <th style={{ width: 135 }}>Field Type</th>
-                        <th style={{ width: 165 }}>Fill Style</th>
-                        <th style={{ width: 95 }}>Weight</th>
-                        <th style={{ width: 90 }}>Mandatory</th>
-                        <th style={{ width: 44 }}></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {fields.map(f => (
-                        <tr key={f.key}>
-                          <td><code className="sd-code">{`{{${f.key}}}`}</code></td>
-                          <td>
-                            <select className="sd-input sd-input-sm" value={f.type} onChange={e => updateField(f.key, { type: e.target.value })}>
-                              {FIELD_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                            </select>
-                          </td>
-                          <td>
-                            <select
-                              className="sd-input sd-input-sm"
-                              value={f.mode || 'placeholder'}
-                              onChange={e => updateField(f.key, { mode: e.target.value })}
-                            >
-                              <option value="placeholder">🏷️ Placeholder (Dialog)</option>
-                              <option value="input">📝 Direct Input</option>
-                            </select>
-                          </td>
-                          <td>
-                            <button
-                              type="button"
-                              className={`btn btn-xs ${f.bold ? 'btn-primary' : 'btn-secondary'}`}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', padding: '3px 8px' }}
-                              onClick={() => updateField(f.key, { bold: !f.bold })}
-                              title={f.bold ? 'Bold text (700) enabled. Click for normal.' : 'Normal text. Click to make bold.'}
-                            >
-                              <Bold size={11} />
-                              <span>{f.bold ? 'Bold' : 'Normal'}</span>
-                            </button>
-                          </td>
-                          <td>
-                            <label className="sd-switch">
-                              <input type="checkbox" checked={f.required} onChange={e => updateField(f.key, { required: e.target.checked })} />
-                              <span>{f.required ? 'Yes' : 'No'}</span>
-                            </label>
-                          </td>
-                          <td style={{ textAlign: 'right' }}>
-                            <button
-                              type="button"
-                              className="sd-icon-btn sd-danger-hover"
-                              title="Remove placeholder"
-                              onClick={() => removeField(f.key)}
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              {/* Add Custom Placeholder Box */}
-              <div className="sd-card sd-p-sm sd-bg-subtle">
-                <div className="sd-small sd-font-medium sd-mb-xs">Add Placeholder / Field</div>
-                <div className="sd-inline-form">
+              <div className="sd-grid-2">
+                <label className="sd-field">
+                  <span className="sd-label">Template Name *</span>
                   <input
-                    id="input-new-placeholder-key"
-                    className="sd-input sd-input-sm"
-                    style={{ flex: 2 }}
-                    placeholder="Placeholder name (e.g. Employee Name, Start Date)…"
-                    value={newFieldKey}
-                    onChange={e => setNewFieldKey(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddCustomField(); } }}
+                    id="input-template-title"
+                    className="sd-input"
+                    value={title}
+                    onChange={e => setTitle(e.target.value)}
+                    placeholder="e.g. Equipment Request Form"
                   />
-                  <select
-                    className="sd-input sd-input-sm"
-                    style={{ width: 130 }}
-                    value={newFieldType}
-                    onChange={e => setNewFieldType(e.target.value)}
-                  >
-                    {FIELD_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </label>
+
+                <label className="sd-field">
+                  <span className="sd-label">Owning Department</span>
+                  {isSuperAdmin ? (
+                    <select className="sd-input" value={department} onChange={e => setDepartment(e.target.value)}>
+                      {departments.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                    </select>
+                  ) : (
+                    <input className="sd-input" value={currentUser.department} disabled />
+                  )}
+                </label>
+              </div>
+
+              <div className="sd-grid-2">
+                <label className="sd-field">
+                  <span className="sd-label">Destination Folder</span>
+                  <select className="sd-input" value={folderId} onChange={e => setFolderId(e.target.value)}>
+                    <option value="">📁 (Root of {activeDept})</option>
+                    {deptFolders.map(f => (
+                      <option key={f.id} value={f.id}>📁 {f.name}</option>
+                    ))}
                   </select>
-                  <label className="sd-switch" title="Make placeholder text bold (700)">
-                    <input
-                      type="checkbox"
-                      checked={newFieldBold}
-                      onChange={e => setNewFieldBold(e.target.checked)}
-                    />
-                    <span className="sd-small">Bold</span>
-                  </label>
-                  <label className="sd-switch" title="Make this field mandatory">
-                    <input
-                      type="checkbox"
-                      checked={newFieldRequired}
-                      onChange={e => setNewFieldRequired(e.target.checked)}
-                    />
-                    <span className="sd-small">Required</span>
-                  </label>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    disabled={!newFieldKey.trim()}
-                    onClick={handleAddCustomField}
-                  >
-                    <Plus size={14} /> Add
-                  </button>
+                </label>
+
+                <label className="sd-field">
+                  <span className="sd-label">Who Can Access This Form</span>
+                  <select className="sd-input" value={audience} onChange={e => setAudience(e.target.value)}>
+                    <option value="DEPARTMENT">Members of the owning department</option>
+                    <option value="ALL">Everyone in the company</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="sd-grid-2">
+                <label className="sd-field">
+                  <span className="sd-label">Default Decision Deadline (days)</span>
+                  <input
+                    className="sd-input"
+                    type="number"
+                    min="1"
+                    max="365"
+                    value={expiryDays}
+                    onChange={e => setExpiryDays(e.target.value)}
+                  />
+                </label>
+
+                <label className="sd-field">
+                  <span className="sd-label">Description (Optional)</span>
+                  <input
+                    className="sd-input"
+                    value={description}
+                    onChange={e => setDescription(e.target.value)}
+                    placeholder="Brief description shown in explorer"
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* Card 2: Detected Form Fields (ONLY rendered when fields exist in file) */}
+            {fields.length > 0 && (
+              <div className="sd-upload-card">
+                <div className="sd-card-section-header">
+                  <div className="sd-card-section-title">
+                    <Tag size={16} /> Detected Placeholders ({fields.length})
+                  </div>
+                  <span className="sd-muted sd-small">Detected from document</span>
+                </div>
+
+                <div className="sd-detected-tags-cloud">
+                  {fields.map(f => (
+                    <span key={f.key} className="sd-detected-tag" title={`Placeholder {{${f.key}}}`}>
+                      <code>{`{{${f.key}}}`}</code>
+                    </span>
+                  ))}
+                </div>
+
+                {systemTags.length > 0 && (
+                  <p className="sd-hint" style={{ margin: 0, fontSize: '0.78rem' }}>
+                    <Info size={13} /> Auto-filled system tags: {systemTags.map(t => `{{${t}}}`).join(', ')}
+                  </p>
+                )}
+
+                <div className="sd-muted sd-small" style={{ fontSize: '0.76rem', color: '#71717a' }}>
+                  Placeholders and form layout can be edited anytime directly in <strong>Word Form Studio</strong>.
                 </div>
               </div>
-              {systemTags.length > 0 && (
-                <p className="sd-hint sd-mt-xs">
-                  <Info size={13} /> Auto-filled system tags: {systemTags.map(t => `{{${t}}}`).join(', ')}
-                </p>
-              )}
-            </section>
+            )}
 
-            {/* Step 3: Approval Workflow */}
-            <section className="sd-section">
-              <h3 className="sd-section-title"><span className="sd-step-num">3</span> Sequential Approval Chain</h3>
-              <p className="sd-muted sd-mb-sm">
-                Submissions will route through these departments in order. Any department admin can approve and stamp their digital signature.
+            {/* Card 3: Sequential Approval Chain */}
+            <div className="sd-upload-card">
+              <div className="sd-card-section-header">
+                <div className="sd-card-section-title">
+                  <GitMerge size={16} /> Sequential Approval Chain
+                </div>
+                <span className="sd-muted sd-small">{workflow.length} step{workflow.length === 1 ? '' : 's'}</span>
+              </div>
+
+              <p className="sd-muted" style={{ margin: 0, fontSize: '0.82rem' }}>
+                Submissions route sequentially through these departments. Any department admin can approve and stamp their digital signature.
               </p>
-              <ol className="sd-step-list">
-                <li className="sd-step-item is-fixed">
-                  <span className="sd-step-index">0</span>
-                  <span className="sd-step-name">Submitter fills &amp; signs with saved signature</span>
-                </li>
+
+              <div className="sd-upload-workflow-pipeline">
+                <div className="sd-upload-workflow-step is-originator">
+                  <div className="sd-workflow-step-num is-originator">0</div>
+                  <div className="sd-workflow-step-name">
+                    Submitter / Originator
+                    <span className="sd-workflow-step-desc">— fills form &amp; signs with saved signature</span>
+                  </div>
+                  <span className="sd-badge sd-badge-xs">Origin</span>
+                </div>
+
                 {workflow.map((dept, i) => {
                   const deptName = typeof dept === 'string' ? dept : (dept?.department || '');
                   return (
-                    <li key={`${deptName}-${i}`} className="sd-step-item">
-                      <span className="sd-step-index">{i + 1}</span>
-                      <span className="sd-step-name">{deptName} <span className="sd-muted">— any department admin</span></span>
-                      <div className="sd-step-actions">
-                        <button className="sd-icon-btn" disabled={i === 0} onClick={() => moveStep(i, -1)} title="Move up"><ArrowUp size={15} /></button>
-                        <button className="sd-icon-btn" disabled={i === workflow.length - 1} onClick={() => moveStep(i, 1)} title="Move down"><ArrowDown size={15} /></button>
-                        <button className="sd-icon-btn" onClick={() => setWorkflow(prev => prev.filter((_, j) => j !== i))} title="Remove"><X size={15} /></button>
+                    <div key={`${deptName}-${i}`} className="sd-upload-workflow-step">
+                      <div className="sd-workflow-step-num">{i + 1}</div>
+                      <div className="sd-workflow-step-name">
+                        {deptName}
+                        <span className="sd-workflow-step-desc">— any department admin</span>
                       </div>
-                    </li>
+                      <div className="sd-workflow-step-actions">
+                        <button
+                          type="button"
+                          className="sd-icon-btn"
+                          disabled={i === 0}
+                          onClick={() => moveStep(i, -1)}
+                          title="Move up"
+                        >
+                          <ChevronUp size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="sd-icon-btn"
+                          disabled={i === workflow.length - 1}
+                          onClick={() => moveStep(i, 1)}
+                          title="Move down"
+                        >
+                          <ChevronDown size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="sd-icon-btn sd-danger-hover"
+                          onClick={() => setWorkflow(prev => prev.filter((_, j) => j !== i))}
+                          title="Remove step"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    </div>
                   );
                 })}
-              </ol>
+              </div>
+
               <div className="sd-inline-form">
-                <select id="select-workflow-dept" className="sd-input" value={stepToAdd} onChange={e => setStepToAdd(e.target.value)}>
+                <select
+                  id="select-workflow-dept"
+                  className="sd-input"
+                  value={stepToAdd}
+                  onChange={e => setStepToAdd(e.target.value)}
+                >
                   <option value="">Select an approving department…</option>
                   {departments.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
                 </select>
                 <button
+                  type="button"
                   id="btn-add-workflow-step"
                   className="btn btn-secondary"
                   disabled={!stepToAdd}
                   onClick={() => { setWorkflow(prev => [...prev, stepToAdd]); setStepToAdd(''); }}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 >
-                  <Plus size={15} /> Add approval step
+                  <Plus size={15} /> Add Step
                 </button>
               </div>
 
               {workflow.length === 0 && (
-                <div
-                  className="sd-draft-hint-banner"
-                  style={{
-                    marginTop: '0.85rem',
-                    padding: '0.75rem 1rem',
-                    background: 'rgba(234, 179, 8, 0.08)',
-                    border: '1px solid rgba(234, 179, 8, 0.25)',
-                    borderRadius: '8px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '12px'
-                  }}
-                >
+                <div className="sd-upload-draft-banner">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <FileEdit size={16} style={{ color: '#fbbf24', flexShrink: 0 }} />
                     <span className="sd-small" style={{ color: '#fbbf24' }}>
@@ -829,18 +720,20 @@ export const TemplateUploadModal = ({ onClose, initialDepartment, initialFolderI
                 </div>
               )}
 
-              <div className="sd-sig-summary sd-mt-sm">
+              <div className="sd-sig-summary">
                 <PenLine size={14} />
                 {signatureSlots.length > 0 ? (
                   <span>
-                    Signature slots in document: {signatureSlots.join(', ')}.
-                    {unmatchedSlots.length > 0 && <strong className="sd-text-warn"> Not matching any department: {unmatchedSlots.join(', ')} (will stay blank).</strong>}
+                    Signature slots in document: <strong style={{ color: '#ffffff' }}>{signatureSlots.join(', ')}</strong>.
+                    {unmatchedSlots.length > 0 && (
+                      <span className="sd-text-warn"> Unmatched slots: {unmatchedSlots.join(', ')} (will stay blank).</span>
+                    )}
                   </span>
                 ) : (
                   <span>No signature placeholders detected — a “Signatures” section will be appended at the end of the document.</span>
                 )}
               </div>
-            </section>
+            </div>
           </div>
         )}
       </div>

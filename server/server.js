@@ -10,6 +10,18 @@ import { parseTemplate, parseWordDocument, convertDocTextToHtml, renderFilledDoc
 import { generateUserCertificate, parseCertificateInfo, signPayload, verifySignatureBundle } from './pkiEngine.js';
 import mammoth from 'mammoth';
 import htmlToDocx from 'html-to-docx';
+import {
+  initStorage,
+  saveTemplateFile,
+  getTemplateBuffer,
+  getTemplateBase64,
+  streamTemplateFile,
+  deleteTemplateFile,
+  saveSubmissionFile,
+  purgeStorage,
+  migrateDatabaseTemplatesToDisk,
+  getMimeType
+} from './storageEngine.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -134,6 +146,8 @@ function mapTemplate(t) {
     fileName: t.docx_filename,
     fileType,
     fileSize,
+    filePath: t.file_path || null,
+    fileHash: t.file_hash || null,
     isEditable: t.is_editable !== false && (fileType === 'docx' || fileType === 'doc'),
     version: t.version || '1.0',
     versionHistory: parseJson(t.version_history, []),
@@ -879,23 +893,29 @@ app.get('/api/forms/templates/:id/file', async (req, res) => {
     if (!actor) return;
     const r = await query('SELECT * FROM form_templates WHERE id = $1', [req.params.id]);
     const t = r.rows[0];
-    if (!t || !t.docx_base64) return res.status(404).json({ error: 'Template file not found' });
+    if (!t) return res.status(404).json({ error: 'Template file not found' });
     if (!canSeeTemplate(actor, t)) return res.status(403).json({ error: 'You do not have access to this template' });
 
     const fileType = t.file_type || 'docx';
-    if (fileType === 'pdf') {
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(t.docx_filename || 'document.pdf')}"`);
-    } else if (fileType === 'image') {
-      const fn = (t.docx_filename || '').toLowerCase();
-      const mime = fn.endsWith('.png') ? 'image/png' : fn.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
+    const filename = t.docx_filename || (fileType === 'pdf' ? 'document.pdf' : fileType === 'image' ? 'document.png' : 'template.docx');
+
+    // 1. Try direct streaming from disk storage
+    const streamed = streamTemplateFile(t.id, t.file_path, res, filename, fileType);
+    if (streamed) return;
+
+    // 2. Fallback to database docx_base64
+    if (t.docx_base64) {
+      const mime = getMimeType(filename, fileType);
+      const disposition = (fileType === 'pdf' || fileType === 'image') ? 'inline' : 'attachment';
+      const clean = String(t.docx_base64).replace(/^data:[^;]+;base64,/, '').trim();
+      const buf = Buffer.from(clean, 'base64');
       res.setHeader('Content-Type', mime);
-      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(t.docx_filename || 'image.png')}"`);
-    } else {
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(t.docx_filename || 'template.docx')}"`);
+      res.setHeader('Content-Length', buf.length);
+      res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(filename)}"`);
+      return res.send(buf);
     }
-    res.send(Buffer.from(t.docx_base64, 'base64'));
+
+    res.status(404).json({ error: 'Template file not found on disk or database' });
   } catch (err) {
     console.error('[GET template file]', err);
     res.status(500).json({ error: 'Failed to load template file' });
@@ -914,21 +934,29 @@ app.post('/api/forms/templates/:id/render-print-document', async (req, res) => {
 
     const fileType = t.file_type || 'docx';
     if (fileType === 'pdf') {
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(t.docx_filename || 'document.pdf')}"`);
-      return res.send(Buffer.from(t.docx_base64, 'base64'));
+      const streamed = streamTemplateFile(t.id, t.file_path, res, t.docx_filename || 'document.pdf', 'pdf');
+      if (streamed) return;
+      if (t.docx_base64) {
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(t.docx_filename || 'document.pdf')}"`);
+        return res.send(Buffer.from(t.docx_base64, 'base64'));
+      }
     }
     if (fileType === 'image') {
-      const fn = (t.docx_filename || '').toLowerCase();
-      const mime = fn.endsWith('.png') ? 'image/png' : fn.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
-      res.setHeader('Content-Type', mime);
-      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(t.docx_filename || 'image.png')}"`);
-      return res.send(Buffer.from(t.docx_base64, 'base64'));
+      const streamed = streamTemplateFile(t.id, t.file_path, res, t.docx_filename || 'image.png', 'image');
+      if (streamed) return;
+      if (t.docx_base64) {
+        const fn = (t.docx_filename || '').toLowerCase();
+        const mime = fn.endsWith('.png') ? 'image/png' : fn.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
+        res.setHeader('Content-Type', mime);
+        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(t.docx_filename || 'image.png')}"`);
+        return res.send(Buffer.from(t.docx_base64, 'base64'));
+      }
     }
 
     const { values = {}, blank = false, customHtml = null } = req.body || {};
 
-    let templateBase64 = t.docx_base64;
+    let templateBase64 = getTemplateBase64(t.id, t.file_path) || t.docx_base64;
     if (!templateBase64 && (customHtml || t.html_content)) {
       const docxBuf = await htmlToDocx(customHtml || t.html_content, null, {
         title: t.title || 'SmartDoc Form',
@@ -1208,22 +1236,30 @@ app.post('/api/forms/templates', async (req, res) => {
     }];
 
     const finalAccessType = accessType || (audience === 'ALL' ? 'ALL' : 'DEPARTMENTS');
-    const cleanB64 = String(fileBase64).replace(/^data:[^;]+;base64,/, '');
-    const computedFileSize = cleanB64 ? Buffer.byteLength(cleanB64, 'base64') : 0;
+    const cleanB64 = String(fileBase64 || '').replace(/^data:[^;]+;base64,/, '');
+    const actualFilename = fileName || (fileType === 'pdf' ? 'document.pdf' : fileType === 'image' ? 'document.png' : 'template.docx');
+
+    let savedFile = null;
+    if (cleanB64 && cleanB64.length > 10) {
+      savedFile = saveTemplateFile(id, cleanB64, actualFilename, fileType);
+    }
+    const computedFileSize = savedFile ? savedFile.fileSize : (cleanB64 ? Buffer.byteLength(cleanB64, 'base64') : 0);
 
     await query(
       `INSERT INTO form_templates (id, unique_code, title, department, description, category, version, created_by, created_by_username,
          fields, subforms, workflow, default_expiry_days, status, docx_base64, docx_filename, audience, signature_slots, system_tags, folder_id, html_content,
-         file_type, is_editable, access_type, allowed_departments, allowed_users, version_history, comments, font_family, font_size, file_size)
+         file_type, is_editable, access_type, allowed_departments, allowed_users, version_history, comments, font_family, font_size, file_size,
+         file_path, file_hash, mime_type)
        VALUES ($1, $2, $3, $4, $5, 'Word Template', '1.0', $6, $7, $8::jsonb, '[]'::jsonb, $9::jsonb, $10, $11, $12, $13, $14, $15::jsonb, $16::jsonb, $17, $18,
-         $19, $20, $21, $22::jsonb, $23::jsonb, $24::jsonb, '[]'::jsonb, $25, $26, $27)`,
+         $19, $20, $21, $22::jsonb, $23::jsonb, $24::jsonb, '[]'::jsonb, $25, $26, $27, $28, $29, $30)`,
       [id, code, title.trim(), dept, String(description || '').trim(), actor.name, actor.username,
         JSON.stringify(cleanFields), JSON.stringify(cleanWorkflow), expiryDays, finalStatus,
-        cleanB64, fileName || (fileType === 'pdf' ? 'document.pdf' : fileType === 'image' ? 'document.png' : 'template.docx'),
+        null, actualFilename,
         finalAccessType === 'ALL' ? 'ALL' : 'DEPARTMENT', JSON.stringify(parsedSigSlots), JSON.stringify(parsedSysTags), folderId || null,
         finalHtmlContent || null,
         fileType, isEditable, finalAccessType, JSON.stringify(allowedDepartments || []), JSON.stringify(allowedUsers || []), JSON.stringify(initialCommit),
-        fontFamily || null, fontSize || null, computedFileSize]
+        fontFamily || null, fontSize || null, computedFileSize,
+        savedFile ? savedFile.filePath : null, savedFile ? savedFile.fileHash : null, savedFile ? savedFile.mimeType : null]
     );
 
     await audit(isDraft ? 'TEMPLATE_DRAFT_CREATED' : 'TEMPLATE_CREATED', actor.username, `${code} ${title.trim()}`, dept);
@@ -1410,7 +1446,7 @@ app.post('/api/forms/templates/bulk-import', async (req, res) => {
         const seqRow = await query('SELECT COUNT(*)::int AS c FROM form_templates WHERE unique_code LIKE $1', [`TPL-${deptCode}-%`]);
         const code = `TPL-${deptCode}-${String(seqRow.rows[0].c + 1).padStart(3, '0')}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
         const id = `TMPL-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`;
-        const computedFileSize = Buffer.byteLength(fileBase64, 'base64');
+        let computedFileSize = Buffer.byteLength(fileBase64, 'base64');
 
         const initialCommit = [{
           commitId: crypto.randomBytes(3).toString('hex'),
@@ -1429,19 +1465,30 @@ app.post('/api/forms/templates/bulk-import', async (req, res) => {
           htmlContent: finalHtmlContent
         }];
 
+        const actualFileName = fileName || (fileType === 'pdf' ? 'document.pdf' : fileType === 'image' ? 'document.png' : 'template.docx');
+        let savedFile = null;
+        if (fileBase64 && String(fileBase64).trim().length > 10) {
+          savedFile = saveTemplateFile(id, fileBase64, actualFileName, fileType);
+        }
+        if (savedFile) {
+          computedFileSize = savedFile.fileSize;
+        }
+
         await query(
           `INSERT INTO form_templates (id, unique_code, title, department, description, category, version, created_by, created_by_username,
              fields, subforms, workflow, default_expiry_days, status, docx_base64, docx_filename, audience, signature_slots, system_tags, folder_id, html_content,
-             file_type, is_editable, access_type, allowed_departments, allowed_users, version_history, comments, file_size)
+             file_type, is_editable, access_type, allowed_departments, allowed_users, version_history, comments, file_size,
+             file_path, file_hash, mime_type)
            VALUES ($1, $2, $3, $4, $5, 'Word Template', '1.0', $6, $7, $8::jsonb, '[]'::jsonb, $9::jsonb, $10, $11, $12, $13, $14, $15::jsonb, $16::jsonb, $17, $18,
-             $19, $20, $21, '[]'::jsonb, '[]'::jsonb, $22::jsonb, '[]'::jsonb, $23)`,
+             $19, $20, $21, '[]'::jsonb, '[]'::jsonb, $22::jsonb, '[]'::jsonb, $23, $24, $25, $26)`,
           [
             id, code, fileTitle, targetDept, String(file.description || '').trim(), actor.name, actor.username,
             JSON.stringify(cleanFields), JSON.stringify(isEditable ? cleanWorkflow : []), expiryDays, finalBulkStatus,
-            fileBase64, fileName,
+            null, actualFileName,
             finalAccessType === 'ALL' ? 'ALL' : 'DEPARTMENT', JSON.stringify(parsedSigSlots), JSON.stringify(parsedSysTags), folderId || null,
             finalHtmlContent,
-            fileType, isEditable, finalAccessType, JSON.stringify(initialCommit), computedFileSize
+            fileType, isEditable, finalAccessType, JSON.stringify(initialCommit), computedFileSize,
+            savedFile ? savedFile.filePath : null, savedFile ? savedFile.fileHash : null, savedFile ? savedFile.mimeType : null
           ]
         );
 
@@ -1519,7 +1566,7 @@ app.put('/api/forms/templates/:id', async (req, res) => {
       });
     }
 
-    let fileBase64 = t.docx_base64;
+    let fileBase64 = req.body.fileBase64 || getTemplateBase64(t.id, t.file_path) || t.docx_base64;
     let cleanFields = parseJson(t.fields, []);
     let parsedSigSlots = parseJson(t.signature_slots, []);
     let parsedSysTags = parseJson(t.system_tags, []);
@@ -1645,24 +1692,35 @@ app.put('/api/forms/templates/:id', async (req, res) => {
     };
     const nextHistory = [...existingHistory, commit];
 
+    let updateFilePath = t.file_path || null;
+    let updateFileHash = t.file_hash || null;
+    let updateMime = t.mime_type || null;
+    let updateFileSize = t.file_size || 0;
+
     const cleanUpdateB64 = String(fileBase64 || '').replace(/^data:[^;]+;base64,/, '');
-    const updateFileSize = cleanUpdateB64 ? Buffer.byteLength(cleanUpdateB64, 'base64') : (t.file_size || 0);
+    if (cleanUpdateB64 && cleanUpdateB64.length > 10) {
+      const saved = saveTemplateFile(t.id, cleanUpdateB64, t.docx_filename || 'template.docx', t.file_type || 'docx');
+      updateFilePath = saved.filePath;
+      updateFileHash = saved.fileHash;
+      updateMime = saved.mimeType;
+      updateFileSize = saved.fileSize;
+    }
 
     await query(
       `UPDATE form_templates SET title = $1, description = $2, fields = $3::jsonb, workflow = $4::jsonb,
-         default_expiry_days = $5, folder_id = $6, docx_base64 = $7, html_content = $8, signature_slots = $9::jsonb,
-         system_tags = $10::jsonb, version = $11, version_history = $12::jsonb,
-         access_type = COALESCE($13, access_type), allowed_departments = COALESCE($14::jsonb, allowed_departments),
-         allowed_users = COALESCE($15::jsonb, allowed_users),
-         font_family = COALESCE($16, font_family), font_size = COALESCE($17, font_size),
-         file_size = $18, status = $19, updated_at = NOW()
-       WHERE id = $20`,
+         default_expiry_days = $5, folder_id = $6, docx_base64 = NULL, html_content = $7, signature_slots = $8::jsonb,
+         system_tags = $9::jsonb, version = $10, version_history = $11::jsonb,
+         access_type = COALESCE($12, access_type), allowed_departments = COALESCE($13::jsonb, allowed_departments),
+         allowed_users = COALESCE($14::jsonb, allowed_users),
+         font_family = COALESCE($15, font_family), font_size = COALESCE($16, font_size),
+         file_size = $17, status = $18, file_path = $19, file_hash = $20, mime_type = $21, updated_at = NOW()
+       WHERE id = $22`,
       [nextTitle, nextDesc, JSON.stringify(cleanFields), JSON.stringify(cleanWorkflow), nextExpiry,
-        folderId !== undefined ? folderId : t.folder_id, fileBase64, htmlContent || t.html_content,
+        targetFolderId, htmlContent || t.html_content,
         JSON.stringify(parsedSigSlots), JSON.stringify(parsedSysTags), nextVersion, JSON.stringify(nextHistory),
         accessType || null, allowedDepartments ? JSON.stringify(allowedDepartments) : null,
         allowedUsers ? JSON.stringify(allowedUsers) : null,
-        fontFamily || null, fontSize || null, updateFileSize, nextStatus, t.id]
+        fontFamily || null, fontSize || null, updateFileSize, nextStatus, updateFilePath, updateFileHash, updateMime, t.id]
     );
 
     const auditAction = (t.status === 'DRAFT' && nextStatus === 'ACTIVE')
@@ -1888,18 +1946,50 @@ app.put('/api/forms/templates/:id/move', async (req, res) => {
   }
 });
 
-// Archive (soft delete) so already-submitted forms can still render their document
+// Delete or archive template:
+// If ANY user has filled or submitted a form against this template (count > 0),
+// preserve it as ARCHIVED so existing submissions, signatures, and audit trails remain intact.
+// If NO user has filled or submitted a form (count === 0), permanently delete the file
+// from disk storage and delete the record from PostgreSQL.
 app.delete('/api/forms/templates/:id', async (req, res) => {
   try {
     const actor = await requireActor(req, res);
     if (!actor) return;
-    const r = await query('SELECT id, title, department FROM form_templates WHERE id = $1', [req.params.id]);
+    const r = await query('SELECT id, title, department, file_path FROM form_templates WHERE id = $1', [req.params.id]);
     const t = r.rows[0];
     if (!t) return res.status(404).json({ error: 'Template not found' });
     if (!isDeptAdmin(actor, t.department)) return res.status(403).json({ error: 'Only admins of the owning department can remove this template' });
-    await query(`UPDATE form_templates SET status = 'ARCHIVED', updated_at = NOW() WHERE id = $1`, [t.id]);
-    await audit('TEMPLATE_ARCHIVED', actor.username, t.title, t.department);
-    res.json({ success: true, id: t.id });
+
+    // Check if any user has filled or submitted a form for this template
+    const subRes = await query('SELECT COUNT(*)::int AS count FROM form_submissions WHERE template_id = $1', [t.id]);
+    const submissionCount = subRes.rows[0]?.count || 0;
+
+    if (submissionCount > 0) {
+      // Submissions exist on record: soft-archive so past submissions can still render and verify PKI signatures
+      await query(`UPDATE form_templates SET status = 'ARCHIVED', updated_at = NOW() WHERE id = $1`, [t.id]);
+      await audit('TEMPLATE_ARCHIVED', actor.username, t.title, t.department);
+      return res.json({
+        success: true,
+        id: t.id,
+        action: 'archived',
+        submissionCount,
+        message: `Template has ${submissionCount} submission(s) on record and was archived to preserve audit integrity.`
+      });
+    }
+
+    // No user has filled or submitted a form: permanently delete file from disk drive and database
+    deleteTemplateFile(t.id, t.file_path);
+    await query('UPDATE template_reviews SET published_template_id = NULL WHERE published_template_id = $1', [t.id]);
+    await query('DELETE FROM form_templates WHERE id = $1', [t.id]);
+    await audit('TEMPLATE_DELETED', actor.username, t.title, t.department);
+
+    res.json({
+      success: true,
+      id: t.id,
+      action: 'deleted',
+      submissionCount: 0,
+      message: 'Template and document file were permanently deleted from drive.'
+    });
   } catch (err) {
     console.error('[DELETE templates]', err);
     res.status(500).json({ error: 'Failed to remove template' });
@@ -2446,8 +2536,11 @@ app.get('/api/forms/submissions/:id/document', async (req, res) => {
     const s = sr.rows[0];
     if (!s) return res.status(404).json({ error: 'Submission not found' });
     if (!canSeeSubmission(actor, s)) return res.status(403).json({ error: 'You do not have access to this form' });
-    const tr = await query('SELECT docx_base64 FROM form_templates WHERE id = $1', [s.template_id]);
-    if (!tr.rows[0]?.docx_base64) return res.status(404).json({ error: 'The Word template for this form is not available' });
+    const tr = await query('SELECT id, file_path, docx_base64, fields FROM form_templates WHERE id = $1', [s.template_id]);
+    const tmplRow = tr.rows[0];
+    if (!tmplRow) return res.status(404).json({ error: 'The Word template for this form was not found' });
+    const tmplBase64 = getTemplateBase64(tmplRow.id, tmplRow.file_path) || tmplRow.docx_base64;
+    if (!tmplBase64) return res.status(404).json({ error: 'The Word template for this form is not available' });
 
     const signatures = [];
     const pkiSub = parseJson(s.pki_signature, null);
@@ -2482,8 +2575,8 @@ app.get('/api/forms/submissions/:id/document', async (req, res) => {
       'Version': s.version,
       'Department': s.department
     };
-    const templateFields = parseJson(tr.rows[0]?.fields, []);
-    const buf = renderFilledDocument(tr.rows[0].docx_base64, {
+    const templateFields = parseJson(tmplRow.fields, []);
+    const buf = renderFilledDocument(tmplBase64, {
       values: parseJson(s.form_data, {}),
       system,
       signatures,
@@ -3054,6 +3147,8 @@ if (fs.existsSync(distPath)) {
 async function startServer() {
   try {
     await initPostgresDatabase();
+    initStorage();
+    await migrateDatabaseTemplatesToDisk(query);
     app.listen(PORT, () => console.log(`[SmartDoc Backend] Listening on port ${PORT} (system tags: ${SYSTEM_TAGS.join(', ')})`));
   } catch (err) {
     console.error('[SmartDoc Server Startup Failed]:', err);

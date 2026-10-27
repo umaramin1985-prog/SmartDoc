@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useApp } from '../context/AppContext';
 import { formatDate } from './ui';
+import { buildAppUrl, tabOpenProps } from '../utils/router';
 import {
   Bell, CheckCircle2, AlertTriangle, XCircle, PenTool,
   FileText, MessageSquare, Check, ExternalLink, Clock
@@ -98,6 +99,15 @@ export const NotificationBell = ({ onOpenSubmission, onOpenTemplate, onOpenRevie
     }
   };
 
+  // Deep-link URL for a notification target (used for Ctrl/Middle-click → open in new tab)
+  const notifUrl = (notif) => {
+    if (!notif.linkId) return null;
+    if (notif.linkType === 'submission') return buildAppUrl('approvals', { submission: notif.linkId });
+    if (notif.linkType === 'review') return buildAppUrl('reviews', { review: notif.linkId });
+    if (notif.linkType === 'template') return buildAppUrl('forms', { action: 'view', id: notif.linkId });
+    return null;
+  };
+
   const handleNotificationClick = async (notif) => {
     if (!notif.isRead) {
       await markNotificationRead(notif.id);
@@ -161,11 +171,16 @@ export const NotificationBell = ({ onOpenSubmission, onOpenTemplate, onOpenRevie
             <span className="sd-muted sd-small">You will be alerted here when forms require approval or signatures.</span>
           </div>
         ) : (
-          notifications.map((n) => (
+          notifications.map((n) => {
+            const url = notifUrl(n);
+            const clickProps = url
+              ? tabOpenProps(url, () => handleNotificationClick(n), () => { if (!n.isRead) markNotificationRead(n.id); })
+              : { onClick: () => handleNotificationClick(n) };
+            return (
             <div
               key={n.id}
               className={`sd-notif-item ${!n.isRead ? 'is-unread' : ''}`}
-              onClick={() => handleNotificationClick(n)}
+              {...clickProps}
               tabIndex={0}
               onKeyDown={(e) => { if (e.key === 'Enter') handleNotificationClick(n); }}
             >
@@ -197,7 +212,8 @@ export const NotificationBell = ({ onOpenSubmission, onOpenTemplate, onOpenRevie
                 />
               )}
             </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>
