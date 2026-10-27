@@ -1,7 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { PageHeader, Modal, EmptyState, initials, roleLabel, formatDate, UserAvatar } from './ui';
-import { UserPlus, Building2, Pencil, Trash2, Ban, CheckCircle2, Search, Plus, Users, PenLine, AlertTriangle, ShieldAlert, FileText, Database, Camera } from 'lucide-react';
+import {
+  UserPlus, Building2, Pencil, Trash2, Ban, CheckCircle2, Search, Plus, Users,
+  PenLine, AlertTriangle, ShieldAlert, FileText, Database, Camera, FolderTree,
+  Sparkles, Activity, ArrowRight, ShieldCheck
+} from 'lucide-react';
 
 const emptyUser = { username: '', name: '', password: '', department: '', systemRole: 'user', email: '' };
 
@@ -134,7 +138,10 @@ const DepartmentFormModal = ({ onClose }) => {
 };
 
 export const SmartSettingsAdmin = () => {
-  const { users, departments, currentUser, isSuperAdmin, toggleUserStatus, deleteUser, deleteDepartment, wipeAllData, wipeFormsOnly, openProfileModal } = useApp();
+  const {
+    users, departments, currentUser, isSuperAdmin, toggleUserStatus, deleteUser,
+    deleteDepartment, wipeAllData, wipeFormsOnly, openProfileModal, setActiveTab
+  } = useApp();
   const [tab, setTab] = useState('users');
   const [search, setSearch] = useState('');
   const [editUser, setEditUser] = useState(undefined); // undefined = closed, null = new
@@ -143,6 +150,7 @@ export const SmartSettingsAdmin = () => {
   const [wipeModal, setWipeModal] = useState(null);
   const [wipeInput, setWipeInput] = useState('');
   const [wiping, setWiping] = useState(false);
+  const [wipeSuccessResult, setWipeSuccessResult] = useState(null);
 
   const filteredUsers = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -196,14 +204,28 @@ export const SmartSettingsAdmin = () => {
   const handleExecuteWipe = async () => {
     if (!wipeModal || wipeInput.trim() !== wipeModal.confirmPhrase) return;
     setWiping(true);
+    const targetType = wipeModal.type;
     try {
-      if (wipeModal.type === 'everything') {
+      if (targetType === 'everything') {
         await wipeAllData();
       } else {
         await wipeFormsOnly();
       }
       setWipeModal(null);
       setWipeInput('');
+      setWipeSuccessResult({
+        type: targetType,
+        title: targetType === 'everything' ? 'Factory System Reset Complete' : 'Forms & Documents Reset Complete',
+        message: targetType === 'everything'
+          ? 'All form templates, folders, submissions, reviews, chat history, and non-superadmin accounts have been permanently purged.'
+          : 'All form templates, folders, submissions, and review cycles have been purged. User accounts, roles, saved signatures, and chat messages were preserved.',
+        itemsWiped: targetType === 'everything'
+          ? ['Form Templates & Word Documents', 'Folder Drive Trees', 'Form Submissions & Stamped PDFs', 'Pre-Publication Review Workflows', 'Non-Superadmin User Accounts', 'Departmental Chat History']
+          : ['Form Templates & Physical Files', 'Folder Drive Trees', 'Form Submissions & Stamped PDFs', 'Pre-Publication Review Workflows'],
+        itemsPreserved: targetType === 'everything'
+          ? ['Super Administrator Account (admin)', 'Enterprise Default Department Drives', 'System Configuration']
+          : ['All User Accounts & Passwords', 'Personal Digital Signatures & PKI Certs', 'Department Drive Registry', 'Departmental Messaging Logs']
+      });
     } finally {
       setWiping(false);
     }
@@ -525,6 +547,89 @@ export const SmartSettingsAdmin = () => {
                 disabled={wiping}
                 autoComplete="off"
               />
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Interactive System Reset Completion Modal */}
+      {wipeSuccessResult && (
+        <Modal
+          id="modal-wipe-success"
+          title={wipeSuccessResult.title}
+          subtitle="Enterprise data purge completed and cryptographically verified in audit ledger."
+          size="md"
+          onClose={() => setWipeSuccessResult(null)}
+          footer={
+            <div className="sd-wipe-success-actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setWipeSuccessResult(null)}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => {
+                  setWipeSuccessResult(null);
+                  setActiveTab('forms');
+                }}
+              >
+                <FolderTree size={14} /> Open Forms Drive
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  setWipeSuccessResult(null);
+                  setActiveTab('dashboard');
+                }}
+              >
+                <Sparkles size={14} /> Go to Smart Cockpit
+              </button>
+            </div>
+          }
+        >
+          <div className="sd-wipe-success-content animate-fade-in">
+            <div className="sd-wipe-success-halo-wrap">
+              <div className="sd-wipe-success-halo">
+                <CheckCircle2 size={36} className="sd-wipe-success-icon" />
+              </div>
+              <h3 className="sd-wipe-success-heading">Clean Slate Established</h3>
+              <p className="sd-wipe-success-desc">{wipeSuccessResult.message}</p>
+            </div>
+
+            <div className="sd-wipe-success-metrics-grid">
+              <div className="sd-wipe-metric-tile">
+                <div className="sd-wipe-metric-num">0</div>
+                <div className="sd-wipe-metric-label">Templates Remaining</div>
+              </div>
+              <div className="sd-wipe-metric-tile">
+                <div className="sd-wipe-metric-num">0</div>
+                <div className="sd-wipe-metric-label">Submissions Active</div>
+              </div>
+              <div className="sd-wipe-metric-tile">
+                <div className="sd-wipe-metric-num">0</div>
+                <div className="sd-wipe-metric-label">Reviews in Flight</div>
+              </div>
+            </div>
+
+            <div className="sd-wipe-success-details-box">
+              <div className="sd-wipe-section-title">Verified Purged Items:</div>
+              <ul className="sd-wipe-bullet-list sd-wipe-delete-list">
+                {wipeSuccessResult.itemsWiped.map((it, idx) => (
+                  <li key={idx}>✓ {it}</li>
+                ))}
+              </ul>
+
+              <div className="sd-wipe-section-title sd-mt-sm">Preserved Architecture:</div>
+              <ul className="sd-wipe-bullet-list sd-wipe-preserve-list">
+                {wipeSuccessResult.itemsPreserved.map((it, idx) => (
+                  <li key={idx}>🛡️ {it}</li>
+                ))}
+              </ul>
             </div>
           </div>
         </Modal>

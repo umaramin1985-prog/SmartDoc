@@ -171,7 +171,7 @@
   - **Specific Persons Only (`USERS`)**: Individual-level access whitelist for confidential executive forms.
 - **Strict Query Filtering**: Backend enforces access checks on template listing and file access to prevent unauthorized viewing.
 
-### 12. Real-Time Enterprise Notification System (`NotificationBell.jsx`)
+### 12. Real-Time Enterprise Notification System & Interactive Actionable Toasts (`NotificationBell.jsx`, `ToastContainer.jsx`)
 - **Instant Alerts Drawer**: Notification bell in sidebar with live unread counter badge and 15s background polling.
 - **Automated Workflow Events**:
   - Signature requests for required approvers.
@@ -179,6 +179,11 @@
   - Approval decisions, objections, and rejections.
   - Pre-publication review requests and reviewer completion notifications.
 - **Deep Linking**: Click any notification to navigate directly to the relevant submission, form, or review.
+- **Interactive Actionable Toast Banners (`ToastContainer.jsx`)**:
+  - **Dynamic Action Buttons (CTAs)**: Toasts render interactive buttons directly within the card (e.g. `[ Go to Forms Hub ]` after reset, `[ View Approvals ]` after submission, or retry actions).
+  - **Hover-to-Pause Countdown**: Interactive pause-on-hover allows users to freely read details and click CTA buttons without the timer expiring.
+  - **Animated Progress Bar**: Visual countdown indicator at the base of every toast card showing remaining display time.
+  - **Expandable Diagnostic Details**: Accordion toggle (`Details ▾`) for inspecting multi-line summaries, payload information, or error reports.
 
 ### 13. Git-Like Versioning System (`VersionHistoryModal.jsx`)
 - **Commit History & Hashes**: Tracks version bumps (1.0 → 1.1 → 2.0) with author, timestamp, commit hash, and summary note.
@@ -199,6 +204,7 @@
 - **System Reset & Data Purge (Danger Zone)**:
   - **Option 1: Wipe Out Every Data (Factory Reset)**: Completely purges all templates, folders, submissions, reviews, messages, notifications, and non-superadmin accounts, restoring default enterprise departments and preserving the Superadmin.
   - **Option 2: Wipe Only Forms**: Purges all form templates, folders, submissions, reviews, and form alerts while strictly preserving all user accounts, roles, signatures, departments, and chat messages.
+  - **Interactive Clean-Slate Completion Modal (`#modal-wipe-success`)**: Executive verification dialog providing immediate confidence post-reset with an animated pulsing emerald halo, live 0-state metric cards (`Templates Remaining: 0`, `Submissions: 0`, `Reviews: 0`), verified component breakdown (wiped vs. preserved items), and instant navigation buttons (`[ Go to Smart Cockpit ]`, `[ Open Forms Drive ]`).
 - **Audit Logging**: Comprehensive server-side logging for all security events, logins, folder modifications, template updates, and workflow actions.
 
 ### 17. Activity Log & Audit Trail (`ActivityHub.jsx`)

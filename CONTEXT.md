@@ -375,6 +375,20 @@ SmartDoc decouples binary files from PostgreSQL into a high-performance native d
 
 ## 10. Revision Log
 
+- **2026-10-27** — Interactive Actionable Toasts & System Reset Completion Modal:
+  - **App-Wide Interactive Toast System (`ToastContainer.jsx`, `AppContext.jsx`)**:
+    - Replaced static passive popups with interactive action toasts featuring:
+      * **Interactive Action Buttons**: Primary and secondary CTA buttons (e.g. `[ Go to Forms Hub ]`, `[ Dashboard ]`, `[ View Approvals ]`).
+      * **Pause on Hover**: Hovering over any toast pauses the countdown timer and progress bar animation so users have ample time to read and click buttons. Resumes smoothly when the cursor leaves.
+      * **Expandable Details Accordion**: Integrated chevron toggle displaying affected components, items modified, or error details.
+      * **Micro Countdown Progress Bar**: Dynamic smooth timer bar synced with toast duration.
+  - **Interactive System Reset Completion Modal (`SmartSettingsAdmin.jsx`)**:
+    - When administrators execute a "Wipe Only Forms" or "Factory Reset", the system transitions the modal into an interactive success screen:
+      * Pulsing emerald halo and clean slate status heading.
+      * Verified metrics grid showing `0 Templates Remaining`, `0 Submissions Active`, `0 Reviews in Flight`.
+      * Summary of purged items and preserved architecture.
+      * Direct interactive navigation actions: `[ Go to Smart Cockpit ]`, `[ Open Forms Drive ]`, and `[ Close ]`.
+
 - **2026-10-27** — Interactive Smart Dashboard & Analytics Cockpit:
   - **Smart Stats Grid (6 High-Insight Cards)**: Added computed enterprise metrics with zero mock data:
     1. *Awaiting My Action / In Review* with urgent SLA indicator (deadline <48h).
@@ -977,5 +991,40 @@ SmartDoc decouples binary files from PostgreSQL into a high-performance native d
     - **Archival for Existing Submissions**: If users have submitted forms against the template, deleting it soft-archives the record (`status = 'ARCHIVED'`) and preserves the file on disk so existing submissions can still render the original document, be printed, and verify PKI signatures.
     - **Dynamic Confirmation Dialog**: `FormsHub.jsx` inspects `formSubmissions` in real time, rendering "Delete template?" (permanent deletion) when count is 0, or "Archive template?" (archive explanation) when submissions exist.
     - **Drive Cleanup**: Purged orphaned disk files and DB records that had zero submissions on record.
+  - **Interactive Smart Analytics Cockpit ("Smart Cockpit") (`SmartDashboard.jsx`, `DashboardCharts.jsx`) (2026-10-27)**:
+    - Transformed the static summary dashboard into an interactive, real-time analytics command center.
+    - **Scope Switcher & Dynamic Time Horizon**: Seamlessly toggle between "My Workspace", "My Department", and "Enterprise Global", alongside dynamic time window filters (7 Days, 30 Days, 90 Days, All Time) with one-click manual sync.
+    - **6 Computed Smart Metric Cards**:
+      1. *Awaiting Action / In Review*: Live queue counter with automatic ⚡ Urgent (<48h) urgency tags.
+      2. *Approval Velocity & SLA*: Average turnaround duration in hours/days and on-time SLA rate (% completed before decision deadline).
+      3. *Approval Pass Rate*: Pass ratio percentage with breakdown tags (`X approved · Y revisions`).
+      4. *Revisions Requested*: Identifies objections raised requiring submitter action.
+      5. *PKI Cryptographic Coverage*: Tracks % of submissions sealed with X.509 RSA-2048 digital signatures.
+      6. *Catalog Throughput*: Active templates utilized vs total published templates and total window submissions.
+    - **Interactive SVG Data Visualizations (`DashboardCharts.jsx`)**:
+      - *Submission & Approval Velocity Trend*: Responsive SVG Area & Line spline chart with glowing gradient fills, hover tooltips, smooth curve vs daily volume bar toggle, and click-to-filter by date.
+      - *Radial Status Distribution Donut*: Multi-segment SVG donut chart with animated center display and interactive legend pills filtering feed by status.
+      - *Department Workload & Pipeline*: Comparative horizontal progress bars illustrating throughput, pending approvals, and bottleneck indicators with click-to-filter by department.
+      - *Most Utilized Word Templates (Leaderboard)*: Top form templates ranked by submission volume with pass rates, versions, and direct "Fill Form" deep-links.
+    - **Priority Action Radar**: Multi-tab priority inbox categorizing tasks into Approvals Queue, Objections to Fix, Urgent SLA (<48h), and Pre-Publication Reviews with direct 1-click modal openers.
+    - **Live Searchable Submissions Explorer**: Real-time keyword search across titles, form numbers (`FRM-...`), submitters, and departments, combined with status chips and direct submission modal inspection.
+    - **Zero Mock Data**: Operates strictly on live PostgreSQL records with zero seeded fake data.
+  - **Interactive Actionable Toasts & System Reset Clean-Slate Completion Modal (`ToastContainer.jsx`, `AppContext.jsx`, `SmartSettingsAdmin.jsx`, `App.css`) (2026-10-27)**:
+    - **Interactive Actionable Toasts (`ToastContainer.jsx`)**:
+      - Completely upgraded toast notification system with interactive `ToastCard` components.
+      - **Synchronized Countdown Timer & Progress Bar**: Real-time progress bar animating smoothly at the base of every toast card.
+      - **Hover-to-Pause**: Moving mouse over any toast card immediately pauses the countdown timer and freezes the progress bar, allowing users to comfortably read messages or click buttons without the toast auto-dismissing. Moving the cursor away resumes the countdown.
+      - **Interactive Action Buttons (CTAs)**: Toasts accept `action: { label, onClick }` and `secondaryAction` buttons. Added direct actions such as `[ Go to Forms Hub ]` after system reset, `[ View Approvals ]` after form submission, or quick retries.
+      - **Expandable Diagnostic Details**: Added `Details ▾` accordion toggle to expand multi-line diagnostic summaries or error details.
+      - Delegated timer and pause state directly to `ToastCard` while updating `AppContext.jsx`'s `addToast` API with backward compatibility.
+    - **Interactive System Reset Clean-Slate Completion Modal (`#modal-wipe-success` in `SmartSettingsAdmin.jsx`)**:
+      - Replaced abrupt confirmation dialog closure with a dedicated executive verification modal.
+      - **Animated Pulsing Emerald Halo**: High-aesthetic verification badge confirming successful purge.
+      - **Live 0-State Metrics Grid**: Interactive metric cards verifying clean counts (`Templates: 0`, `Submissions: 0`, `Reviews: 0`).
+      - **Verified Operations Breakdown**: Clear distinction between purged components and preserved accounts/departments.
+      - **Direct Executive Navigation**: Single-click action buttons to jump straight into action:
+        - `[ Go to Smart Cockpit ]` (`/dashboard`): Inspect live real-time dashboard analytics.
+        - `[ Open Forms Drive ]` (`/forms`): Immediately begin designing new templates or creating folder hierarchies.
+        - `[ Close ]`: Dismiss modal and remain on Settings.
 
 

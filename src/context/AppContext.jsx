@@ -78,17 +78,35 @@ export const AppProvider = ({ children }) => {
     }
   }, [accentColor]);
 
-  // ---------- Toasts ----------
+  // ---------- Toasts (Interactive & Actionable) ----------
   const [toasts, setToasts] = useState([]);
   const removeToast = useCallback((id) => setToasts(prev => prev.filter(t => t.id !== id)), []);
-  const addToast = useCallback((title, message, type = 'info') => {
+  const addToast = useCallback((title, message, type = 'info', options = {}) => {
     const id = Date.now() + Math.random();
+    const duration = options.duration !== undefined ? options.duration : 5000;
+    const action = options.action || null; // { label: string, onClick: () => void }
+    const secondaryAction = options.secondaryAction || null;
+    const details = options.details || null;
+
     setToasts(prev => {
-      if (prev.some(t => t.title === title && t.message === message)) return prev;
-      return [...prev, { id, title, message, type }].slice(-4);
+      // Avoid duplicate toasts if exact title & message already active (unless allowDuplicate: true)
+      if (prev.some(t => t.title === title && t.message === message && !options.allowDuplicate)) return prev;
+      return [
+        ...prev,
+        {
+          id,
+          title,
+          message,
+          type,
+          action,
+          secondaryAction,
+          details,
+          duration,
+          createdAt: Date.now()
+        }
+      ].slice(-5);
     });
-    setTimeout(() => removeToast(id), 4500);
-  }, [removeToast]);
+  }, []);
 
   // ---------- App Version & Cache Invalidation Watcher ----------
   useEffect(() => {
@@ -308,10 +326,10 @@ export const AppProvider = ({ children }) => {
   };
 
   // Wraps an API call with error toast; returns result or null
-  const run = useCallback(async (fn, successTitle, successMsg) => {
+  const run = useCallback(async (fn, successTitle, successMsg, options = {}) => {
     try {
       const result = await fn();
-      if (successTitle) addToast(successTitle, successMsg || '', 'success');
+      if (successTitle) addToast(successTitle, successMsg || '', 'success', options);
       return result ?? true;
     } catch (err) {
       addToast('Action failed', err.message, 'error');
@@ -516,7 +534,17 @@ export const AppProvider = ({ children }) => {
   const submitForm = async (data) => {
     const r = await run(() => apiService.submitForm(data));
     if (r) {
-      addToast('Form submitted', `${r.uniqueNumber} is now with ${r.workflow?.[0]?.department || 'the first approver'}.`, 'success');
+      addToast(
+        'Form submitted',
+        `${r.uniqueNumber} is now with ${r.workflow?.[0]?.department || 'the first approver'}.`,
+        'success',
+        {
+          action: {
+            label: 'View Approvals',
+            onClick: () => setActiveTab('approvals')
+          }
+        }
+      );
       await refreshSubmissions();
     }
     return r;
@@ -524,7 +552,17 @@ export const AppProvider = ({ children }) => {
   const resubmitForm = async (id, data) => {
     const r = await run(() => apiService.resubmitForm(id, data));
     if (r) {
-      addToast('Form resubmitted', `${r.uniqueNumber} is now version ${r.version}.`, 'success');
+      addToast(
+        'Form resubmitted',
+        `${r.uniqueNumber} is now version ${r.version}.`,
+        'success',
+        {
+          action: {
+            label: 'View Approvals',
+            onClick: () => setActiveTab('approvals')
+          }
+        }
+      );
       await refreshSubmissions();
     }
     return r;
@@ -617,7 +655,14 @@ export const AppProvider = ({ children }) => {
     const r = await run(
       () => apiService.wipeAllData(),
       'System Reset Complete',
-      'All system data, templates, submissions, and non-superadmin accounts have been wiped.'
+      'All system data, templates, submissions, and non-superadmin accounts have been wiped.',
+      {
+        action: {
+          label: 'Go to Dashboard',
+          onClick: () => setActiveTab('dashboard')
+        },
+        duration: 8000
+      }
     );
     if (r) await refreshAll();
     return r;
@@ -627,7 +672,18 @@ export const AppProvider = ({ children }) => {
     const r = await run(
       () => apiService.wipeFormsOnly(),
       'Forms Reset Complete',
-      'All form templates, folders, submissions, and reviews have been wiped.'
+      'All form templates, folders, submissions, and reviews have been wiped.',
+      {
+        action: {
+          label: 'Go to Forms Hub',
+          onClick: () => setActiveTab('forms')
+        },
+        secondaryAction: {
+          label: 'Dashboard',
+          onClick: () => setActiveTab('dashboard')
+        },
+        duration: 8000
+      }
     );
     if (r) await refreshAll();
     return r;

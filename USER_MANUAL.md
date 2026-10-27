@@ -92,8 +92,15 @@ Every action that opens something has its own link, so you can work on several t
   - Submissions requiring your signature or department approval.
   - Approvals, objections, and rejections on your submitted forms.
   - Invitations to review draft form templates across any department.
-  - Submissions from reviewers on reviews you initiated.
-- Clicking any notification automatically marks it as read and navigates directly to the referenced document. Use **Mark all as read** to clear the badge.
+  - Clicking any notification automatically marks it as read and navigates directly to the referenced document. Use **Mark all as read** to clear the badge.
+
+### Interactive Actionable Toast Banners (`ToastContainer.jsx`)
+SmartDoc uses a modern, interactive toast notification system for instant feedback across all modules:
+- **Synchronized Countdown Timer**: Each toast displays an animated countdown progress bar at its base showing remaining display time.
+- **Hover-to-Pause**: Moving your cursor over any toast instantly freezes the countdown timer, keeping the toast visible indefinitely while you read details or interact with action buttons. Moving the mouse away resumes the timer.
+- **Direct Action Buttons (CTAs)**: Contextual toasts feature one-click action buttons for immediate navigation without switching pages manually (e.g. `[ Go to Forms Hub ]` after a reset, `[ View Approvals ]` after form submission, or quick-retry triggers).
+- **Expandable Diagnostic Details**: Toasts with extended diagnostic data feature a `Details ▾` accordion toggle, displaying structured multi-line reports or error explanations without cluttering the initial message.
+- **Instant Dismissal**: Click the close (`×`) button at any time to immediately dismiss the notification.
 
 ### Profile & Signature Studio
 - **Unified Identity Modal**: Click **Profile & Signature** in the sidebar footer (or click your avatar / profile card at the bottom left) to open the unified **Profile & Signature** modal (`ProfileAndSignatureModal.jsx`).
@@ -658,6 +665,16 @@ Accessible via the **System Reset** tab in Settings:
 - **Option 1: Wipe Out Every Data (Factory Reset)**: Completely purges all form templates, folder structures, submissions, approvals, reviews, departmental chat messages, and non-superadmin accounts. Resets the standard enterprise departments while preserving the Super Administrator login.
 - **Option 2: Wipe Only Forms**: Purges all form templates, folders, submissions, reviews, and form-related notifications, while strictly preserving all user accounts, roles, signatures, departments, and departmental chat messages.
 - **Confirmation Safety**: Requires typing the exact uppercase confirmation phrase (`WIPE ALL DATA` or `WIPE FORMS`) before the action can be executed.
+- **Interactive Clean-Slate Completion Modal (`#modal-wipe-success`)**:
+  - Rather than closing abruptly with only a corner notification, executing a reset immediately opens an interactive, executive verification modal.
+  - **Pulsing Emerald Verification Halo**: Visual badge confirming successful system purge.
+  - **Live 0-State Metrics Grid**: Interactive metric cards verifying clean counts (`Templates: 0`, `Submissions: 0`, `Reviews: 0`).
+  - **Verified Operations Breakdown**: Clear distinction between elements wiped (templates, folders, submissions, reviews) and elements preserved (departments, user accounts, digital certificates).
+  - **Direct Executive Navigation**: Single-click actions to jump straight into action:
+    - **Go to Smart Cockpit** (`/dashboard`): Inspect live real-time dashboard analytics.
+    - **Open Forms Drive** (`/forms`): Immediately begin designing new templates or creating folder hierarchies in Windows Explorer.
+    - **Close**: Dismiss modal and remain on Settings.
+- **Actionable Toast Notification**: Accompanied by a persistent toast banner equipped with a pause-on-hover timer and a one-click `[ Go to Forms Hub ]` action button.
 
 All important actions are recorded server-side in the audit log.
 
