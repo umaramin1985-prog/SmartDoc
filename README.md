@@ -81,6 +81,14 @@
 - **Bidirectional Two-Way Interaction**: Real-time typing reflection in the document canvas, automatic rail focus when clicking document placeholders, and single-field modal editing via double-click.
 - **Rigorous Validation & Missing Prompts**: Real-time validation for required fields, plus an alert modal listing any incomplete mandatory fields with direct "Fill Now →" navigation.
 - **Digital Signature Binding**: Submissions require a saved personal signature created via the built-in **Profile & Signature** Studio (`ProfileAndSignatureModal.jsx`), featuring Freehand Draw, Typed Calligraphy (4 fonts), and Scanned Paper Signature upload.
+- **Exact 1:1 Visual Fidelity Print & PDF Download**:
+  - Printing (`window.print()`, `Ctrl+P`) and downloading PDF (`exportFormSheetToPdf` via `html2canvas` 3.5× + `jsPDF`) produce an exact 1:1 replica of the on-screen form sheet (`.sd-form-filler-sheet`).
+  - Retains authentic input boxes, light gray `#cbd5e1` borders, labels, and typed text with zero layout shifts or degradation.
+  - Submitter & workflow digital signatures retain their authentic cards with dashed border (`#6366f1`), `Step 0 (Originator)` badge, drawn signature strokes, signer name, and cryptographic RSA-2048 PKI seal.
+  - **Intelligent Field Highlighting Suppression**: Rail-selected input glow and accent focus rings (`.is-active-target`) are cleanly suppressed during print and PDF export across CSS (`@media print`, `body:not(.sd-printing-live-form)`) and DOM cloning, ensuring all fields render with clean, professional, uniform borders without editing rings.
+  - **Input Field Placeholders Removed**: All input field placeholders (e.g. `Enter First Name…`, `YYYY-MM-DD`) are automatically stripped during print and PDF download, leaving clean, empty input boxes for unentered fields.
+  - **Empty Placeholders Replaced with Dash**: Any unfilled in-text legal or contract placeholders in document prose (e.g. `{{Contract Amount}}`) are automatically replaced with a clean typographic dash (`—`), preventing raw tags or curly braces from appearing in printed or downloaded documents.
+  - **Dedicated Header Ribbon Actions**: Direct **Download PDF** (`#btn-download-live-form-pdf`), **Print Form**, and **Print Blank** buttons in the top ribbon for instant document generation.
 
 ### 6. Enterprise PKI Digital Signatures & X.509 Cryptographic Verification
 - **Authentic Asymmetric Cryptography (RSA-2048)**: Beyond visual graphical signatures, every user account is automatically provisioned an RSA 2048-bit keypair and a standardized **X.509 v3 Digital Certificate** (`server/pkiEngine.js`).
@@ -97,15 +105,15 @@
 - **Submission Detail Modal (`SubmissionDetailModal.jsx`)**:
   - Submitted values and metadata.
   - Live visual workflow track showing approval progress across each department.
-  - Complete chronological audit history.
-  - In-browser document preview and download.
+  - Complete chronological audit history and in-form comments.
+  - **Unified Form Sheet Preview, PDF Save & Print**: Features dedicated "Preview Form Sheet", "Save as PDF", and "Print" actions that mount the authentic `<FillFormModal isViewOnly={true} />` canvas, guaranteeing exact visual fidelity for submitted forms.
 - **Three Core Operational Actions**:
   - **Approve**: Department admin stamps their saved signature and moves the form to the next department in the chain (or completes the workflow if at final step).
   - **Raise Objection**: Department admin provides mandatory objection notes, changing status to `OBJECTION_RAISED`. The submitter can modify answers, bumping the document version (e.g., 1.0 → 1.1) and restarting approval from Step 1.
   - **Reject**: Final termination with mandatory rejection reason.
 
 ### 8. Document Preview & Signature Stamping (`DocumentPreviewModal.jsx`)
-- **High-Fidelity Rendering**: In-browser preview of generated Word documents using `docx-preview`, interactive embedded PDF viewer, and responsive image viewer.
+- **High-Fidelity Rendering**: In-browser preview of generated Word documents using `docx-preview`, interactive embedded PDF viewer, responsive image viewer, and completed form submissions (rendered natively via `<FillFormModal isViewOnly={true} />`).
 - **Dynamic Signature & PKI Stamping**: Server-side engine (`server/docxEngine.js`) injects actual PNG signatures, merges all form field values, and prints cryptographic verification lines (`[PKI Certified: <fingerprint> · Cert #<serial>]`) directly beneath each signature and in the appended approval audit block.
 - **Direct Export**: Immediate Download (`.docx`, `.pdf`, `.png`) and Print actions.
 
@@ -181,6 +189,7 @@
 | **Frontend** | React 19, Vite, Vanilla CSS (`src/App.css`, `src/index.css`), Pure Black Dark Mode (`#000000`), Multi-Accent Support (Electric Lime, Orange, Blue, Red, Purple), Lucide React Icons |
 | **PKI Cryptography** | Native `node:crypto` (RSA 2048-bit, SHA-256 digests) + `node-forge` (X.509 v3 Digital Certificates) |
 | **Document Rendering** | `docx-preview` (high-fidelity in-browser `.docx` renderer), native PDF embed, image preview, WYSIWYG form-isolated sheet printing |
+| **PDF Export Engine** | `jspdf` (v4.2.1) + `html2canvas` (v1.4.1) (`src/utils/pdfExportEngine.js`) — 3.5× ultra-HD client-side form sheet PDF export with dynamic input capture |
 | **Word Processing Engine** | `docxtemplater`, `pizzip`, `mammoth` (HTML parsing), `html-to-docx` (Word compilation) |
 | **Diff & Merge Engine** | Custom block/word-level LCS diff with conflict detection and merge synthesis (`reviewDiff.js`) |
 | **Backend** | Node.js, Express (`server/server.js`, port 3001; Vite proxies `/api`) |

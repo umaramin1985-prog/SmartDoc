@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { apiService } from '../services/apiService';
 import { printWordDocument } from '../utils/wordPrintEngine';
-import { Modal, StatusBadge, formatDate } from './ui';
+import { exportWordToPdf } from '../utils/pdfExportEngine';
+import { Modal, StatusBadge, formatDate, downloadBlob } from './ui';
 import { FillFormModal } from './FillFormModal';
 import { VersionHistoryModal } from './VersionHistoryModal';
 import {
   FileDown, CheckCircle2, AlertTriangle, XCircle, Edit3, PenLine, Clock, CircleDot,
   History, MessageSquare, Check, X, Lock, ShieldCheck, ShieldAlert, RefreshCw, Key,
-  Printer, Loader2
+  Printer, Loader2, Download, Eye
 } from 'lucide-react';
 
 const STEP_ICON = {
@@ -31,6 +32,8 @@ export const SubmissionDetailModal = ({ submissionId, onClose }) => {
   const [editing, setEditing] = useState(false);
   const [showVersionModal, setShowVersionModal] = useState(false);
   const [printingWord, setPrintingWord] = useState(false);
+  const [downloadingDocx, setDownloadingDocx] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   // PKI Verification state
   const [verifyingPki, setVerifyingPki] = useState(false);
@@ -42,23 +45,47 @@ export const SubmissionDetailModal = ({ submissionId, onClose }) => {
   const [markAsWorkflowObjection, setMarkAsWorkflowObjection] = useState(false);
   const [commentBusy, setCommentBusy] = useState(false);
 
+  const [viewingFormSheet, setViewingFormSheet] = useState(false);
+  const [sheetInitialPrint, setSheetInitialPrint] = useState(false);
+  const [sheetInitialDownload, setSheetInitialDownload] = useState(false);
+
   const s = formSubmissions.find(x => x.id === submissionId);
 
-  const handlePrintSubmission = async () => {
-    if (!s || printingWord) return;
+  const handlePrintSubmission = () => {
+    if (!s) return;
+    setSheetInitialPrint(true);
+    setSheetInitialDownload(false);
+    setViewingFormSheet(true);
+  };
+
+  const handleDownloadDocx = async () => {
+    if (!s || downloadingDocx) return;
     try {
-      setPrintingWord(true);
-      addToast('Preparing Word Document', `Generating ${s.uniqueNumber} with digital signatures and stamps for print...`, 'info');
+      setDownloadingDocx(true);
+      addToast('Preparing Word Document', `Generating ${s.uniqueNumber} with digital signatures and stamps...`, 'info');
       const blob = await apiService.getSubmissionDocument(s.id);
-      await printWordDocument(blob, {
-        title: `${s.uniqueNumber}_${s.title}`
-      });
+      downloadBlob(blob, `${s.uniqueNumber}_v${s.version}.docx`);
+      addToast('Downloaded', `Saved "${s.uniqueNumber}_v${s.version}.docx"`, 'success');
     } catch (err) {
-      console.error('Word Print Error:', err);
-      addToast('Print Error', err.message || 'Failed to print submission document', 'error');
+      console.error('Download DOCX error:', err);
+      addToast('Download Failed', err.message || 'Could not download submission document', 'error');
     } finally {
-      setPrintingWord(false);
+      setDownloadingDocx(false);
     }
+  };
+
+  const handleDownloadPdf = () => {
+    if (!s) return;
+    setSheetInitialPrint(false);
+    setSheetInitialDownload(true);
+    setViewingFormSheet(true);
+  };
+
+  const handleViewFormSheet = () => {
+    if (!s) return;
+    setSheetInitialPrint(false);
+    setSheetInitialDownload(false);
+    setViewingFormSheet(true);
   };
 
   if (!s) return null;
@@ -139,19 +166,40 @@ export const SubmissionDetailModal = ({ submissionId, onClose }) => {
         onClose={onClose}
         footer={
           <>
-            <button className="btn btn-secondary" onClick={() =>
-              openDocumentPreview({ kind: 'submission', id: s.id, title: `${s.uniqueNumber} — ${s.title}`, fileName: `${s.uniqueNumber}_v${s.version}.docx` })}>
-              <FileDown size={15} /> View Word document
+            <button
+              id="btn-preview-submission-doc"
+              className="btn btn-secondary"
+              onClick={handleViewFormSheet}
+              title="Preview official filled form sheet exactly as submitted"
+            >
+              <Eye size={15} /> Preview Form Sheet
+            </button>
+            <button
+              id="btn-download-submission-pdf"
+              className="btn btn-secondary"
+              onClick={handleDownloadPdf}
+              title="Save document as high-resolution PDF with all filled values and signatures"
+            >
+              <FileDown size={15} /> Save as PDF
+            </button>
+            <button
+              id="btn-download-submission-docx"
+              className="btn btn-secondary"
+              disabled={downloadingDocx}
+              onClick={handleDownloadDocx}
+              title="Download Microsoft Word document (.docx)"
+            >
+              {downloadingDocx ? <Loader2 size={15} className="sd-spin" /> : <Download size={15} />}
+              <span>{downloadingDocx ? 'Downloading…' : 'Download .docx'}</span>
             </button>
             <button
               id="btn-print-submission-word"
               className="btn btn-secondary sd-mr-auto"
-              disabled={printingWord}
               onClick={handlePrintSubmission}
-              title="Print authentic Word document with stamped signatures and PKI digital seals"
+              title="Print official form sheet exactly as filled with all signatures"
             >
-              {printingWord ? <Loader2 size={15} className="sd-spin" /> : <Printer size={15} />}
-              <span>{printingWord ? 'Formatting…' : 'Print Word document'}</span>
+              <Printer size={15} />
+              <span>Print</span>
             </button>
             <button className="btn btn-secondary" onClick={() => setShowVersionModal(true)}>
               <History size={15} /> Version History
@@ -635,6 +683,36 @@ export const SubmissionDetailModal = ({ submissionId, onClose }) => {
           target={s}
           kind="submission"
           onClose={() => setShowVersionModal(false)}
+        />
+      )}
+
+      {viewingFormSheet && (
+        <FillFormModal
+          template={template || {
+            id: s.templateId,
+            title: s.title,
+            department: s.department,
+            fields: fields,
+            workflow: s.workflow
+          }}
+          submission={s}
+          isViewOnly={true}
+          initialPrint={sheetInitialPrint}
+          initialDownload={sheetInitialDownload}
+          onClose={() => {
+            setViewingFormSheet(false);
+            setSheetInitialPrint(false);
+            setSheetInitialDownload(false);
+          }}
+        />
+      )}
+
+      {editing && (
+        <FillFormModal
+          template={template}
+          submission={s}
+          onClose={() => setEditing(false)}
+          onDone={() => { setEditing(false); onClose?.(); }}
         />
       )}
     </>

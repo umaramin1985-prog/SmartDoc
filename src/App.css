@@ -6730,10 +6730,14 @@ body:has(.sd-studio-modal-backdrop) .sd-modal-backdrop:has(#modal-send-for-revie
     appearance: none !important;
   }
 
+  /* Remove all input field placeholders in print */
   .sd-doc-live-input::placeholder,
-  .sd-doc-live-input::-webkit-input-placeholder {
-    color: #94a3b8 !important;
-    opacity: 0.8 !important;
+  .sd-doc-live-input::-webkit-input-placeholder,
+  .sd-doc-live-input::-moz-placeholder,
+  .sd-doc-live-input:-ms-input-placeholder {
+    color: transparent !important;
+    opacity: 0 !important;
+    -webkit-text-fill-color: transparent !important;
   }
 
   .sd-doc-live-textarea {
@@ -6745,74 +6749,76 @@ body:has(.sd-studio-modal-backdrop) .sd-modal-backdrop:has(#modal-send-for-revie
     display: none !important;
   }
 
-  /* Submitter and department signature cards printed as displayed on screen */
-  .sd-doc-live-sig-card {
-    display: block !important;
-    border-radius: 6px !important;
-    padding: 10px 14px !important;
-    margin: 16px 0 12px 0 !important;
+  /* Suppress active target highlights during print so all inputs look uniform, clean, and authentic */
+  .sd-doc-live-field-wrap.is-active-target .sd-doc-live-input,
+  .sd-doc-live-input.is-active-target,
+  .sd-doc-live-placeholder.is-active-target,
+  .sd-doc-live-placeholder.is-empty.is-active-target,
+  .sd-doc-live-placeholder.is-filled.is-active-target {
+    border-color: #cbd5e1 !important;
+    box-shadow: none !important;
+    outline: none !important;
+    background: #ffffff !important;
+  }
+
+  .sd-doc-live-field-wrap.is-active-target .sd-doc-live-field-label {
+    color: #475569 !important;
+    font-weight: 700 !important;
+  }
+
+  /* Document Signature Block in Print (Strictly Signature, Name, and Department) */
+  .sd-doc-signature-block {
+    display: inline-flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    margin: 10px 0 6px 0 !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
     break-inside: avoid !important;
     page-break-inside: avoid !important;
-    box-sizing: border-box !important;
+    font-family: inherit !important;
   }
 
-  .sd-doc-live-sig-card.submitter {
-    border: 1.5px dashed #6366f1 !important;
-    background: #f8f7ff !important;
-  }
-
-  .sd-doc-live-sig-card.department {
-    border: 1.5px dashed #cbd5e1 !important;
-    background: #f8fafc !important;
-  }
-
-  .sd-doc-live-sig-header {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    margin-bottom: 8px !important;
-  }
-
-  .sd-doc-live-sig-title {
-    font-size: 8.5pt !important;
-    font-weight: 700 !important;
-    color: #4338ca !important;
-    display: flex !important;
-    align-items: center !important;
-    gap: 6px !important;
-  }
-
-  .sd-doc-live-sig-department .sd-doc-live-sig-title {
-    color: #64748b !important;
-  }
-
-  .sd-doc-live-sig-signed-box {
-    display: flex !important;
-    align-items: center !important;
-    gap: 14px !important;
-    background: #ffffff !important;
-    border: 1px solid #e0e7ff !important;
-    border-radius: 4px !important;
-    padding: 6px 12px !important;
-    box-sizing: border-box !important;
-  }
-
-  .sd-doc-live-sig-signed-box img {
+  .sd-doc-signature-img {
     max-height: 48px !important;
-    max-width: 170px !important;
+    min-height: 24px !important;
+    width: auto !important;
+    max-width: 190px !important;
     object-fit: contain !important;
+    object-position: left bottom !important;
     display: block !important;
+    margin-bottom: 4px !important;
+    background: transparent !important;
   }
 
-  .sd-doc-live-sig-meta-name {
-    font-weight: 700 !important;
-    font-size: 9.5pt !important;
+  .sd-doc-signature-placeholder-ink {
+    font-family: 'Brush Script MT', 'Segoe Script', cursive, sans-serif !important;
+    font-size: 1.3rem !important;
     color: #0f172a !important;
+    line-height: 1.2 !important;
+    margin-bottom: 4px !important;
   }
 
-  .sd-doc-live-sig-meta-hint {
-    font-size: 7.5pt !important;
-    color: #059669 !important;
+  .sd-doc-signature-name {
+    font-size: 9.5pt !important;
+    font-weight: 600 !important;
+    color: #0f172a !important;
+    line-height: 1.3 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-family: inherit !important;
+  }
+
+  .sd-doc-signature-dept {
+    font-size: 8.5pt !important;
+    font-weight: 400 !important;
+    color: #475569 !important;
+    line-height: 1.3 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-family: inherit !important;
   }
 
   .sd-badge {
@@ -8184,12 +8190,9 @@ body:has(.sd-studio-modal-backdrop) .sd-modal-backdrop:has(#modal-send-for-revie
 .sd-doc-live-textarea,
 .sd-doc-live-checkbox,
 .sd-doc-live-checkbox span,
-.sd-doc-live-sig-card,
-.sd-doc-live-sig-header,
-.sd-doc-live-sig-title,
-.sd-doc-live-sig-meta,
-.sd-doc-live-sig-meta-name,
-.sd-doc-live-sig-meta-hint,
+.sd-doc-signature-block,
+.sd-doc-signature-name,
+.sd-doc-signature-dept,
 .sd-print-value,
 .sd-print-text,
 .sd-print-text-block,
@@ -8207,110 +8210,106 @@ body:has(.sd-studio-modal-backdrop) .sd-modal-backdrop:has(#modal-send-for-revie
   font-family: inherit !important;
 }
 
-/* In-Document Live Signature Blocks */
+/* In-Document Live Signature Blocks (Authentic Signature, Name, and Department) */
 .sd-live-slot-sig {
-  margin: 18px 0;
+  margin: 12px 0;
+  display: inline-block;
+  vertical-align: top;
 }
 
-.sd-doc-live-sig-card {
-  padding: 12px 16px;
-  border-radius: 6px;
+.sd-doc-signature-block {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  margin: 8px 0;
+  min-width: 160px;
+  max-width: 260px;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
   box-sizing: border-box;
-  margin: 10px 0;
-  transition: all 0.15s ease;
+  font-family: inherit;
 }
 
-.sd-doc-live-sig-card.submitter {
-  border: 1.5px dashed #6366f1;
-  background: #f8f7ff;
+.sd-doc-signature-img {
+  max-height: 48px;
+  min-height: 24px;
+  width: auto;
+  max-width: 190px;
+  object-fit: contain;
+  object-position: left bottom;
+  display: block;
+  margin-bottom: 4px;
+  background: transparent !important;
 }
 
-.sd-doc-live-sig-card.department {
-  border: 1.5px dashed #cbd5e1;
-  background: #f8fafc;
+.sd-doc-signature-placeholder-ink {
+  font-family: 'Brush Script MT', 'Segoe Script', cursive, sans-serif;
+  font-size: 1.3rem;
+  color: #0f172a;
+  line-height: 1.2;
+  margin-bottom: 4px;
 }
 
-.sd-doc-live-sig-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
+.sd-doc-signature-name {
+  font-size: 9.5pt;
+  font-weight: 600;
+  color: #0f172a;
+  line-height: 1.3;
+  margin: 0;
+  padding: 0;
+  font-family: inherit;
 }
 
-.sd-doc-live-sig-title {
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: #4338ca;
-  display: flex;
+.sd-doc-signature-dept {
+  font-size: 8.5pt;
+  font-weight: 400;
+  color: #475569;
+  line-height: 1.3;
+  margin: 0;
+  padding: 0;
+  font-family: inherit;
+}
+
+.sd-doc-signature-pending-notice {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-}
-
-.sd-doc-live-sig-department .sd-doc-live-sig-title {
+  font-size: 0.76rem;
+  font-weight: 500;
   color: #64748b;
+  margin-bottom: 6px;
 }
 
-.sd-doc-live-sig-signed-box {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 6px 12px;
-  background: #ffffff;
-  border: 1px solid #e0e7ff;
-  border-radius: 4px;
-}
-
-.sd-doc-live-sig-signed-box img {
-  max-height: 48px;
-  max-width: 170px;
-  object-fit: contain;
-}
-
-.sd-doc-live-sig-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.sd-doc-live-sig-meta-name {
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: #1e293b;
-}
-
-.sd-doc-live-sig-meta-hint {
-  font-size: 0.72rem;
-  color: #6366f1;
+.sd-print-line {
+  display: block;
+  width: 100%;
+  min-width: 140px;
+  border-bottom: 1.5px solid #94a3b8;
+  height: 20px;
+  margin-bottom: 4px;
 }
 
 .sd-doc-live-sig-draw-btn {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 14px;
-  font-size: 0.82rem;
+  padding: 6px 12px;
+  font-size: 0.8rem;
   font-weight: 600;
   color: #4f46e5;
   background: #ffffff;
   border: 1px dashed #6366f1;
   border-radius: 4px;
   cursor: pointer;
+  margin-bottom: 6px;
   transition: all 0.15s ease;
 }
 
 .sd-doc-live-sig-draw-btn:hover {
   background: #ede9fe;
   border-style: solid;
-}
-
-.sd-doc-live-sig-pending-box {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.78rem;
-  color: #64748b;
-  font-style: italic;
-  padding: 4px 0;
 }
 
 /* Fallback Official Form Header (when template has no raw HTML) */
@@ -8434,16 +8433,18 @@ body:has(.sd-studio-modal-backdrop) .sd-modal-backdrop:has(#modal-send-for-revie
   animation: none !important;
 }
 
-/* Active Highlight for Direct Input Fields on Sheet when linked to active rail card */
-.sd-doc-live-field-wrap.is-active-target .sd-doc-live-input,
-.sd-doc-live-input.is-active-target {
-  border-color: var(--primary-500, #a4fb4f) !important;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-500, #a4fb4f) 25%, transparent), 0 2px 8px rgba(0, 0, 0, 0.12) !important;
-}
+/* Active Highlight for Direct Input Fields on Sheet when linked to active rail card (SCREEN ONLY - never in print) */
+@media screen {
+  body:not(.sd-printing-live-form) .sd-doc-live-field-wrap.is-active-target .sd-doc-live-input,
+  body:not(.sd-printing-live-form) .sd-doc-live-input.is-active-target {
+    border-color: var(--primary-500, #a4fb4f) !important;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-500, #a4fb4f) 25%, transparent), 0 2px 8px rgba(0, 0, 0, 0.12) !important;
+  }
 
-.sd-doc-live-field-wrap.is-active-target .sd-doc-live-field-label {
-  color: var(--primary-500, #a4fb4f) !important;
-  font-weight: 700;
+  body:not(.sd-printing-live-form) .sd-doc-live-field-wrap.is-active-target .sd-doc-live-field-label {
+    color: var(--primary-500, #a4fb4f) !important;
+    font-weight: 700;
+  }
 }
 
 .sd-doc-live-placeholder.is-empty.is-invalid {
@@ -8451,6 +8452,17 @@ body:has(.sd-studio-modal-backdrop) .sd-modal-backdrop:has(#modal-send-for-revie
   border: none !important;
   background: transparent !important;
   box-shadow: none !important;
+}
+
+/* Ensure read-only / view-only inputs look identical to editable inputs without browser gray wash */
+.sd-doc-live-input:disabled,
+.sd-doc-live-input[readonly] {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  opacity: 1 !important;
+  cursor: default !important;
+  border-color: #cbd5e1 !important;
+  -webkit-text-fill-color: #0f172a !important;
 }
 
 .sd-ph-tag-token {
@@ -10765,5 +10777,196 @@ select option,
   margin-top: 8px;
 }
 
+/* Document Download Modal */
+.sd-download-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 0;
+}
 
+.sd-download-options-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
 
+@media (max-width: 600px) {
+  .sd-download-options-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sd-download-option-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 18px;
+  border-radius: var(--radius-lg, 12px);
+  background: var(--bg-card-subtle, #0a0a0a);
+  border: 1px solid var(--border-color, #27272a);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  gap: 12px;
+}
+
+.sd-download-option-card:hover {
+  border-color: var(--border-color-focus, #3f3f46);
+  background: var(--bg-card, #121212);
+  transform: translateY(-1px);
+}
+
+.sd-download-option-card.sd-download-option-highlight {
+  border-color: color-mix(in srgb, var(--primary-500) 35%, var(--border-color));
+  background: color-mix(in srgb, var(--primary-500) 4%, var(--bg-card-subtle));
+}
+
+.sd-download-option-card.sd-download-option-highlight:hover {
+  border-color: var(--primary-500);
+  background: color-mix(in srgb, var(--primary-500) 8%, var(--bg-card-subtle));
+}
+
+.sd-download-card-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+}
+
+.sd-download-option-highlight .sd-download-card-icon {
+  background: color-mix(in srgb, var(--primary-500) 15%, transparent);
+  border-color: color-mix(in srgb, var(--primary-500) 30%, transparent);
+  color: var(--primary-500);
+}
+
+.sd-download-card-info {
+  flex: 1;
+}
+
+.sd-download-card-title {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 4px;
+}
+
+.sd-download-card-desc {
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* ==========================================================================
+   PRINT NORMALIZATION: Force all inputs and labels to uniform, unhighlighted state,
+   remove all input field placeholders, and replace empty in-text placeholders with dash
+   ========================================================================== */
+.sd-ph-empty-print-dash {
+  display: none;
+}
+
+@media print {
+  .sd-doc-live-field-wrap .sd-doc-live-input,
+  .sd-doc-live-field-wrap.is-active-target .sd-doc-live-input,
+  .sd-doc-live-input,
+  .sd-doc-live-input.is-active-target,
+  .sd-doc-live-placeholder,
+  .sd-doc-live-placeholder.is-active-target,
+  .sd-doc-live-placeholder.is-empty.is-active-target,
+  .sd-doc-live-placeholder.is-filled.is-active-target {
+    border: 1.5px solid #cbd5e1 !important;
+    border-color: #cbd5e1 !important;
+    box-shadow: none !important;
+    outline: none !important;
+    background: #ffffff !important;
+  }
+
+  .sd-doc-live-field-wrap .sd-doc-live-field-label,
+  .sd-doc-live-field-wrap.is-active-target .sd-doc-live-field-label {
+    color: #475569 !important;
+    font-weight: 700 !important;
+  }
+
+  /* Remove all input field placeholders in print */
+  .sd-doc-live-input::placeholder,
+  .sd-doc-live-input::-webkit-input-placeholder,
+  .sd-doc-live-input::-moz-placeholder,
+  .sd-doc-live-input:-ms-input-placeholder {
+    color: transparent !important;
+    opacity: 0 !important;
+    -webkit-text-fill-color: transparent !important;
+  }
+
+  /* In-text placeholders: if empty, hide {{...}} tag token and show dash */
+  .sd-doc-live-placeholder.is-empty .sd-ph-tag-token,
+  .sd-ph-tag-token {
+    display: none !important;
+  }
+
+  .sd-ph-empty-print-dash {
+    display: inline !important;
+    color: #0f172a !important;
+    font-weight: inherit !important;
+    font-family: inherit !important;
+    letter-spacing: normal !important;
+  }
+
+  .sd-filler-connector-svg,
+  .sd-form-filler-rail,
+  .sd-doc-field-pulse-target {
+    display: none !important;
+  }
+}
+
+body.sd-printing-live-form .sd-doc-live-field-wrap .sd-doc-live-input,
+body.sd-printing-live-form .sd-doc-live-field-wrap.is-active-target .sd-doc-live-input,
+body.sd-printing-live-form .sd-doc-live-input,
+body.sd-printing-live-form .sd-doc-live-input.is-active-target {
+  border: 1.5px solid #cbd5e1 !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+body.sd-printing-live-form .sd-doc-live-field-wrap .sd-doc-live-field-label,
+body.sd-printing-live-form .sd-doc-live-field-wrap.is-active-target .sd-doc-live-field-label {
+  color: #475569 !important;
+}
+
+/* Remove all input field placeholders when printing class is active */
+body.sd-printing-live-form .sd-doc-live-input::placeholder,
+body.sd-printing-live-form .sd-doc-live-input::-webkit-input-placeholder,
+body.sd-printing-live-form .sd-doc-live-input::-moz-placeholder,
+body.sd-printing-live-form .sd-doc-live-input:-ms-input-placeholder {
+  color: transparent !important;
+  opacity: 0 !important;
+  -webkit-text-fill-color: transparent !important;
+}
+
+body.sd-printing-live-form .sd-doc-live-placeholder.is-empty .sd-ph-tag-token,
+body.sd-printing-live-form .sd-ph-tag-token {
+  display: none !important;
+}
+
+body.sd-printing-live-form .sd-ph-empty-print-dash {
+  display: inline !important;
+  color: #0f172a !important;
+  font-weight: inherit !important;
+}
+
+@media print {
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    display: none !important;
+    -webkit-appearance: none !important;
+    opacity: 0 !important;
+  }
+}
+
+body.sd-printing-live-form input[type="date"]::-webkit-calendar-picker-indicator {
+  display: none !important;
+  -webkit-appearance: none !important;
+  opacity: 0 !important;
+}

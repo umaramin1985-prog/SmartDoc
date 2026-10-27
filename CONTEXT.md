@@ -15,6 +15,7 @@
 | Layer | Tech |
 |---|---|
 | Frontend | React + Vite, **Vanilla CSS** (`src/App.css`, `src/index.css`), `docx-preview` for in-browser rendering |
+| PDF Export Engine | `jspdf` (v4.2.1) + `html2canvas` (v1.4.1) (`src/utils/pdfExportEngine.js`) — authentic client-side Word & live form sheet to PDF conversion (3.5× HD, dynamic input capture, zero layout degradation) |
 | Backend | Node/Express (`server/server.js`, port 3001; Vite proxies `/api`) |
 | PKI Engine | Native `node:crypto` (RSA-2048, SHA-256) + `node-forge` (`server/pkiEngine.js`) for X.509 v3 Digital Certificates |
 | Database | PostgreSQL (`server/pgDb.js`), auto-creates DB + tables on start, seeds super admin from `.env` |
@@ -38,6 +39,7 @@ No mock data is ever seeded — only the super admin.
 | Bulk import documents & templates | ✅ Any dept | ✅ Own dept only | ❌ 403 Forbidden | ❌ 403 Forbidden |
 | Configure access permissions | ✅ Any dept | ✅ Own dept only | ❌ 403 Forbidden | ❌ 403 Forbidden |
 | Move template to folder | ✅ Any dept | ✅ Own dept only | ❌ 403 Forbidden | ❌ 403 Forbidden |
+| Download document & Save as PDF | ✅ Yes | ✅ Yes | ✅ If permitted | ✅ If permitted |
 | Fill form & submit | ✅ Yes | ✅ Yes | ✅ If permitted | ✅ If permitted |
 | Approve / Object / Reject | ✅ Any step | ✅ Own dept step | ❌ 403 Forbidden | ❌ 403 Forbidden |
 | Manage users & depts | ✅ Yes (Settings) | ❌ Hidden | ❌ Hidden | ❌ Hidden |
@@ -144,7 +146,7 @@ SmartDoc uses native HTML5 History API client-side routing (`src/utils/router.js
   - Header actions: `+ New Folder` and `Word Form Studio` persistently accessible for admins (department selector dialog at root for superadmin).
   - Left pane: Hierarchical tree view (Departments -> Folders -> Subfolders) with expand/collapse, item counts with storage space tooltips, "+" quick button, Rename (`Edit2`), and Delete (`Trash2`) on hover for admins.
   - Top bar: Explorer address bar / breadcrumbs (e.g. `SmartDoc Drive > Human Resources > Recruitment`), Back/Forward/Up buttons, Search bar, New Folder button in toolbar, contextual "Rename" and "Delete Folder" buttons when inside a folder, View toggle (Details/Table vs Grid/Tiles), Filter pills (All, Templates, Submissions), Rights badge.
-  - Main pane: Department drive cards at root with direct `+ New Folder` button and total storage indicators; folder tiles with item counts and recursive storage sizes, Word template cards with file size badges, and submitted documents cards.
+  - Main pane: Department drive cards at root with direct `+ New Folder` button and total storage indicators; folder tiles with item counts and recursive storage sizes, Word template cards with file size badges and Print action (which opens the live form sheet and triggers the identical print engine as Fill Form's Print Form option), and submitted documents cards.
   - Details/Table view: Dedicated "Size" / "Storage Size" columns for templates, folders (recursive cumulative size), and department drives; row-level action buttons for Rename and Delete folders.
   - Bottom status bar: Displays dynamic `Total Storage: X KB/MB` for the current explorer view.
   - Contextual modals: Create folder (with target department selector if at root), Rename folder, Delete folder (with safe re-parenting of sub-items), Move template to folder.
@@ -174,11 +176,16 @@ SmartDoc uses native HTML5 History API client-side routing (`src/utils/router.js
     - Focusing a field in the right rail scrolls to the placeholder and directs the dynamic leader line to it.
     - Clicking or tapping any placeholder in the document canvas immediately scrolls to and focuses that exact card and input in the right-side form rail.
     - Double-clicking opens the focused single-field dialog (`FieldFillDialog`) for concentrated editing.
-  - **Validation & Missing Prompt Modal (`showMissingPromptModal`)**: On submit, if any mandatory in-text placeholder or direct field is missing, a dedicated alert dialog lists incomplete fields with a **"Fill Now →"** button that immediately navigates to and focuses that field.
-  - **Printing**: Built-in Print Form (with filled inputs & clean print presentation) and Print Blank (with clean handwriting fill-in lines and blank signature blocks) via `window.print()` and `@media print` with `Ctrl+P` shortcut support; automatically hides the right rail and chrome during printing.
-- `SubmissionDetailModal.jsx` — values, workflow track, history, approve/object/reject (notes required for non-approve), preview/download.
+  - **Printing & PDF Export Fidelity**:
+    - **Exact Visual Matching**: Print output (`window.print()`) and PDF export (`exportFormSheetToPdf` via `html2canvas` 3.5× + `jsPDF`) produce an exact replica of the on-screen form sheet (`.sd-form-filler-sheet`). All input boxes, borders (`#cbd5e1`), labels, typed values, and clean document signatures (strictly displaying signature image, signer name, and department without card chrome, dashed boxes, or cryptographic badges) remain identical with zero layout changes or degradation.
+    - **Highlighting Suppression**: Rail-selected input glow and neon accents (`.is-active-target`) are cleanly suppressed during print and PDF export, ensuring all fields render with clean, professional, uniform borders without editing rings.
+    - **Input Field Placeholders Removed**: All input field placeholders (e.g. `Enter First Name…`, `YYYY-MM-DD`) are automatically stripped during print and PDF download, leaving clean, empty input boxes for unentered fields.
+    - **Empty Placeholders Replaced with Dash**: Any unfilled in-text legal/contract placeholders (e.g. `{{Contract Amount}}`) are automatically replaced with a clean typographic dash (`—`), preventing raw tags or curly braces from appearing in printed or downloaded documents.
+    - **Header Actions**: Dedicated **Download PDF** (`#btn-download-live-form-pdf`) alongside **Print Form** and **Print Blank** in the action ribbon.
+    - **Dual-Mode Canvas (`isViewOnly`)**: Supports read-only viewing of completed submissions. In view-only mode, form inputs are marked `disabled` and `readOnly` with clean white backgrounds, the right-side rail is hidden, and top controls display a simple Close button alongside Print and Download PDF.
+- `SubmissionDetailModal.jsx` — values, workflow track, audit history, approve/object/reject. "Preview Form Sheet" (`#btn-preview-submission-doc`), "Save as PDF" (`#btn-download-submission-pdf`), and "Print" (`#btn-print-submission-word`) seamlessly mount `<FillFormModal isViewOnly={true} />` to deliver the identical authentic form sheet layout, input boxes, and PKI signatures.
 - `ProfileAndSignatureModal.jsx` — unified identity modal with top-level tabs for **Digital Signature** (freehand drawing with pointer-capture, typed cursive calligraphy with 4 styles and 2 ink colors, paper scan upload with transparency threshold) and **Profile Photo** (upload, drag-and-drop, zoom slider 1x-2.5x, circular center-crop, remove photo). Backwards-compatible aliases `SignaturePadModal.jsx` and `ProfilePictureModal.jsx` re-export this unified modal.
-- `DocumentPreviewModal.jsx` — full-screen document viewer (`size="full"`, 94vh) supporting Word `.docx` (via `docx-preview`), static `.pdf` (via in-browser viewer iframe), and static image files, with native Print & Download.
+- `DocumentPreviewModal.jsx` — full-screen document viewer supporting Word `.docx` (via `docx-preview`), static `.pdf` (via in-browser viewer iframe), static image files, and completed submissions (`kind === 'submission'`), which automatically renders the authentic `<FillFormModal isViewOnly={true} />` sheet with unified Print and Download.
 - `ActivityHub.jsx` — **Activity Log & Cryptographic Audit Trail**: displays role-scoped activity records with database pagination (`page`, `pageSize` 25/50/100, `category`, `search`, `department`, `exportAll`). Features debounced server search, category pill filters, per-page selector, smart numbered pagination controls, SHA-256 integrity hash verification pills, complete CSV export, and standalone window popup support (`/activity?popup=true`).
 - `PrePublishReviewPromptModal.jsx` — **Pre-Publication Peer Review Prompt**: Intercepts template publishing from both **Word Form Studio** (`SmartWordStudio.jsx`) and **Upload Modal** (`TemplateUploadModal.jsx`). Gives authors a clear choice before going live: **Send for Review (Recommended)** with multi-user feedback, or **Publish Directly** to the department drive.
 - `AppFooter.jsx` — Global branding footer displaying **"Powered by prynivo.com"** linked to `https://prynivo.com`, consistently integrated across main viewport, sidebar rail, and login screens.
@@ -804,3 +811,19 @@ Tables in use:
       - **Direct Input Width Alignment**: Resolved multi-column overlapping inputs by eliminating legacy `min-width: 190px` constraints and calculating sub-percentages cleanly.
       - **Visual Leader Connector Line**: Dual element target resolution (`live-wrap`, `live-field`, `live-placeholder`) with trailing-symbol normalization and glowing SVG stroke.
       - **Automated Cache Invalidation**: Automatic detection of `v1.2.0` deployment triggers background cache clearance and refresh.
+  - **Universal Document Download & Client-Side "Save as PDF" Engine (2026-10-26)**:
+    - **Requirement**: Allow options to download documents across the system. For Microsoft Word `.docx` or legacy `.doc` files (both blank templates and filled submissions with stamped signatures and PKI digital seals), provide an explicit option to **Save as PDF** (`.pdf`) alongside **Download .docx**.
+    - **Architecture & Implementation**:
+      - **Client-Side PDF Conversion Engine (`src/utils/pdfExportEngine.js`)**: Implemented `exportWordToPdf(source, fileName, onProgress)` utilizing `jspdf` (v4.2.1), `html2canvas` (v1.4.1), and `docx-preview`.
+        - **Anti-Blur & Typography Sharpness Optimization**: Upgraded rendering scale to **3.5×** (~336 DPI laser-print resolution) and switched from lossy JPEG to **lossless PNG** encoding (`toDataURL('image/png')`), eliminating compression ringing halos and blurry text edges.
+        - **Subpixel Antialiasing & Exact Geometry**: Placed staging container in active browser compositor space (`top: 0; left: 0; opacity: 0.01; z-index: -99999`) with `-webkit-font-smoothing: antialiased` and `text-rendering: geometricPrecision`. Configured exact bounding-box dimensions (`width: sectionWidth, height: sectionHeight, windowWidth: sectionWidth, windowHeight: sectionHeight, scrollX: 0, scrollY: 0`) to prevent squashing, margin drift, or off-center distortion.
+        - **Isolated Staging**: Prioritizes raw Word binary blobs (`blobRef.current`) rendered with `inWrapper: false`, preventing inherited modal background colors, dark padding, or box shadows from bleeding into the PDF.
+      - **Document Preview Modal Integration (`DocumentPreviewModal.jsx`)**: Added `#btn-download-pdf` ("Save as PDF") with loading spinner and status feedback, alongside `#btn-download-doc` ("Download .docx") and direct download for static PDFs and images.
+      - **Submission Detail Modal Integration (`SubmissionDetailModal.jsx`)**: Added direct footer action buttons `#btn-download-submission-pdf` ("Save as PDF") and `#btn-download-submission-docx` ("Download .docx") to download or convert filled forms with stamped submitter and approver signatures without requiring users to open preview first.
+      - **Forms & Documents Explorer Quick Tools (`FormsHub.jsx`)**:
+        - Grid view (`#btn-tpl-download-...`) and Table view (`#btn-tbl-tpl-download-...`) quick download buttons.
+        - Direct download for non-editable PDFs and images.
+        - Dedicated **Download Document Modal** (`#download-document-modal`) for Word templates providing interactive format cards:
+          - **Microsoft Word**: Download original `.docx` format compatible with Microsoft Word and SmartDoc Studio.
+          - **PDF Document**: Save print-ready, high-resolution `.pdf` file with live progress indicator.
+

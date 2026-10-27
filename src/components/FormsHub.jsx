@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { apiService } from '../services/apiService';
-import { PageHeader, EmptyState, StatusBadge, formatDate, fileToBase64, formatSize } from './ui';
+import { PageHeader, EmptyState, StatusBadge, formatDate, fileToBase64, formatSize, Modal, downloadBlob } from './ui';
 import { TemplateUploadModal } from './TemplateUploadModal';
 import { BulkImportModal } from './BulkImportModal';
 import { SmartWordStudio } from './SmartWordStudio';
@@ -10,14 +10,14 @@ import { SubmissionDetailModal } from './SubmissionDetailModal';
 import { TemplatePermissionsModal } from './TemplatePermissionsModal';
 import { VersionHistoryModal } from './VersionHistoryModal';
 import { SendForReviewModal } from './SendForReviewModal';
-import { printWordDocument } from '../utils/wordPrintEngine';
+import { exportWordToPdf } from '../utils/pdfExportEngine';
 import {
   Folder, FolderPlus, FolderOpen, FolderInput, FileText,
   ChevronRight, ChevronDown, ArrowLeft, ArrowRight, ArrowUp,
   Upload, Eye, Trash2, Search, PenSquare, Building2,
   ShieldCheck, Lock, LayoutGrid, List, Plus,
   CheckCircle2, HardDrive, Edit2, Edit3, History, Image as ImageIcon, Shield,
-  AlertTriangle, Send, Printer, FileEdit, Sparkles
+  AlertTriangle, Send, Printer, FileEdit, Sparkles, Download, FileDown, Loader2
 } from 'lucide-react';
 
 export const FormsHub = () => {
@@ -61,17 +61,62 @@ export const FormsHub = () => {
   const [moveTemplateTarget, setMoveTemplateTarget] = useState(null);
   const [confirmRemoveTemplate, setConfirmRemoveTemplate] = useState(null);
   const [sendForReviewTarget, setSendForReviewTarget] = useState(null);
+  const [downloadTarget, setDownloadTarget] = useState(null);
+  const [downloadingFormat, setDownloadingFormat] = useState(null);
+  const [downloadPdfProgress, setDownloadPdfProgress] = useState('');
 
-  const handlePrintTemplate = async (t) => {
+  const handleDirectDownload = async (t) => {
     try {
-      addToast('Preparing Word Document', `Generating blank Word template "${t.title}" for printing...`, 'info');
-      const blob = await apiService.renderPrintDocument(t.id, { blank: true });
-      await printWordDocument(blob, { title: `${t.title} (Blank Form)` });
+      addToast('Downloading File', `Retrieving ${t.fileName || t.title}…`, 'info');
+      const blob = await apiService.getTemplateFile(t.id);
+      const ext = t.fileType === 'pdf' ? '.pdf' : (t.fileName?.match(/\.[^.]+$/)?.[0] || '.png');
+      const name = t.fileName || `${t.title || 'document'}${ext}`;
+      downloadBlob(blob, name);
+      addToast('Download Complete', `Downloaded ${name}`, 'success');
     } catch (err) {
-      console.warn('Direct blank Word print fallback:', err);
-      setPrintDirect(true);
-      setFillTemplate(t);
+      addToast('Download Failed', err.message || 'Could not download document file.', 'error');
     }
+  };
+
+  const handleDownloadWordFromModal = async (t) => {
+    setDownloadingFormat('docx');
+    try {
+      addToast('Downloading Word File', `Retrieving ${t.title} (.docx)…`, 'info');
+      const blob = await apiService.getTemplateFile(t.id);
+      const name = t.fileName || `${t.title || 'template'}.docx`;
+      downloadBlob(blob, name);
+      addToast('Download Complete', `Downloaded ${name}`, 'success');
+      setDownloadTarget(null);
+    } catch (err) {
+      addToast('Download Failed', err.message || 'Could not download Word document.', 'error');
+    } finally {
+      setDownloadingFormat(null);
+    }
+  };
+
+  const handleDownloadPdfFromModal = async (t) => {
+    setDownloadingFormat('pdf');
+    setDownloadPdfProgress('Preparing document…');
+    try {
+      addToast('Converting Document', `Generating authentic PDF for ${t.title}…`, 'info');
+      const blob = await apiService.getTemplateFile(t.id);
+      const pdfName = (t.fileName || t.title || 'document').replace(/\.(docx?|pdf|png|jpe?g)$/i, '') + '.pdf';
+      await exportWordToPdf(blob, pdfName, (prog) => {
+        setDownloadPdfProgress(prog?.status || 'Converting to PDF…');
+      });
+      addToast('PDF Saved', `Successfully generated ${pdfName}`, 'success');
+      setDownloadTarget(null);
+    } catch (err) {
+      addToast('PDF Export Failed', err.message || 'Could not generate PDF. Please try again.', 'error');
+    } finally {
+      setDownloadingFormat(null);
+      setDownloadPdfProgress('');
+    }
+  };
+
+  const handlePrintTemplate = (t) => {
+    setPrintDirect(true);
+    setFillTemplate(t);
   };
 
   const handleSendTemplateForReview = async ({ reviewerIds, message }) => {
@@ -531,6 +576,21 @@ export const FormsHub = () => {
                 <Eye size={14} />
               </button>
               <button
+                id={`btn-tpl-download-${t.id}`}
+                className="sd-icon-btn-sm"
+                title={isNonEditable && (isPdf || isImage) ? `Download ${t.fileType.toUpperCase()}` : 'Download (Word or PDF)'}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isNonEditable && (isPdf || isImage)) {
+                    handleDirectDownload(t);
+                  } else {
+                    setDownloadTarget(t);
+                  }
+                }}
+              >
+                <Download size={14} />
+              </button>
+              <button
                 id={`btn-tpl-history-${t.id}`}
                 className="sd-icon-btn-sm"
                 title="Version History (Git log)"
@@ -716,6 +776,21 @@ export const FormsHub = () => {
               onClick={() => openDocumentPreview({ kind: 'template', id: t.id, title: t.title, fileName: t.fileName, fileType: t.fileType })}
             >
               <Eye size={15} />
+            </button>
+            <button
+              id={`btn-tbl-tpl-download-${t.id}`}
+              className="sd-icon-btn"
+              title={isNonEditable && (isPdf || isImage) ? `Download ${t.fileType.toUpperCase()}` : 'Download (Word or PDF)'}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (isNonEditable && (isPdf || isImage)) {
+                  handleDirectDownload(t);
+                } else {
+                  setDownloadTarget(t);
+                }
+              }}
+            >
+              <Download size={15} />
             </button>
             <button
               className="sd-icon-btn"
@@ -1805,6 +1880,76 @@ export const FormsHub = () => {
           onClose={() => setSendForReviewTarget(null)}
           onSend={handleSendTemplateForReview}
         />
+      )}
+
+      {/* 9. Download Document Options Modal */}
+      {downloadTarget && (
+        <Modal
+          id="download-document-modal"
+          size="sm"
+          title="Download Document"
+          subtitle={downloadTarget.title}
+          onClose={() => {
+            if (!downloadingFormat) setDownloadTarget(null);
+          }}
+          footer={
+            <button
+              className="btn btn-secondary"
+              disabled={!!downloadingFormat}
+              onClick={() => setDownloadTarget(null)}
+            >
+              Cancel
+            </button>
+          }
+        >
+          <div className="sd-download-dialog-body">
+            <p className="sd-muted sd-small sd-mb-md">
+              Select your preferred format to download. You can download the editable Microsoft Word document or save it converted as an authentic PDF.
+            </p>
+
+            <div className="sd-download-options-grid">
+              <div className="sd-download-option-card">
+                <div className="sd-download-card-icon sd-text-accent">
+                  <FileText size={26} />
+                </div>
+                <div className="sd-download-card-info">
+                  <div className="sd-download-card-title">Microsoft Word</div>
+                  <div className="sd-download-card-desc">Original .docx format. Compatible with Word, LibreOffice, and SmartDoc Studio.</div>
+                </div>
+                <button
+                  id="btn-confirm-download-docx"
+                  className="btn btn-secondary btn-sm sd-btn-flex"
+                  disabled={!!downloadingFormat}
+                  onClick={() => handleDownloadWordFromModal(downloadTarget)}
+                  title="Download editable Microsoft Word document"
+                >
+                  {downloadingFormat === 'docx' ? <Loader2 size={13} className="sd-spin" /> : <Download size={13} />}
+                  <span>{downloadingFormat === 'docx' ? 'Downloading…' : 'Download .docx'}</span>
+                </button>
+              </div>
+
+              <div className="sd-download-option-card sd-download-option-highlight">
+                <div className="sd-download-card-icon sd-text-good">
+                  <FileDown size={26} />
+                </div>
+                <div className="sd-download-card-info">
+                  <div className="sd-download-card-title">PDF Document</div>
+                  <div className="sd-download-card-desc">Standard A4 .pdf file. Print-ready, high-resolution layout with client-side conversion.</div>
+                </div>
+                <button
+                  id="btn-confirm-download-pdf"
+                  className="btn btn-primary btn-sm sd-btn-flex"
+                  disabled={!!downloadingFormat}
+                  onClick={() => handleDownloadPdfFromModal(downloadTarget)}
+                  title="Save document as PDF"
+                >
+                  {downloadingFormat === 'pdf' ? <Loader2 size={13} className="sd-spin" /> : <FileDown size={13} />}
+                  <span>{downloadingFormat === 'pdf' ? (downloadPdfProgress || 'Generating PDF…') : 'Save as PDF'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

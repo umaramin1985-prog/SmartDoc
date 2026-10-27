@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useApp } from '../context/AppContext';
 import { apiService } from '../services/apiService';
 import { printWordDocument } from '../utils/wordPrintEngine';
+import { exportFormSheetToPdf } from '../utils/pdfExportEngine';
 import { formatDate } from './ui';
 import {
   ArrowLeft,
@@ -15,6 +16,7 @@ import {
   X,
   FileText,
   FileDown,
+  Download,
   Printer,
   User,
   GitCommit,
@@ -45,9 +47,17 @@ function bumpPreview(v) {
   return `${maj || '1'}.${(parseInt(min || '0', 10) || 0) + 1}`;
 }
 
-export const FillFormModal = ({ template, submission, onClose, onDone, initialPrint = false }) => {
+export const FillFormModal = ({
+  template,
+  submission,
+  onClose,
+  onDone,
+  initialPrint = false,
+  initialDownload = false,
+  isViewOnly = false
+}) => {
   const { currentUser, submitForm, resubmitForm, openSignatureModal, addToast } = useApp();
-  const isResubmit = !!submission;
+  const isResubmit = !!submission && !isViewOnly;
   const fields = useMemo(() => template?.fields || [], [template]);
   const hasWorkflow = Array.isArray(template?.workflow) && template.workflow.length > 0;
 
@@ -64,12 +74,14 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
   const [touched, setTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [isPrintingBlank, setIsPrintingBlank] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   // Single-Field Placeholder Filling Dialogue state
   const [activeDialogField, setActiveDialogField] = useState(null);
   const [dialogFieldValue, setDialogFieldValue] = useState('');
   const [showMissingPromptModal, setShowMissingPromptModal] = useState(false);
-  const [activeRailField, setActiveRailField] = useState(() => fields[0]?.key || null);
+  const [activeRailField, setActiveRailField] = useState(() => (isViewOnly ? null : fields[0]?.key || null));
   const [connectorCoords, setConnectorCoords] = useState(null);
   const [showVisualLine, setShowVisualLine] = useState(() => {
     try {
@@ -88,15 +100,16 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
 
   const workspaceRef = useRef(null);
   const deskRef = useRef(null);
+  const sheetRef = useRef(null);
   const railBodyRef = useRef(null);
   const docBodyRef = useRef(null);
   const [mountedSlots, setMountedSlots] = useState([]);
 
   useEffect(() => {
-    if (!activeRailField && fields.length > 0) {
+    if (!isViewOnly && !activeRailField && fields.length > 0) {
       setActiveRailField(fields[0].key);
     }
-  }, [fields, activeRailField]);
+  }, [fields, activeRailField, isViewOnly]);
 
   const completedCount = useMemo(() => {
     return fields.filter(f => String(values[f.key] ?? '').trim().length > 0).length;
@@ -295,26 +308,105 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
   // Print handlers: WYSIWYG document printing (filled or pristine blank, exactly as displayed on screen)
   const handlePrint = (blank = false) => {
     setIsPrintingBlank(blank);
+    setIsPrinting(true);
+    if (document.activeElement && typeof document.activeElement.blur === 'function') {
+      document.activeElement.blur();
+    }
     document.body.classList.add('sd-printing-live-form');
+
+    // Immediately sanitize date inputs in DOM so empty dates do not show browser mm/dd/yyyy
+    const sheet = sheetRef.current || document.querySelector('.sd-form-filler-sheet');
+    const restoredDateInputs = [];
+    if (sheet) {
+      sheet.querySelectorAll('input[type="date"]').forEach(inp => {
+        const currentVal = inp.value;
+        inp.setAttribute('data-was-date', 'true');
+        inp.type = 'text';
+        inp.placeholder = '';
+        inp.removeAttribute('placeholder');
+        if (!currentVal || blank) {
+          inp.value = '';
+        } else {
+          inp.value = formatDate(currentVal) || currentVal;
+        }
+        restoredDateInputs.push({ inp, currentVal });
+      });
+    }
+
     requestAnimationFrame(() => {
       setTimeout(() => {
         window.print();
         setTimeout(() => {
           setIsPrintingBlank(false);
+          setIsPrinting(false);
           document.body.classList.remove('sd-printing-live-form');
-        }, 150);
-      }, 100);
+          restoredDateInputs.forEach(({ inp, currentVal }) => {
+            try {
+              inp.type = 'date';
+              inp.value = currentVal;
+              inp.removeAttribute('data-was-date');
+            } catch (_) {}
+          });
+        }, 300);
+      }, 120);
     });
+  };
+
+  // Download PDF handler: Exports the exact on-screen form sheet to a razor-sharp, lossless PDF
+  const handleDownloadPdf = async () => {
+    const targetSheet = sheetRef.current || document.querySelector('.sd-form-filler-sheet');
+    if (!targetSheet || downloadingPdf) return;
+    try {
+      setDownloadingPdf(true);
+      addToast('Preparing PDF', 'Generating high-resolution PDF with authentic document formatting...', 'info');
+      const safeTitle = (submission?.title || template?.title || 'Form').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const docCode = submission?.uniqueNumber || template?.code || safeTitle;
+      const fileName = `${docCode}_${isViewOnly ? 'submission' : isResubmit ? 'v' + bumpPreview(submission?.version) : 'filled'}.pdf`;
+      await exportFormSheetToPdf(targetSheet, fileName);
+      addToast('PDF Saved', `Successfully downloaded "${fileName}"`, 'success');
+    } catch (err) {
+      console.error('Download form sheet PDF error:', err);
+      addToast('PDF Failed', err.message || 'Could not export form as PDF', 'error');
+    } finally {
+      setDownloadingPdf(false);
+    }
   };
 
   // Browser print lifecycle hooks (e.g. File > Print or browser keyboard shortcuts)
   useEffect(() => {
+    let restoredInputs = [];
     const handleBefore = () => {
+      setIsPrinting(true);
       document.body.classList.add('sd-printing-live-form');
+      const sheet = sheetRef.current || document.querySelector('.sd-form-filler-sheet');
+      if (sheet) {
+        sheet.querySelectorAll('input[type="date"]').forEach(inp => {
+          const currentVal = inp.value;
+          inp.setAttribute('data-was-date', 'true');
+          inp.type = 'text';
+          inp.placeholder = '';
+          inp.removeAttribute('placeholder');
+          if (!currentVal) {
+            inp.value = '';
+          } else {
+            inp.value = formatDate(currentVal) || currentVal;
+          }
+          restoredInputs.push({ inp, currentVal });
+        });
+      }
     };
     const handleAfter = () => {
-      document.body.classList.remove('sd-printing-live-form');
+      setIsPrinting(false);
       setIsPrintingBlank(false);
+      document.body.classList.remove('sd-printing-live-form');
+      restoredInputs.forEach(({ inp, currentVal }) => {
+        try {
+          inp.type = 'date';
+          inp.value = currentVal;
+          inp.removeAttribute('data-was-date');
+        } catch (_) {}
+      });
+      restoredInputs = [];
     };
     window.addEventListener('beforeprint', handleBefore);
     window.addEventListener('afterprint', handleAfter);
@@ -346,6 +438,16 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
       return () => clearTimeout(timer);
     }
   }, [initialPrint]);
+
+  // Auto trigger download when opened with initialDownload={true}
+  useEffect(() => {
+    if (initialDownload) {
+      const timer = setTimeout(() => {
+        handleDownloadPdf();
+      }, 400);
+      return () => clearTimeout(timer);
+    }
+  }, [initialDownload]);
 
   const missing = useMemo(
     () => fields.filter(f => f.required && !String(values[f.key] ?? '').trim()).map(f => f.key),
@@ -587,13 +689,13 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
 
   // Render an interactive input control
   const renderInputControl = (f, key) => {
-    const isInvalid = touched && missing.includes(f.key);
+    const isInvalid = !isViewOnly && touched && missing.includes(f.key);
     const elemId = `live-field-${f.key.replace(/\W+/g, '-').toLowerCase()}`;
     const rawVal = values[f.key];
     const val = isPrintingBlank ? '' : (rawVal ?? '');
     const hasVal = String(val).trim().length > 0;
     const isBold = isFieldBold(f);
-    const isActive = activeRailField === f.key;
+    const isActive = !isViewOnly && !isPrinting && activeRailField === f.key;
 
     const commonProps = {
       id: elemId,
@@ -601,15 +703,17 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
       className: `sd-doc-live-input ${isInvalid ? 'is-invalid' : ''} ${isBold ? 'is-bold' : ''} ${isActive ? 'is-active-target' : ''}`,
       style: isBold ? { fontWeight: '700' } : undefined,
       value: isPrintingBlank ? '' : (values[f.key] ?? ''),
-      onChange: (e) => setValues(prev => ({ ...prev, [f.key]: e.target.value })),
-      onFocus: () => handleFocusField(f.key),
-      placeholder: f.placeholder || (f.label ? `Enter ${f.label}…` : '')
+      disabled: isViewOnly,
+      readOnly: isViewOnly,
+      onChange: (e) => !isViewOnly && setValues(prev => ({ ...prev, [f.key]: e.target.value })),
+      onFocus: () => !isViewOnly && handleFocusField(f.key),
+      placeholder: (isPrinting || isPrintingBlank || isViewOnly) ? '' : (f.placeholder || (f.label ? `Enter ${f.label}…` : ''))
     };
 
     if (f.type === 'textarea') {
       return (
         <>
-          <textarea rows={3} {...commonProps} className={`sd-doc-live-input sd-doc-live-textarea ${isInvalid ? 'is-invalid' : ''} ${isBold ? 'is-bold' : ''}`} />
+          <textarea rows={3} {...commonProps} className={`sd-doc-live-input sd-doc-live-textarea ${isInvalid ? 'is-invalid' : ''} ${isBold ? 'is-bold' : ''} ${isActive ? 'is-active-target' : ''}`} />
           <div className="sd-print-value sd-print-value-textarea">
             {hasVal ? (
               <div className="sd-print-text-block">{val}</div>
@@ -625,9 +729,18 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
       );
     }
     if (f.type === 'date') {
+      const isDateEmpty = !hasVal || isPrintingBlank;
+      const isPrintOrView = isPrinting || isPrintingBlank || isViewOnly;
+      const inputType = isPrintOrView ? 'text' : 'date';
+      const formattedDateVal = val ? (formatDate(val) || val) : '';
       return (
         <>
-          <input type="date" {...commonProps} />
+          <input
+            type={inputType}
+            {...commonProps}
+            placeholder={isPrintOrView ? '' : (f.placeholder || 'YYYY-MM-DD')}
+            value={isPrintingBlank ? '' : (isPrintOrView ? formattedDateVal : (val ?? ''))}
+          />
           <div className="sd-print-value sd-print-value-input">
             {hasVal ? (
               <span className="sd-print-text">{formatDate(val) || val}</span>
@@ -659,7 +772,7 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
       return (
         <>
           <select {...commonProps}>
-            <option value="">-- Select {f.label || 'option'} --</option>
+            <option value="">{isPrinting ? '' : `-- Select ${f.label || 'option'} --`}</option>
             {opts.map((opt, i) => (
               <option key={i} value={opt}>{opt}</option>
             ))}
@@ -688,7 +801,8 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
               id={elemId}
               type="checkbox"
               checked={isChecked}
-              onChange={(e) => setValues(prev => ({ ...prev, [f.key]: e.target.checked ? 'Yes' : 'No' }))}
+              disabled={isViewOnly}
+              onChange={(e) => !isViewOnly && setValues(prev => ({ ...prev, [f.key]: e.target.checked ? 'Yes' : 'No' }))}
             />
             <span>{f.placeholder || f.label || 'I Confirm & Agree'}</span>
           </label>
@@ -718,7 +832,7 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
     const rawVal = values[f.key];
     const val = isPrintingBlank ? '' : (rawVal ?? '');
     const hasVal = String(val).trim().length > 0;
-    const isInvalid = touched && f.required && !hasVal;
+    const isInvalid = !isViewOnly && touched && f.required && !hasVal;
     const elemId = `live-placeholder-${f.key.replace(/\W+/g, '-').toLowerCase()}`;
     const isBold = isFieldBold(f);
 
@@ -736,22 +850,25 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
       <span className={`sd-doc-live-placeholder-wrapper ${isBold ? 'is-bold' : ''}`}>
         <span
           role="button"
-          tabIndex={0}
+          tabIndex={isViewOnly ? -1 : 0}
           id={elemId}
-          className={`sd-doc-live-placeholder ${hasVal ? 'is-filled' : 'is-empty'} ${isInvalid ? 'is-invalid' : ''} ${f.required ? 'is-required' : ''} ${activeRailField === f.key ? 'is-active-target' : ''} ${isBold ? 'is-bold' : ''}`}
+          className={`sd-doc-live-placeholder ${hasVal ? 'is-filled' : 'is-empty'} ${isInvalid ? 'is-invalid' : ''} ${f.required ? 'is-required' : ''} ${!isViewOnly && !isPrinting && activeRailField === f.key ? 'is-active-target' : ''} ${isBold ? 'is-bold' : ''}`}
           style={isBold ? { fontWeight: '700' } : undefined}
           onClick={(e) => {
+            if (isViewOnly) return;
             e.preventDefault();
             e.stopPropagation();
             handleFocusField(f.key);
           }}
           onKeyDown={(e) => {
+            if (isViewOnly) return;
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
               handleFocusField(f.key);
             }
           }}
           onDoubleClick={(e) => {
+            if (isViewOnly) return;
             e.preventDefault();
             e.stopPropagation();
             handleOpenFieldDialog(f);
@@ -766,24 +883,29 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
         >
           {hasVal ? (
             <span className={`sd-ph-filled-value ${isBold ? 'is-bold' : ''}`} style={isBold ? { fontWeight: '700' } : undefined}>{val}</span>
+          ) : isPrinting ? (
+            <span className={`sd-ph-empty-print-dash ${isBold ? 'is-bold' : ''}`} style={isBold ? { fontWeight: '700' } : undefined}>—</span>
           ) : (
-            <span className={`sd-ph-tag-token ${isBold ? 'is-bold' : ''}`}>
-              <span className="sd-ph-brace">{'{{'}</span>
-              <span className={`sd-ph-tag-title ${isBold ? 'is-bold' : ''}`} style={isBold ? { fontWeight: '700' } : undefined}>{f.label || f.key}</span>
-              {f.required && <span className="sd-ph-star" title="Mandatory field">*</span>}
-              {f.description && (
-                <span className="sd-ph-info-pill" title={f.description}>
-                  <Info size={10} />
-                </span>
-              )}
-              <span className="sd-ph-brace">{'}}'}</span>
-            </span>
+            <>
+              <span className={`sd-ph-tag-token ${isBold ? 'is-bold' : ''}`}>
+                <span className="sd-ph-brace">{'{{'}</span>
+                <span className={`sd-ph-tag-title ${isBold ? 'is-bold' : ''}`} style={isBold ? { fontWeight: '700' } : undefined}>{f.label || f.key}</span>
+                {f.required && <span className="sd-ph-star" title="Mandatory field">*</span>}
+                {f.description && (
+                  <span className="sd-ph-info-pill" title={f.description}>
+                    <Info size={10} />
+                  </span>
+                )}
+                <span className="sd-ph-brace">{'}}'}</span>
+              </span>
+              <span className={`sd-ph-empty-print-dash ${isBold ? 'is-bold' : ''}`} style={isBold ? { fontWeight: '700' } : undefined}>—</span>
+            </>
           )}
         </span>
 
         {/* Clean text printed when document is filled */}
         <span className="sd-print-value sd-print-placeholder-filled">
-          {hasVal ? val : '____________________'}
+          {hasVal ? val : '—'}
         </span>
       </span>
     );
@@ -935,7 +1057,7 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
 
     const isBlock = f.type === 'textarea' || f.width === 100;
     const sanitizedKey = String(f.key).replace(/\W+/g, '-').toLowerCase();
-    const isActive = activeRailField === f.key;
+    const isActive = !isViewOnly && !isPrinting && activeRailField === f.key;
 
     return (
       <span
@@ -958,97 +1080,102 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
     );
   };
 
-  // Render on-form signature slot
+  // Render on-form signature slot: strictly show only signature, name and department
   const renderSignatureSlot = (slot) => {
     const isSubmitter = ['submitter', 'applicant', 'originator'].includes(String(slot || '').toLowerCase());
-    const isSigned = hasSignature && !isPrintingBlank;
 
     if (isSubmitter) {
-      return (
-        <div className="sd-doc-live-sig-card submitter">
-          <div className="sd-doc-live-sig-header">
-            <span className="sd-doc-live-sig-title">
-              <PenLine size={14} /> Applicant / Submitter Signature *
-            </span>
-            <span className="sd-badge sd-badge-accent">Step 0 (Originator)</span>
-          </div>
+      const submitterSigImg = submission?.signature ||
+        submission?.submitterSignature?.signatureImage ||
+        submission?.signatureImage ||
+        (isViewOnly ? null : currentUser?.signatureImage);
+      const submitterName = submission?.submittedByName || currentUser?.name || 'Submitter';
+      const submitterDept = submission?.department ||
+        submission?.submittedByDepartment ||
+        currentUser?.department ||
+        template?.department ||
+        '';
+      const isSigned = isViewOnly ? !!submitterSigImg : (hasSignature && !isPrintingBlank);
 
-          {isSigned ? (
-            <div className="sd-doc-live-sig-signed-box">
-              {currentUser.signatureImage ? (
-                <img src={currentUser.signatureImage} alt="Your signature" />
-              ) : (
-                <span className="sd-badge sd-badge-green"><Check size={12} /> Signature Saved</span>
-              )}
-              <div className="sd-doc-live-sig-meta">
-                <span className="sd-doc-live-sig-meta-name">{currentUser.name}</span>
-                <span className="sd-doc-live-sig-meta-hint" style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
-                  <ShieldCheck size={11} style={{ color: '#059669' }} />
-                  <span style={{ fontWeight: 600 }}>PKI Cryptographically Sealed (RSA-2048)</span>
-                </span>
-                {currentUser?.pkiFingerprint && (
-                  <span style={{ fontSize: '0.64rem', fontFamily: 'monospace', color: '#64748b', marginTop: '2px', display: 'block' }}>
-                    Cert Fingerprint: {currentUser.pkiFingerprint.slice(0, 23)}…
-                  </span>
-                )}
-              </div>
-            </div>
+      if (isSigned) {
+        return (
+          <div className="sd-doc-signature-block">
+            {submitterSigImg ? (
+              <img
+                src={submitterSigImg}
+                alt={`${submitterName}'s signature`}
+                className="sd-doc-signature-img"
+              />
+            ) : (
+              <div className="sd-doc-signature-placeholder-ink">{submitterName}</div>
+            )}
+            <div className="sd-doc-signature-name">{submitterName}</div>
+            {submitterDept && (
+              <div className="sd-doc-signature-dept">{submitterDept}</div>
+            )}
+          </div>
+        );
+      }
+
+      return (
+        <div className="sd-doc-signature-block is-unsigned">
+          <button
+            id="btn-draw-save-signature"
+            type="button"
+            className="sd-doc-live-sig-draw-btn sd-print-hide"
+            onClick={openSignatureModal}
+          >
+            <PenLine size={14} /> Draw &amp; Save Signature
+          </button>
+          <div className="sd-print-blank-sig-block">
+            <span className="sd-print-line" />
+            <div className="sd-doc-signature-name">{submitterName}</div>
+            {submitterDept && <div className="sd-doc-signature-dept">{submitterDept}</div>}
+          </div>
+        </div>
+      );
+    }
+
+    const matchingStep = (submission?.workflow || []).find(st =>
+      st.department && (
+        st.department.toLowerCase() === String(slot || '').toLowerCase() ||
+        String(slot || '').toLowerCase().includes(st.department.toLowerCase())
+      )
+    );
+
+    const isStepApproved = matchingStep?.status === 'APPROVED';
+
+    if (matchingStep && isStepApproved) {
+      const approverSig = matchingStep.signature || matchingStep.signatureImage;
+      const approverName = matchingStep.actedByName || `${slot} Approver`;
+      const approverDept = matchingStep.department || slot;
+
+      return (
+        <div className="sd-doc-signature-block is-department is-approved">
+          {approverSig ? (
+            <img
+              src={approverSig}
+              alt={`${approverName}'s signature`}
+              className="sd-doc-signature-img"
+            />
           ) : (
-            <>
-              <button
-                id="btn-draw-save-signature"
-                type="button"
-                className="sd-doc-live-sig-draw-btn sd-print-hide"
-                onClick={openSignatureModal}
-              >
-                <PenLine size={15} /> Draw &amp; Save Signature
-              </button>
-              <div className="sd-print-blank-sig-block">
-                <div className="sd-print-blank-sig-row">
-                  <div className="sd-print-blank-sig-col">
-                    <span className="sd-print-line" />
-                    <span className="sd-print-sub">Applicant / Submitter Signature</span>
-                  </div>
-                  <div className="sd-print-blank-sig-col sd-print-col-date">
-                    <span className="sd-print-line" />
-                    <span className="sd-print-sub">Date (MM/DD/YYYY)</span>
-                  </div>
-                </div>
-              </div>
-            </>
+            <div className="sd-doc-signature-placeholder-ink">{approverName}</div>
           )}
+          <div className="sd-doc-signature-name">{approverName}</div>
+          <div className="sd-doc-signature-dept">{approverDept}</div>
         </div>
       );
     }
 
     return (
-      <div className="sd-doc-live-sig-card department">
-        <div className="sd-doc-live-sig-header">
-          <span className="sd-doc-live-sig-title">
-            <ShieldCheck size={14} /> {slot} Approval Signature
-          </span>
-          <span className="sd-badge sd-badge-gray sd-print-hide">Sequential Approval</span>
+      <div className="sd-doc-signature-block is-department is-pending">
+        <div className="sd-doc-signature-pending-notice sd-print-hide">
+          <Clock size={12} /> Pending {slot} Department Approval
         </div>
-        <div className="sd-doc-live-sig-pending-box sd-print-hide">
-          <Clock size={14} />
-          <span>Pending approval and signature by {slot} Department Administrator</span>
-        </div>
-        <div className="sd-print-dept-sig-block">
-          <div className="sd-print-dept-decisions">
-            <span>[  ] Approved</span>
-            <span>[  ] Rejected</span>
-            <span>[  ] Objection</span>
-          </div>
-          <div className="sd-print-blank-sig-row">
-            <div className="sd-print-blank-sig-col">
-              <span className="sd-print-line" />
-              <span className="sd-print-sub">Authorized {slot} Admin Signature</span>
-            </div>
-            <div className="sd-print-blank-sig-col sd-print-col-date">
-              <span className="sd-print-line" />
-              <span className="sd-print-sub">Date</span>
-            </div>
-          </div>
+        <div className="sd-print-blank-sig-block">
+          <span className="sd-print-line" />
+          <div className="sd-doc-signature-name">{slot} Approver</div>
+          <div className="sd-doc-signature-dept">{slot}</div>
         </div>
       </div>
     );
@@ -1088,19 +1215,21 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
         </div>
 
         <div className="sd-form-filler-header-right">
-          <div className="sd-form-filler-deadline" title="Deadline for approvers to review this submission">
-            <Calendar size={14} />
-            <span>Decision needed by:</span>
-            <input
-              id="input-expiry-date"
-              type="date"
-              min={tomorrow()}
-              value={expiryDate}
-              onChange={e => setExpiryDate(e.target.value)}
-            />
-          </div>
+          {!isViewOnly && (
+            <div className="sd-form-filler-deadline" title="Deadline for approvers to review this submission">
+              <Calendar size={14} />
+              <span>Decision needed by:</span>
+              <input
+                id="input-expiry-date"
+                type="date"
+                min={tomorrow()}
+                value={expiryDate}
+                onChange={e => setExpiryDate(e.target.value)}
+              />
+            </div>
+          )}
 
-          {/* Print Actions: filled or blank */}
+          {/* Print & Download Actions */}
           <div className="sd-print-actions">
             <button
               id="btn-print-form"
@@ -1113,49 +1242,75 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
               <span>Print Form</span>
             </button>
             <button
-              id="btn-print-blank-form"
+              id="btn-download-live-form-pdf"
               type="button"
               className="btn btn-secondary btn-sm"
-              onClick={() => handlePrint(true)}
-              title="Print a clean, blank copy of this form for physical pen-and-paper filling"
+              onClick={handleDownloadPdf}
+              disabled={downloadingPdf}
+              title="Download high-resolution PDF of this form with all filled values and signatures"
             >
-              <FileDown size={14} />
-              <span>Print Blank</span>
+              {downloadingPdf ? <Loader2 size={14} className="sd-spin" /> : <Download size={14} />}
+              <span>{downloadingPdf ? 'Exporting…' : 'Download PDF'}</span>
             </button>
+            {!isViewOnly && (
+              <button
+                id="btn-print-blank-form"
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => handlePrint(true)}
+                title="Print a clean, blank copy of this form for physical pen-and-paper filling"
+              >
+                <FileDown size={14} />
+                <span>Print Blank</span>
+              </button>
+            )}
           </div>
 
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={onClose}
-            disabled={saving}
-          >
-            Cancel
-          </button>
+          {isViewOnly ? (
+            <button
+              id="btn-close-view-form"
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={onClose}
+            >
+              Close
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={onClose}
+                disabled={saving}
+              >
+                Cancel
+              </button>
 
-          <button
-            id="btn-submit-form"
-            type="button"
-            className="btn btn-primary btn-sm"
-            onClick={handleSubmit}
-            disabled={saving || !hasWorkflow}
-          >
-            {saving ? (
-              <CheckCircle2 size={14} className="sd-spin" />
-            ) : isResubmit ? (
-              <GitCommit size={14} />
-            ) : (
-              <Send size={14} />
-            )}
-            {saving ? 'Submitting…' : !hasWorkflow ? 'Workflow Required' : isResubmit ? 'Resubmit for Approval' : 'Sign & Submit Form'}
-          </button>
+              <button
+                id="btn-submit-form"
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={handleSubmit}
+                disabled={saving || !hasWorkflow}
+              >
+                {saving ? (
+                  <CheckCircle2 size={14} className="sd-spin" />
+                ) : isResubmit ? (
+                  <GitCommit size={14} />
+                ) : (
+                  <Send size={14} />
+                )}
+                {saving ? 'Submitting…' : !hasWorkflow ? 'Workflow Required' : isResubmit ? 'Resubmit for Approval' : 'Sign & Submit Form'}
+              </button>
+            </>
+          )}
         </div>
       </header>
 
       {/* Workspace Area: Document Canvas on Left/Center, Interactive Form Rail on Right */}
-      <div className="sd-form-filler-workspace" ref={workspaceRef}>
+      <div className={`sd-form-filler-workspace ${isViewOnly ? 'is-view-only' : ''}`} ref={workspaceRef}>
         {/* Main Canvas Scroll Area */}
-        <main className="sd-form-filler-desk" ref={deskRef}>
+        <main className={`sd-form-filler-desk ${isViewOnly ? 'is-view-only' : ''}`} ref={deskRef}>
         {/* Objection Notification Banner */}
         {isResubmit && submission?.objectionNotes && (
           <div className="sd-form-filler-objection-banner">
@@ -1191,6 +1346,7 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
 
         {/* Authentic A4 Paper Document Sheet */}
         <div
+          ref={sheetRef}
           className="sd-form-filler-sheet size-a4 portrait margins-normal"
           style={{
             fontFamily: template?.fontFamily || undefined,
@@ -1279,7 +1435,7 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
 
           {/* If the Word document didn't have an explicit submitter signature slot, append it at document bottom */}
           {(!hasSubmitterSigSlot || !hasDocxHtml) && (
-            <div style={{ marginTop: '36px', paddingTop: '20px', borderTop: '1px dashed #cbd5e1' }}>
+            <div style={{ marginTop: '36px', paddingTop: '20px', borderTop: '1px solid #e2e8f0' }}>
               {renderSignatureSlot('Submitter')}
             </div>
           )}
@@ -1315,7 +1471,7 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
       </main>
 
       {/* Right-Side Interactive Form Rail */}
-      {fields.length > 0 && (
+      {!isViewOnly && fields.length > 0 && (
         <aside className="sd-form-filler-rail sd-print-hide" aria-label="Form Fields Sidebar">
           <div className="sd-rail-header">
             <div className="sd-rail-header-top">
@@ -1433,7 +1589,7 @@ export const FillFormModal = ({ template, submission, onClose, onDone, initialPr
       )}
 
       {/* Visual Leader Connector Line from Right Text Field to Document Placeholder */}
-      {showVisualLine && connectorCoords && (
+      {!isViewOnly && showVisualLine && connectorCoords && (
         <svg
           className="sd-filler-connector-svg sd-print-hide"
           aria-hidden="true"

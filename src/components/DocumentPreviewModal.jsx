@@ -3,18 +3,44 @@ import { renderAsync } from 'docx-preview';
 import { useApp } from '../context/AppContext';
 import { apiService } from '../services/apiService';
 import { Modal, downloadBlob } from './ui';
-import { Download, Printer, Loader2, Lock, FileText, Image as ImageIcon } from 'lucide-react';
+import { Download, Printer, Loader2, Lock, FileText, Image as ImageIcon, FileDown } from 'lucide-react';
 import { printWordDocument, printImageDocument } from '../utils/wordPrintEngine';
+import { exportWordToPdf } from '../utils/pdfExportEngine';
+import { FillFormModal } from './FillFormModal';
 
 // Renders .docx, .pdf, or image in the browser, with download & authentic Word print
 export const DocumentPreviewModal = () => {
-  const { documentPreview, closeDocumentPreview, addToast } = useApp();
+  const { documentPreview, closeDocumentPreview, addToast, formSubmissions, formTemplates } = useApp();
   const containerRef = useRef(null);
   const blobRef = useRef(null);
   const [objectUrl, setObjectUrl] = useState(null);
   const [fileType, setFileType] = useState('docx');
   const [state, setState] = useState({ loading: true, error: '' });
   const [printing, setPrinting] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [pdfProgressText, setPdfProgressText] = useState('');
+
+  // If previewing a submission, delegate to authentic form sheet
+  if (documentPreview && documentPreview.kind === 'submission') {
+    const sub = formSubmissions?.find(x => String(x.id) === String(documentPreview.id));
+    const tmpl = formTemplates?.find(t => String(t.id) === String(sub?.templateId));
+    if (sub) {
+      return (
+        <FillFormModal
+          template={tmpl || {
+            id: sub.templateId,
+            title: sub.title,
+            department: sub.department,
+            fields: sub.fields || Object.keys(sub.formData || {}).map(k => ({ key: k, label: k })),
+            workflow: sub.workflow
+          }}
+          submission={sub}
+          isViewOnly={true}
+          onClose={closeDocumentPreview}
+        />
+      );
+    }
+  }
 
   useEffect(() => {
     if (!documentPreview) {
@@ -99,6 +125,37 @@ export const DocumentPreviewModal = () => {
     }
   };
 
+  const handleDownloadPdf = async () => {
+    if (fileType === 'pdf') {
+      downloadBlob(blobRef.current, fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`);
+      return;
+    }
+
+    if (!blobRef.current && !containerRef.current) return;
+
+    try {
+      setExportingPdf(true);
+      setPdfProgressText('Initializing PDF export…');
+      addToast?.('Exporting PDF', 'Converting Word document to high-resolution PDF...', 'info');
+
+      // Prefer clean blob for pristine isolated rendering
+      const target = blobRef.current || containerRef.current;
+
+      await exportWordToPdf(target, fileName, (progress) => {
+        setPdfProgressText(progress.status || 'Generating PDF…');
+      });
+
+      const outName = fileName.replace(/\.docx?$/i, '') + '.pdf';
+      addToast?.('PDF Saved', `Successfully downloaded "${outName}"`, 'success');
+    } catch (err) {
+      console.error('PDF Export Error:', err);
+      addToast?.('PDF Export Failed', err.message || 'Could not export document as PDF', 'error');
+    } finally {
+      setExportingPdf(false);
+      setPdfProgressText('');
+    }
+  };
+
   const getSubtitle = () => {
     if (fileType === 'pdf') return 'Static PDF Document · Read-only (Non-editable)';
     if (fileType === 'image') return 'Static Image Document · Read-only (Non-editable)';
@@ -127,21 +184,48 @@ export const DocumentPreviewModal = () => {
           <button
             id="btn-print-preview-doc"
             className="btn btn-secondary"
-            disabled={state.loading || !!state.error || printing}
+            disabled={state.loading || !!state.error || printing || exportingPdf}
             onClick={handlePrint}
             title="Print authentic Word document just like printing in Microsoft Word"
           >
             {printing ? <Loader2 size={15} className="sd-spin" /> : <Printer size={15} />}
             <span>{printing ? 'Preparing…' : 'Print Word Document'}</span>
           </button>
-          <button
-            id="btn-download-doc"
-            className="btn btn-primary"
-            disabled={state.loading || !!state.error}
-            onClick={() => downloadBlob(blobRef.current, fileName)}
-          >
-            <Download size={15} /> Download {fileType === 'pdf' ? '.pdf' : fileType === 'image' ? 'Image' : '.docx'}
-          </button>
+
+          {/* For Word documents (.doc/.docx), offer both Save as PDF and Download .docx */}
+          {fileType === 'docx' ? (
+            <>
+              <button
+                id="btn-download-pdf"
+                className="btn btn-secondary"
+                disabled={state.loading || !!state.error || exportingPdf}
+                onClick={handleDownloadPdf}
+                title="Convert and save this document as a PDF file"
+              >
+                {exportingPdf ? <Loader2 size={15} className="sd-spin" /> : <FileDown size={15} />}
+                <span>{exportingPdf ? (pdfProgressText || 'Saving PDF…') : 'Save as PDF'}</span>
+              </button>
+              <button
+                id="btn-download-doc"
+                className="btn btn-primary"
+                disabled={state.loading || !!state.error || exportingPdf}
+                onClick={() => downloadBlob(blobRef.current, fileName)}
+                title="Download original Microsoft Word (.docx) document"
+              >
+                <Download size={15} />
+                <span>Download .docx</span>
+              </button>
+            </>
+          ) : (
+            <button
+              id="btn-download-doc"
+              className="btn btn-primary"
+              disabled={state.loading || !!state.error}
+              onClick={() => downloadBlob(blobRef.current, fileName)}
+            >
+              <Download size={15} /> Download {fileType === 'pdf' ? '.pdf' : 'Image'}
+            </button>
+          )}
         </>
       }
     >

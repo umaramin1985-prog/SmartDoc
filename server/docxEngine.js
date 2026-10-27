@@ -305,8 +305,8 @@ export function renderFilledDocument(templateBase64, { values = {}, system = {},
           }
           const found = sigBySlot.get(normSlot)
             || (['submitter', 'applicant', 'originator'].includes(normSlot)
-                ? (sigBySlot.get('submitter') || sigBySlot.get('applicant') || sigBySlot.get('originator'))
-                : null);
+              ? (sigBySlot.get('submitter') || sigBySlot.get('applicant') || sigBySlot.get('originator'))
+              : null);
           if (!found) {
             return `________________________________________ (${slotName} Signature & Date)`;
           }
@@ -339,8 +339,8 @@ export function renderFilledDocument(templateBase64, { values = {}, system = {},
 
         // If not blank, but field is unfilled when printed:
         return isDirect
-          ? `${fieldLabel}: ________________________________________`
-          : '________________________________________';
+          ? `${fieldLabel}: —`
+          : '—';
       }
     })
   });

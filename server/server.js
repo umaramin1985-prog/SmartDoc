@@ -29,7 +29,7 @@ let appVersion = '1.2.0';
 try {
   const pkgData = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
   if (pkgData && pkgData.version) appVersion = pkgData.version;
-} catch (_) {}
+} catch (_) { }
 
 app.get('/api/version', (req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -184,6 +184,8 @@ function mapSubmission(s) {
     objectionNotes: s.objection_notes,
     createdAt: s.created_at,
     updatedAt: s.updated_at,
+    signature: s.signature || null,
+    signedAt: s.signed_at || null,
     pkiSignature: pkiSig,
     hasPkiSignature: !!pkiSig
   };
@@ -373,7 +375,7 @@ app.post('/api/users', async (req, res) => {
          pki_certificate_pem, pki_public_key_pem, pki_private_key_pem, pki_serial_number, pki_fingerprint, pki_issued_at, pki_expires_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL, 'ACTIVE', '[]'::jsonb, NOW(), 'Never', $9, $10, $11, $12, $13, $14, $15)`,
       [id, cleanUsername, name.trim(), cleanEmail, password, role === 'admin' ? 'Department Admin' : 'User', role, department,
-       pkiData.certificatePem, pkiData.publicKeyPem, pkiData.privateKeyPem, pkiData.serialNumber, pkiData.fingerprint, pkiData.issuedAt, pkiData.expiresAt]
+        pkiData.certificatePem, pkiData.publicKeyPem, pkiData.privateKeyPem, pkiData.serialNumber, pkiData.fingerprint, pkiData.issuedAt, pkiData.expiresAt]
     );
     await audit('USER_CREATED', actor.username, cleanUsername, department);
     res.status(201).json(sanitizeUser(await getUserById(id)));
@@ -402,8 +404,8 @@ app.put('/api/users/:id', async (req, res) => {
       `UPDATE users SET name = COALESCE($1, name), department = COALESCE($2, department),
          system_role = $3, role = $4, password = COALESCE($5, password) WHERE id = $6`,
       [name?.trim() || null, department || null, role,
-        role === 'superadmin' ? 'Super Administrator' : role === 'admin' ? 'Department Admin' : 'User',
-        password || null, target.id]
+      role === 'superadmin' ? 'Super Administrator' : role === 'admin' ? 'Department Admin' : 'User',
+      password || null, target.id]
     );
     await audit('USER_UPDATED', actor.username, target.username, department || target.department);
     res.json(sanitizeUser(await getUserById(target.id)));
@@ -879,7 +881,7 @@ app.get('/api/forms/templates/:id/file', async (req, res) => {
     const t = r.rows[0];
     if (!t || !t.docx_base64) return res.status(404).json({ error: 'Template file not found' });
     if (!canSeeTemplate(actor, t)) return res.status(403).json({ error: 'You do not have access to this template' });
-    
+
     const fileType = t.file_type || 'docx';
     if (fileType === 'pdf') {
       res.setHeader('Content-Type', 'application/pdf');

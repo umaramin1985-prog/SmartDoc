@@ -190,6 +190,15 @@ Admins can upload multiple files at once using the **Bulk Import** tool:
    - Click **Remove Duplicates** to clean up the queue in one click.
 5. Click **Import Documents as Drafts**: Files are ingested instantly and staged as unpublished drafts, ready for subsequent review and publication.
 
+## 5.12 Universal Document Download & Client-Side "Save as PDF"
+SmartDoc allows users to download any document or template across the system, with high-fidelity client-side PDF generation:
+- **Direct Download for PDFs & Images**: Clicking the **Download** button on any static PDF or image document instantly downloads the original file without additional prompts.
+- **Dual Formats for Word Documents (.docx & .doc)**: Clicking the **Download** button on any Word document opens the **Download Document** dialog, providing two options:
+  1. **Download Microsoft Word (.docx)**: Downloads the original `.docx` file for offline editing in Microsoft Word, LibreOffice, or re-uploading to SmartDoc.
+  2. **Save as PDF (.pdf)**: Automatically converts the Word document into an authentic, print-ready, high-resolution A4 `.pdf` file directly inside the browser using SmartDoc's upgraded 3.5× (~336 DPI) lossless client-side PDF export engine. Features live status updates during multi-page rendering with zero blurriness or compression noise.
+- **In-Preview Downloads (`DocumentPreviewModal.jsx`)**: When viewing any document in the preview modal, dedicated footer buttons provide 1-click access to **Save as PDF** (`#btn-download-pdf`) and **Download .docx** (`#btn-download-doc`).
+- **Vector PDF Alternative via Native Print**: Clicking **Print** in the preview modal or submission view triggers the browser's native print engine. Selecting "Save as PDF" in the print destination creates 100% vector, selectable text with infinite zoom clarity.
+
 ---
 
 # 6. Word Form Studio
@@ -362,12 +371,26 @@ If an approver raises an objection:
 - **Comments Rail**: Both submitters and approvers can view or add contextual comments directly within `SubmissionDetailModal.jsx`.
 - **Git Version History**: Click the commit history icon in submission details to view every iteration, author, and timestamp across objections and resubmissions.
 
-## 8.3 On-Form WYSIWYG "Print As-Is" Engine
+## 8.3 Exact 1:1 Visual Fidelity "Print As-Is" & PDF Download
 When filling out or reviewing forms in `FillFormModal.jsx`:
-- **Direct Sheet Printing**: Click the **Print** button in the header toolbar to trigger the native browser print engine formatted specifically for physical A4 paper sheets.
-- **Form-Only Isolation**: All outer user interface chrome — including sidebars, explorer navigation, page headers, the interactive form filler rail, the visual leader connector SVG, and sequential workflow approval widgets — is strictly suppressed.
+- **Print Form (`window.print()`, `Ctrl+P`)**: Click **Print Form** in the header toolbar to trigger the native browser print engine formatted specifically for physical A4 paper sheets.
+- **Download PDF (`#btn-download-live-form-pdf`)**: Click the dedicated **Download PDF** button directly adjacent to **Print Form** in the header ribbon for instant, client-side 3.5× ultra-HD (~336 DPI) PDF generation via `exportFormSheetToPdf`.
+- **Exact 1:1 Visual Fidelity**:
+  - Both outputs produce an exact replica of the on-screen form sheet (`.sd-form-filler-sheet`).
+  - Form input elements retain their authentic boxes, labels (`First Name *`, `Last Name *`, `DOB *`), light gray borders (`#cbd5e1`), and typed user entries. Form fields are never flattened into plain text runs or floating captions.
+  - Submitter and workflow signatures render as clean, authentic document signature blocks displaying strictly only the signature, signer name, and department (no card boxes, dashed borders, step badges, or cryptographic text on paper).
+  - In-text placeholders seamlessly integrate into body prose with zero baseline or line-height displacement.
+- **Automated Input Highlight Suppression**:
+  - Active input field focus outlines and neon glow rings (`.is-active-target`) from the right rail are automatically and cleanly suppressed during print and PDF export across both CSS (`@media print`, `body:not(.sd-printing-live-form)`) and DOM cloning.
+  - All input boxes render with clean, uniform, professional `#cbd5e1` borders without editing rings.
+- **Input Field Placeholders Removed**:
+  - All input field placeholder text (e.g. `Enter First Name…`, `YYYY-MM-DD`) is automatically stripped during print and PDF download, leaving clean, empty input boxes for unentered fields.
+- **Empty In-Text Placeholders Replaced with Dash**:
+  - Any unfilled in-text legal or contract placeholders in document prose (e.g. `{{Contract Amount}}`) are automatically replaced with a clean typographic dash (`—`), preventing raw tags or curly braces from appearing in printed or downloaded documents.
+- **Print Blank Form**: The **Print Blank** button produces a clean physical paper copy with clean handwriting fill-in lines and blank signature spaces for offline use.
+- **Template Card Print Button**: Clicking the **Print** button on any template card in the Forms Hub opens the live form sheet directly and triggers the exact same native print engine as the "Print Form" option inside Fill Form.
+- **Form-Only Isolation**: All outer user interface chrome — including sidebars, explorer navigation, page headers, the interactive form filler rail, the visual leader connector SVG, and sequential workflow approval widgets — is strictly suppressed in print.
 - **Preserved Margins & Single-Page Fit**: Configured with standard **24mm (~0.95 in)** left and right margins and **18mm** top and bottom margins, ensuring filled forms print cleanly on exactly 1 physical page without spilling onto empty blank sheets.
-- **100% Visual Fidelity**: Form input boxes maintain their percentage-based widths without horizontal overlap, and submitter digital signatures retain their dashed borders, originator badges, drawn signature strokes, and cryptographic PKI integrity seals.
 
 ---
 
@@ -378,11 +401,14 @@ The **Approvals** page has three tabs:
 - **My Submissions**: forms you submitted.
 - **Department**: all forms involving your department.
 
-Open a submission to see:
-- Submitted values.
+Open a submission in **Submission Detail Modal (`SubmissionDetailModal.jsx`)** to see:
+- Submitted values and metadata.
 - The **workflow track** showing each department's step status.
-- Full history.
-- **Preview** and **Download** of the filled Word document with signatures.
+- Full chronological history and in-form comments.
+- **Preview Form Sheet** (`#btn-preview-submission-doc`): Seamlessly opens the completed submission in the authentic form filler sheet (`isViewOnly` mode), displaying the exact visual layout, input boxes, and PKI signatures.
+- **Save as PDF** (`#btn-download-submission-pdf`): Exports the authentic form sheet directly to an ultra-HD PDF with zero layout degradation or flattened controls.
+- **Print** (`#btn-print-submission-word`): Launches the native print engine for the authentic form sheet with full isolation and clean unhighlighted borders.
+- **Download .docx**: Download the filled submission document with all stamped signatures and PKI digital seals in native Microsoft Word format (`.docx`).
 
 ## 9.1 Actions (department admin of the current step, or super admin)
 | Action | Notes required | Result |
