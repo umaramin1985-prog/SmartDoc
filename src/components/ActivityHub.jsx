@@ -185,13 +185,20 @@ export const ActivityHub = ({ isStandalone = false }) => {
       case 'FORM_APPROVE':
         return { label: 'Approved', tone: 'green', icon: CheckCircle2 };
       case 'FORM_OBJECT':
+      case 'FORM_OBJECTION':
         return { label: 'Objection Raised', tone: 'amber', icon: AlertTriangle };
       case 'FORM_REJECT':
         return { label: 'Rejected', tone: 'red', icon: XCircle };
       case 'TEMPLATE_CREATED':
         return { label: 'Template Created', tone: 'cyan', icon: FileText };
+      case 'TEMPLATE_DRAFT_CREATED':
+        return { label: 'Draft Created', tone: 'cyan', icon: FileText };
       case 'TEMPLATE_EDITED':
         return { label: 'Template Edited', tone: 'cyan', icon: FileText };
+      case 'TEMPLATE_DRAFT_SAVED':
+        return { label: 'Draft Saved', tone: 'cyan', icon: FileText };
+      case 'TEMPLATE_PUBLISHED':
+        return { label: 'Template Published', tone: 'green', icon: CheckCircle2 };
       case 'TEMPLATE_PERMISSIONS_UPDATED':
         return { label: 'Permissions Changed', tone: 'purple', icon: ShieldCheck };
       case 'TEMPLATE_MOVED':
@@ -200,6 +207,9 @@ export const ActivityHub = ({ isStandalone = false }) => {
         return { label: 'Template Archived', tone: 'gray', icon: Folder };
       case 'TEMPLATE_DELETED':
         return { label: 'Template Deleted', tone: 'red', icon: Trash2 };
+      case 'BULK_TEMPLATE_DRAFTS_IMPORTED':
+      case 'BULK_TEMPLATE_IMPORTED':
+        return { label: 'Bulk Imported', tone: 'cyan', icon: Folder };
       case 'FOLDER_CREATED':
       case 'FOLDER_RENAMED':
         return { label: type === 'FOLDER_RENAMED' ? 'Folder Renamed' : 'Folder Created', tone: 'cyan', icon: Folder };
@@ -217,8 +227,12 @@ export const ActivityHub = ({ isStandalone = false }) => {
         return { label: 'Signature Saved', tone: 'purple', icon: ShieldCheck };
       case 'SIGNATURE_CLEARED':
         return { label: 'Signature Cleared', tone: 'amber', icon: AlertTriangle };
+      case 'PKI_CERTIFICATE_ISSUED':
+        return { label: 'PKI Cert Issued', tone: 'purple', icon: ShieldCheck };
       case 'AVATAR_UPDATED':
         return { label: 'Photo Updated', tone: 'purple', icon: User };
+      case 'AVATAR_CLEARED':
+        return { label: 'Photo Removed', tone: 'amber', icon: User };
       case 'USER_LOGIN':
         return { label: 'Sign In', tone: 'gray', icon: Lock };
       case 'USER_CREATED':
@@ -231,8 +245,23 @@ export const ActivityHub = ({ isStandalone = false }) => {
         return { label: 'User Suspended', tone: 'red', icon: AlertTriangle };
       case 'USER_DELETED':
         return { label: 'User Deleted', tone: 'red', icon: XCircle };
+      case 'SYSTEM_RESET_ALL':
+      case 'SYSTEM_WIPED':
+        return { label: 'System Wiped', tone: 'red', icon: AlertTriangle };
+      case 'SYSTEM_RESET_FORMS':
+      case 'FORMS_WIPED':
+        return { label: 'Forms Reset', tone: 'amber', icon: AlertTriangle };
       case 'COMMENT_ADDED':
         return { label: 'Comment Added', tone: 'blue', icon: FileText };
+      case 'COMMENT_RESOLVED':
+      case 'COMMENT_ACCEPTED':
+        return { label: 'Comment Resolved', tone: 'green', icon: CheckCircle2 };
+      case 'COMMENT_REJECTED':
+        return { label: 'Comment Rejected', tone: 'red', icon: XCircle };
+      case 'COMMENT_OPEN':
+        return { label: 'Comment Reopened', tone: 'amber', icon: FileText };
+      case 'COMMENT_DELETED':
+        return { label: 'Comment Deleted', tone: 'red', icon: Trash2 };
       default:
         return { label: type ? type.replace(/_/g, ' ') : 'Event', tone: 'gray', icon: Activity };
     }

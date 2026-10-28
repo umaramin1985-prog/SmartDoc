@@ -353,7 +353,7 @@ export const TemplateUploadModal = ({ onClose, initialDepartment, initialFolderI
               />
             </div>
             {onOpenBulkImport && (
-              <div className="sd-bulk-switch-banner" style={{ marginTop: '0.85rem', padding: '0.75rem 1rem', background: '#0a0a0a', border: '1px solid #222', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div className="sd-bulk-switch-banner" style={{ marginTop: '0.85rem', padding: '0.75rem 1rem', background: 'var(--bg-card-subtle)', border: '1px solid var(--border-color)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span className="sd-muted sd-small">Need to upload multiple documents, forms, or PDFs at once?</span>
                 <button
                   type="button"

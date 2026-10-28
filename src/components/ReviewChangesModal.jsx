@@ -8,8 +8,21 @@ import {
   X, Check, Ban, CheckCircle2, MessageSquareText, FilePlus2, FileMinus2, FilePen, AlertTriangle, FileText
 } from 'lucide-react';
 
+const formatPreviewHtml = (rawHtml) => {
+  if (!rawHtml) return '';
+  return String(rawHtml).replace(
+    /<span[^>]*\bdata-sig-width=["']?([^"'\s>]+)["']?[^>]*>\s*\{\{\s*(?:Signature|Sig)\s*:\s*([^|}]+?)(?:\s*\|[^}]*)?\s*\}\}\s*<\/span>/gi,
+    (_, w, slot) => {
+      const cleanSlot = String(slot || 'Submitter').trim();
+      const normW = String(w || 'auto').toLowerCase();
+      const badge = normW !== 'auto' ? ` <small style="opacity:0.75;font-weight:700;">(${normW}% width)</small>` : '';
+      return `<span class="sd-badge sd-badge-purple" style="display:inline-flex;align-items:center;gap:4px;margin:2px 4px;">✍️ Signature: ${cleanSlot}${badge}</span>`;
+    }
+  );
+};
+
 const Doc = ({ html }) => (
-  <div className="sd-rv-doc sd-word-editor-body" dangerouslySetInnerHTML={{ __html: html }} />
+  <div className="sd-rv-doc sd-word-editor-body" dangerouslySetInnerHTML={{ __html: formatPreviewHtml(html) }} />
 );
 
 const KIND_META = {

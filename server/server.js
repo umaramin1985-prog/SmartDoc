@@ -10,7 +10,7 @@ import { parseTemplate, parseWordDocument, convertDocTextToHtml, renderFilledDoc
 import { generateUserCertificate, parseCertificateInfo, signPayload, verifySignatureBundle } from './pkiEngine.js';
 import mammoth from 'mammoth';
 import htmlToDocx from 'html-to-docx';
-import { generateFormWithAi } from './aiFormEngine.js';
+import { generateFormWithAi, getOllamaStatus, getOllamaLogs, clearOllamaLogs } from './aiFormEngine.js';
 import {
   initStorage,
   saveTemplateFile,
@@ -38,7 +38,7 @@ app.use(express.json({ limit: '50mb' }));
 // ============================================================
 // Application Version & Cache Invalidation
 // ============================================================
-let appVersion = '1.2.0';
+let appVersion = '1.3.0';
 try {
   const pkgData = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
   if (pkgData && pkgData.version) appVersion = pkgData.version;
@@ -875,15 +875,46 @@ app.post('/api/forms/templates/html-to-docx', async (req, res) => {
 });
 
 // ============================================================
-// AI Form Generator (Prompt to Word Form)
+// AI Form Generator (Dual Offline: Instant NLP + Local Ollama)
 // ============================================================
+app.get('/api/ai/ollama-status', async (req, res) => {
+  try {
+    const actor = await requireActor(req, res);
+    if (!actor) return;
+    const status = await getOllamaStatus();
+    res.json(status);
+  } catch (err) {
+    res.json({ online: false, models: [], defaultModel: '', error: err.message });
+  }
+});
+
+app.get('/api/ai/ollama-logs', async (req, res) => {
+  try {
+    const actor = await requireActor(req, res);
+    if (!actor) return;
+    res.json({ logs: getOllamaLogs() });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to load Ollama logs' });
+  }
+});
+
+app.delete('/api/ai/ollama-logs', async (req, res) => {
+  try {
+    const actor = await requireActor(req, res);
+    if (!actor) return;
+    res.json(clearOllamaLogs());
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to clear Ollama logs' });
+  }
+});
+
 app.post('/api/ai/generate-form', async (req, res) => {
   try {
     const actor = await requireActor(req, res);
     if (!actor) return;
     if (!isAdmin(actor)) return res.status(403).json({ error: 'Only department admins can generate forms with AI' });
 
-    const { prompt, department, style, apiKey, provider } = req.body;
+    const { prompt, department, style, complexity, sections, engineMode, ollamaModel } = req.body;
     if (!prompt || !prompt.trim()) {
       return res.status(400).json({ error: 'Prompt is required' });
     }
@@ -892,8 +923,10 @@ app.post('/api/ai/generate-form', async (req, res) => {
       prompt: prompt.trim(),
       department: department || actor.department,
       style: style || 'form',
-      apiKey,
-      provider
+      complexity: complexity || 'standard',
+      sections: sections || {},
+      engineMode: engineMode || 'builtin',
+      ollamaModel: ollamaModel || ''
     });
 
     res.json(result);
@@ -1056,9 +1089,10 @@ async function findDuplicateTemplateInFolder({ department, folderId, title, file
   `;
   const params = [department];
 
-  if (folderId) {
+  const cleanFolderId = folderId ? String(folderId).trim() : '';
+  if (cleanFolderId) {
     sql += ` AND folder_id = $${params.length + 1}`;
-    params.push(parseInt(folderId, 10));
+    params.push(cleanFolderId);
   } else {
     sql += ` AND folder_id IS NULL`;
   }
@@ -1582,7 +1616,7 @@ app.put('/api/forms/templates/:id', async (req, res) => {
     const nextDesc = description !== undefined ? String(description || '').trim() : t.description;
     const nextExpiry = defaultExpiryDays ? Math.min(Math.max(parseInt(defaultExpiryDays, 10) || 14, 1), 365) : t.default_expiry_days;
 
-    const targetFolderId = folderId !== undefined ? (folderId ? parseInt(folderId, 10) : null) : t.folder_id;
+    const targetFolderId = folderId !== undefined ? (folderId ? String(folderId).trim() : null) : t.folder_id;
     const duplicate = await findDuplicateTemplateInFolder({
       department: t.department,
       folderId: targetFolderId,
@@ -1685,6 +1719,8 @@ app.put('/api/forms/templates/:id', async (req, res) => {
         if (p.mode !== f.mode && (p.mode || f.mode)) changesList.push(`Fill format: ${f.mode || 'direct'}`);
         if (p.bold !== f.bold && (p.bold || f.bold)) changesList.push(`Text weight: ${f.bold ? 'Bold' : 'Normal'}`);
         if (p.description !== f.description && (p.description || f.description)) changesList.push('Description updated');
+        if ((p.width || null) !== (f.width || null)) changesList.push(`Width: ${p.width ? `${p.width}%` : 'Auto'} → ${f.width ? `${f.width}%` : 'Auto'}`);
+        if (JSON.stringify(p.options || []) !== JSON.stringify(f.options || [])) changesList.push('Dropdown options updated');
         if (changesList.length > 0) {
           modifiedFields.push({ label: f.label || f.key, changes: changesList });
         }
@@ -1943,7 +1979,7 @@ app.put('/api/forms/templates/:id/move', async (req, res) => {
     }
 
     const { folderId } = req.body;
-    const targetFolderId = folderId ? parseInt(folderId, 10) : null;
+    const targetFolderId = folderId ? String(folderId).trim() : null;
     if (targetFolderId) {
       const fCheck = await query('SELECT id, department FROM folders WHERE id = $1', [targetFolderId]);
       if (fCheck.rowCount === 0) return res.status(400).json({ error: 'Target folder not found' });
@@ -1965,7 +2001,7 @@ app.put('/api/forms/templates/:id/move', async (req, res) => {
       });
     }
 
-    await query('UPDATE form_templates SET folder_id = $1, updated_at = NOW() WHERE id = $2', [folderId || null, template.id]);
+    await query('UPDATE form_templates SET folder_id = $1, updated_at = NOW() WHERE id = $2', [targetFolderId, template.id]);
     await audit('TEMPLATE_MOVED', actor.username, template.title, template.department);
 
     const updated = await query('SELECT * FROM form_templates WHERE id = $1', [template.id]);
@@ -2034,7 +2070,15 @@ function validateFormData(fields, formData) {
   for (const f of fields) {
     const v = formData?.[f.key];
     const val = v === undefined || v === null ? '' : String(v).trim();
-    if (f.required && !val) return { error: `"${f.label}" is required` };
+    if (f.required) {
+      if (f.type === 'checkbox') {
+        if (!['yes', 'true', 'checked', '1', 'on'].includes(val.toLowerCase())) {
+          return { error: `"${f.label}" must be checked` };
+        }
+      } else if (!val) {
+        return { error: `"${f.label}" is required` };
+      }
+    }
     if (val && f.type === 'number' && Number.isNaN(Number(val))) return { error: `"${f.label}" must be a number` };
     data[f.key] = val;
   }
@@ -2991,8 +3035,8 @@ app.get('/api/audit-logs', async (req, res) => {
   if (!actor) return;
 
   try {
-    const isSuperAdmin = actor.systemRole === 'superadmin';
-    const isDeptAdmin = actor.systemRole === 'admin';
+    const isSuperAdmin = isSuper(actor);
+    const isDeptAdmin = normalizeRole(actor.system_role) === 'admin';
     const exportAll = req.query.exportAll === 'true';
 
     // Pagination parameters
@@ -3031,20 +3075,26 @@ app.get('/api/audit-logs', async (req, res) => {
     // Category-based filter mapped to database action types
     const CATEGORY_MAP = {
       SUBMISSIONS: ['FORM_SUBMITTED', 'FORM_RESUBMITTED'],
-      APPROVALS: ['FORM_APPROVE', 'FORM_OBJECT', 'FORM_REJECT'],
+      APPROVALS: ['FORM_APPROVE', 'FORM_OBJECT', 'FORM_OBJECTION', 'FORM_REJECT'],
       TEMPLATES: [
-        'TEMPLATE_CREATED', 'TEMPLATE_EDITED', 'TEMPLATE_PERMISSIONS_UPDATED',
-        'TEMPLATE_MOVED', 'TEMPLATE_ARCHIVED', 'FOLDER_CREATED', 'FOLDER_RENAMED', 'FOLDER_DELETED'
+        'TEMPLATE_CREATED', 'TEMPLATE_DRAFT_CREATED', 'TEMPLATE_EDITED', 'TEMPLATE_DRAFT_SAVED',
+        'TEMPLATE_PUBLISHED', 'TEMPLATE_PERMISSIONS_UPDATED', 'TEMPLATE_MOVED',
+        'TEMPLATE_ARCHIVED', 'TEMPLATE_DELETED', 'BULK_TEMPLATE_DRAFTS_IMPORTED', 'BULK_TEMPLATE_IMPORTED',
+        'FOLDER_CREATED', 'FOLDER_RENAMED', 'FOLDER_DELETED'
       ],
       REVIEWS: [
         'REVIEW_STARTED', 'REVIEW_SUBMITTED', 'REVIEW_DECIDED', 'REVIEW_CANCELLED'
       ],
       SECURITY: [
-        'USER_LOGIN', 'SIGNATURE_SAVED', 'SIGNATURE_CLEARED', 'AVATAR_UPDATED',
-        'USER_CREATED', 'USER_UPDATED', 'USER_ACTIVATED', 'USER_SUSPENDED', 'USER_DELETED',
-        'SYSTEM_RESET_ALL', 'SYSTEM_RESET_FORMS'
+        'USER_LOGIN', 'SIGNATURE_SAVED', 'SIGNATURE_CLEARED', 'AVATAR_UPDATED', 'AVATAR_CLEARED',
+        'PKI_CERTIFICATE_ISSUED', 'USER_CREATED', 'USER_UPDATED', 'USER_ACTIVATED',
+        'USER_SUSPENDED', 'USER_DELETED', 'SYSTEM_RESET_ALL', 'SYSTEM_RESET_FORMS',
+        'SYSTEM_WIPED', 'FORMS_WIPED'
       ],
-      COMMENTS: ['COMMENT_ADDED', 'COMMENT_RESOLVED', 'COMMENT_DELETED']
+      COMMENTS: [
+        'COMMENT_ADDED', 'COMMENT_RESOLVED', 'COMMENT_ACCEPTED', 'COMMENT_REJECTED',
+        'COMMENT_OPEN', 'COMMENT_DELETED'
+      ]
     };
 
     if (categoryFilter && categoryFilter !== 'ALL' && CATEGORY_MAP[categoryFilter]) {

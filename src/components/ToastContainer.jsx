@@ -33,7 +33,8 @@ const ToastCard = ({ toast, onDismiss }) => {
   const startTimeRef = useRef(Date.now());
   const timerRef = useRef(null);
 
-  const resolvedType = ICONS[type] ? type : 'info';
+  const normalizedType = type === 'warn' ? 'warning' : type;
+  const resolvedType = ICONS[normalizedType] ? normalizedType : 'info';
   const Icon = ICONS[resolvedType];
   const isInfinite = duration === Infinity || duration <= 0;
 

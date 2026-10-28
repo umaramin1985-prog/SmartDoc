@@ -11,24 +11,25 @@
 
 ## 1. Route & Component Mapping (`SmartSidebar.jsx` → `App.jsx`)
 
-1. `dashboard` → `<SmartDashboard />` ("Smart Cockpit": interactive scope switcher, time window filters, 6 smart metric cards, interactive SVG velocity trend & status donut charts, department workload bars, priority radar, live searchable feed + `<DashboardCharts />`)
-2. `forms` → `<FormsHub />` ("Forms & Templates": Windows Explorer + `<SmartWordStudio />`, `<TemplateUploadModal />`, `<BulkImportModal />`, `<FillFormModal />`, `<TemplatePermissionsModal />`, `<VersionHistoryModal />`)
+1. `dashboard` → `<SmartDashboard />` ("Smart Cockpit": `100vh` zero-scroll 2×3 Bento Grid, interactive scope switcher, time window filters, 6 smart metric cards, interactive SVG velocity trend & horizontal status donut charts, department workload bars, template leaderboard, priority radar, live searchable feed + `<DashboardCharts />`)
+2. `forms` → `<FormsHub />` ("Forms & Templates": Windows Explorer + `<SmartWordStudio />`, `<AiFormGeneratorModal />`, `<TemplateUploadModal />`, `<BulkImportModal />`, `<FillFormModal />`, `<TemplatePermissionsModal />`, `<VersionHistoryModal />`)
 3. `reviews` → `<ReviewsHub />` (+ `<ReviewChangesModal />`, `<SendForReviewModal />`)
 4. `approvals` → `<FormApprovals />` ("Submissions & Approvals" + `<SubmissionDetailModal />`)
 5. `dept-messaging` → `<DepartmentMessaging />`
 6. `activity` → `<ActivityHub />` ("Activity Log": role-scoped audit trail, database pagination, search & filters)
 7. `settings` → `<SmartSettingsAdmin />` (superadmin only: users, departments, and System Reset)
 
-Sidebar utilities: `<NotificationBell />` (real-time approval, signature, and review alerts drawer), Collapsible Sidebar (`Ctrl+B` / `Cmd+B`).
-Global modals: `ProfileAndSignatureModal` (unified Digital Signature, PKI X.509 Certificate + Profile Photo), `DocumentPreviewModal`, `ToastContainer`, `TemplatePermissionsModal`, `VersionHistoryModal`.
+Sidebar utilities: `<NotificationBell />` in brand header; Light/Dark Mode toggle, 5-Accent Color Swatches, and Collapsible Sidebar (`Ctrl+B` / `Cmd+B`) in sidebar footer.
+Global modals: `ProfileAndSignatureModal` (unified Digital Signature, PKI X.509 Certificate, Profile Photo + App Theme), `DocumentPreviewModal`, `ToastContainer`, `TemplatePermissionsModal`, `VersionHistoryModal`.
+Global layout: All pages (except the full-screen `Word Form Studio` overlay) enforce a `100vh` zero-scroll viewport with `<AppFooter />` permanently pinned at the bottom.
 
 ---
 
 ## 2. Global State (`src/context/AppContext.jsx`)
 
 All cross-module state and mutations live in `AppContext.jsx` — do not duplicate them locally:
-- Data: `users`, `departments`, `folders`, `formTemplates`, `formSubmissions`, `departmentMessages`, `myApprovalQueue`, `mySubmissions`, `templateReviews`, `reviewsNeedingMe`, `notifications`, `unreadNotificationsCount`, `activityLogs`, `activityLogsMeta`.
-- Actions: `canManageDepartment(dept)`, `createFolder`, `updateFolder`, `deleteFolder`, `createTemplate`, `bulkImportTemplates`, `updateTemplate`, `updateTemplatePermissions`, `addTemplateComment`, `updateTemplateComment`, `moveTemplate`, `archiveTemplate`, `submitForm`, `resubmitForm`, `workflowAction(id, action, notes)`, `addSubmissionComment`, `updateSubmissionComment`, `sendTemplateForReview`, `submitReviewChanges`, `saveReviewDecisions`, `finalizeReview`, `cancelReview`, `saveSignature`, `saveAvatar`, `getPkiCertificate`, `generatePkiCertificate`, `verifySubmissionSignatures`, `openProfileModal`, `closeProfileModal`, `markNotificationRead`, `markAllNotificationsRead`, `wipeAllData`, `wipeFormsOnly`, user/department CRUD, messaging.
+- Data: `users`, `departments`, `folders`, `formTemplates`, `formSubmissions`, `departmentMessages`, `myApprovalQueue`, `mySubmissions`, `templateReviews`, `reviewsNeedingMe`, `notifications`, `unreadNotificationsCount`, `activityLogs`, `activityLogsMeta`, `theme`, `accentColor`.
+- Actions: `canManageDepartment(dept)`, `createFolder`, `updateFolder`, `deleteFolder`, `createTemplate`, `bulkImportTemplates`, `updateTemplate`, `updateTemplatePermissions`, `addTemplateComment`, `updateTemplateComment`, `moveTemplate`, `archiveTemplate`, `submitForm`, `resubmitForm`, `workflowAction(id, action, notes)`, `addSubmissionComment`, `updateSubmissionComment`, `sendTemplateForReview`, `submitReviewChanges`, `saveReviewDecisions`, `finalizeReview`, `cancelReview`, `saveSignature`, `saveAvatar`, `getPkiCertificate`, `generatePkiCertificate`, `verifySubmissionSignatures`, `openProfileModal`, `closeProfileModal`, `markNotificationRead`, `markAllNotificationsRead`, `wipeAllData`, `wipeFormsOnly`, `setTheme`, `toggleTheme`, `setAccentColor`, user/department CRUD, messaging.
 - Use `addToast(title, message, type)` for all alerts. Audit logging is done server-side.
 
 ---
@@ -39,7 +40,7 @@ All cross-module state and mutations live in `AppContext.jsx` — do not duplica
 2. **Scope**: Keep it simple. Do not re-add removed modules (custom form designer, SurveyJS, Vault, Reviewer, E-Sign vault, AI Suite, Tasks, Reports, AD matrix) unless the user explicitly asks.
 3. **No mock data**: Never seed or display fake users, counts, or records. Only the super admin from `.env` is seeded.
 4. **Auth**: Username + password (not email).
-5. **Styling**: Vanilla CSS only (`src/App.css`, `src/index.css`) using **Pure Black Dark Mode** (`#000000`) and **Electric Lime** (`#a4fb4f`) accents. No TailwindCSS.
+5. **Styling & Layout**: Vanilla CSS only (`src/App.css`, `src/index.css`) supporting both **Pure Black Dark Mode** (`#000000`) and **High-Contrast Light Mode** (`#f8fafc` / `#ffffff`) with 5 selectable accent themes (`green` / Electric Lime `#a4fb4f`, `red`, `orange`, `purple`, `blue`), and a `100vh` zero-scroll page viewport with pinned `<AppFooter />`. No TailwindCSS.
 6. **Build Verification**: Run `npm run build` after edits; must have 0 errors.
 7. **Context Maintenance**: Update [CONTEXT.md](file:///c:/Code/SmartDoc/CONTEXT.md) in the same change whenever components, state, routes, API, or rules change.
 8. **No Git Commands**: Never check, get status, or run any `git` commands unless explicitly requested by the user.

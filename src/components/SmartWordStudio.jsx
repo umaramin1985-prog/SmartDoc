@@ -103,8 +103,36 @@ const pillInnerHtml = (label, type, required, mode = 'placeholder', bold = false
   ${REMOVE_BTN_HTML}
 `;
 
-const sigInnerHtml = (slot) => {
+const SIG_WIDTH_PRESETS = ['auto', 25, 33, 50, 66, 75, 100];
+const SIG_QUICK_WIDTHS = ['auto', 25, 33, 50, 75, 100];
+
+const normalizeSigWidth = (w) => {
+  if (w === 'auto' || w === 'Auto') return 'auto';
+  const n = parseInt(w, 10);
+  if (n > 0 && n <= 100) return n;
+  return 100;
+};
+
+const sigBlockStyleStr = (width) => {
+  const w = normalizeSigWidth(width);
+  if (w === 'auto') {
+    return 'width: auto; min-width: 210px; max-width: 100%; display: inline-block; vertical-align: top; margin: 8px 10px 8px 0; box-sizing: border-box;';
+  }
+  if (w < 100) {
+    return `width: calc(${w}% - 12px); max-width: calc(${w}% - 12px); display: inline-block; vertical-align: top; margin: 8px 8px 8px 0; box-sizing: border-box;`;
+  }
+  return 'width: 100%; max-width: 100%; display: block; margin: 10px 0; box-sizing: border-box;';
+};
+
+const sigInnerHtml = (slot, width = 100) => {
   const isSubmitter = String(slot).toLowerCase() === 'submitter';
+  const normW = normalizeSigWidth(width);
+  const widthPillsHtml = SIG_QUICK_WIDTHS.map(preset => {
+    const isAct = String(normW) === String(preset);
+    const label = preset === 'auto' ? 'Auto' : `${preset}%`;
+    return `<button type="button" class="sd-doc-sig-width-btn${isAct ? ' is-active' : ''}" data-sig-width-btn="${preset}" title="Set signature width to ${label}">${label}</button>`;
+  }).join('');
+
   return `
     <div class="sd-doc-sig-head">
       <span class="sd-doc-sig-icon">✍️</span>
@@ -113,8 +141,15 @@ const sigInnerHtml = (slot) => {
     </div>
     <div class="sd-doc-sig-body">
       <span class="sd-doc-sig-hint">${isSubmitter ? 'Stamped upon submission' : `Department Authorized Signatory · ${esc(slot)}`}</span>
+      <div class="sd-doc-sig-width-bar sd-print-hide" title="Set signature block width">${widthPillsHtml}</div>
     </div>
   `;
+};
+
+const buildStudioSigBlockHtml = (slot, width = 100) => {
+  const s = String(slot || 'Submitter').trim();
+  const normW = normalizeSigWidth(width);
+  return `<div class="sd-doc-sig-block" data-sig-slot="${esc(s)}" data-width="${esc(String(normW))}" style="${sigBlockStyleStr(normW)}" contenteditable="false">${sigInnerHtml(s, normW)}</div>`;
 };
 
 const systemTagInnerHtml = (name) => `🏷️ {{${esc(name)}}}${REMOVE_BTN_HTML}`;
@@ -129,11 +164,17 @@ const convertRawHtmlToStudio = (rawHtml, existingFields = []) => {
     if (f.label) fieldsMap.set(String(f.label).toLowerCase(), f);
   });
 
-  // Signature slots
-  docHtml = docHtml.replace(/\{\{\s*(?:Signature|sig)\s*:\s*([^}]+)\}\}/gi, (match, slot) => {
-    const s = slot.trim();
-    return `<div class="sd-doc-sig-block" data-sig-slot="${esc(s)}" contenteditable="false">${sigInnerHtml(s)}</div>`;
-  });
+  // 1a. Signature slots wrapped in <span data-sig-width="...">
+  docHtml = docHtml.replace(
+    /<span[^>]*data-sig-width="([^"]+)"[^>]*>\s*\{\{\s*(?:Signature|sig)\s*:\s*([^}|]+)(?:\|[^}]*)?\}\}\s*<\/span>/gi,
+    (match, w, slot) => buildStudioSigBlockHtml(slot, w)
+  );
+
+  // 1b. Signature slots {{Signature: Slot}} or {{Signature: Slot|width=50}}
+  docHtml = docHtml.replace(
+    /\{\{\s*(?:Signature|sig)\s*:\s*([^}|]+)(?:\|\s*width\s*=\s*([^}]+))?\}\}/gi,
+    (match, slot, w) => buildStudioSigBlockHtml(slot, w || 100)
+  );
 
   // System tags
   for (const st of SYSTEM_TAGS_LIST) {
@@ -182,6 +223,133 @@ const applyPillWidth = (el, width) => {
   } else {
     el.removeAttribute('data-width');
     el.style.width = '';
+  }
+};
+
+// Ensure adjacent inline signature blocks (< 100% or auto) share the same container without <p> or <br> line breaks forcing them onto separate rows
+const normalizeSignatureLayout = (root) => {
+  if (!root) return;
+
+  // 1. Unwrap any <p> or plain <div> that contains ONLY .sd-doc-sig-block element(s) (and optional <br>/whitespace)
+  root.querySelectorAll('p, div:not([class])').forEach(wrapper => {
+    if (!wrapper.querySelector('.sd-doc-sig-block')) return;
+    const hasOtherContent = Array.from(wrapper.childNodes).some(node => {
+      if (node.nodeType === 3) return node.textContent.replace(/\u200B/g, '').trim().length > 0;
+      if (node.nodeType === 1) {
+        if (node.classList?.contains('sd-doc-sig-block')) return false;
+        if (node.tagName === 'BR') return false;
+        return true;
+      }
+      return false;
+    });
+    if (!hasOtherContent && wrapper.parentNode) {
+      const sigs = Array.from(wrapper.querySelectorAll('.sd-doc-sig-block'));
+      sigs.forEach(sig => {
+        wrapper.parentNode.insertBefore(sig, wrapper);
+        wrapper.parentNode.insertBefore(document.createTextNode(' '), wrapper);
+      });
+      wrapper.remove();
+    }
+  });
+
+  // 2. If an older AI-generated flex container (<div style="display: flex;">) wraps .sd-doc-sig-block columns
+  // and the user resized a signature block to an explicit percentage (< 100%), unwrap the flex columns so
+  // percentage widths are calculated relative to the full page width.
+  root.querySelectorAll('div[style*="display: flex"], div[style*="display:flex"]').forEach(flexRow => {
+    const sigs = Array.from(flexRow.querySelectorAll('.sd-doc-sig-block'));
+    if (sigs.length >= 2 && sigs.some(s => {
+      const dw = s.getAttribute('data-width');
+      return dw && dw !== '100';
+    })) {
+      if (flexRow.parentNode) {
+        sigs.forEach(sig => {
+          flexRow.parentNode.insertBefore(sig, flexRow);
+          flexRow.parentNode.insertBefore(document.createTextNode(' '), flexRow);
+        });
+        flexRow.remove();
+      }
+    }
+  });
+
+  // 3. Between any two adjacent .sd-doc-sig-block elements in the same parent where at least one
+  // is inline-sized (data-width !== '100'), remove intervening <br>, empty <p>, or extra whitespace
+  const allSigs = Array.from(root.querySelectorAll('.sd-doc-sig-block'));
+  for (let i = 0; i < allSigs.length - 1; i++) {
+    const sigA = allSigs[i];
+    const sigB = allSigs[i + 1];
+    if (!sigA.parentNode || sigA.parentNode !== sigB.parentNode) continue;
+
+    const wA = sigA.getAttribute('data-width') || '100';
+    const wB = sigB.getAttribute('data-width') || '100';
+    if (wA === '100' && wB === '100') continue;
+
+    const between = [];
+    let cur = sigA.nextSibling;
+    let onlySpacers = true;
+    while (cur && cur !== sigB) {
+      between.push(cur);
+      if (cur.nodeType === 3) {
+        if (cur.textContent.replace(/\u200B/g, '').trim().length > 0) {
+          onlySpacers = false;
+          break;
+        }
+      } else if (cur.nodeType === 1) {
+        const isBr = cur.tagName === 'BR';
+        const isEmptyP = (cur.tagName === 'P' || cur.tagName === 'DIV') &&
+          !cur.textContent.replace(/\u200B/g, '').trim() &&
+          !cur.querySelector('.sd-doc-field-pill, .sd-doc-sig-block, .sd-doc-system-tag, img, table');
+        if (!isBr && !isEmptyP) {
+          onlySpacers = false;
+          break;
+        }
+      } else {
+        onlySpacers = false;
+        break;
+      }
+      cur = cur.nextSibling;
+    }
+
+    if (onlySpacers && cur === sigB) {
+      between.forEach(n => n.remove());
+      sigA.parentNode.insertBefore(document.createTextNode(' '), sigB);
+    }
+  }
+};
+
+// Reflect the chosen width on the in-document signature block ('auto' or 1..100%)
+const applySigWidth = (el, width) => {
+  if (!el) return;
+  const w = normalizeSigWidth(width);
+  el.setAttribute('data-width', String(w));
+  if (w === 'auto') {
+    el.style.width = 'auto';
+    el.style.minWidth = '210px';
+    el.style.maxWidth = '100%';
+    el.style.display = 'inline-block';
+    el.style.verticalAlign = 'top';
+    el.style.margin = '8px 10px 8px 0';
+    el.style.boxSizing = 'border-box';
+  } else if (w < 100) {
+    el.style.width = `calc(${w}% - 12px)`;
+    el.style.minWidth = '';
+    el.style.maxWidth = `calc(${w}% - 12px)`;
+    el.style.display = 'inline-block';
+    el.style.verticalAlign = 'top';
+    el.style.margin = '8px 8px 8px 0';
+    el.style.boxSizing = 'border-box';
+  } else {
+    el.style.width = '100%';
+    el.style.minWidth = '';
+    el.style.maxWidth = '100%';
+    el.style.display = 'block';
+    el.style.verticalAlign = '';
+    el.style.margin = '10px 0';
+    el.style.boxSizing = 'border-box';
+  }
+
+  const root = el.closest('.sd-word-editor-body') || el.parentElement;
+  if (root) {
+    normalizeSignatureLayout(root);
   }
 };
 
@@ -821,10 +989,14 @@ const buildPreviewHtml = (editorEl) => {
   });
 
   // Signature and system-tag slots are resolved against the current user in FormPreviewPane
+  normalizeSignatureLayout(clone);
   clone.querySelectorAll('.sd-doc-sig-block').forEach(sig => {
-    const slot = document.createElement('div');
+    const slot = document.createElement('span');
+    const normW = normalizeSigWidth(sig.getAttribute('data-width'));
     slot.className = 'sd-live-slot-sig';
     slot.setAttribute('data-sig-slot', (sig.getAttribute('data-sig-slot') || 'Submitter').trim());
+    slot.setAttribute('data-width', String(normW));
+    slot.setAttribute('style', sigBlockStyleStr(normW));
     sig.replaceWith(slot);
   });
 
@@ -2028,6 +2200,7 @@ export const SmartWordStudio = ({
         const loadedHtml = convertRawHtmlToStudio(templateToEdit.htmlContent, templateToEdit.fields);
         editorRef.current.innerHTML = loadedHtml;
         normalizeEditorImages(editorRef.current);
+        normalizeSignatureLayout(editorRef.current);
         pushHistory();
       } else if (editorRef.current && !templateToEdit.htmlContent) {
         // Fetch original docx file from server, convert to base64, parse to HTML
@@ -2039,6 +2212,7 @@ export const SmartWordStudio = ({
               const loadedHtml = convertRawHtmlToStudio(parsed.html, templateToEdit.fields);
               editorRef.current.innerHTML = loadedHtml;
               normalizeEditorImages(editorRef.current);
+              normalizeSignatureLayout(editorRef.current);
               pushHistory();
             }
           })
@@ -2053,6 +2227,7 @@ export const SmartWordStudio = ({
         const loadedHtml = convertRawHtmlToStudio(reviewSession.html, fields);
         editorRef.current.innerHTML = loadedHtml;
         normalizeEditorImages(editorRef.current);
+        normalizeSignatureLayout(editorRef.current);
         pushHistory();
       }
     } else if (resume) {
@@ -2061,6 +2236,7 @@ export const SmartWordStudio = ({
         const loadedHtml = convertRawHtmlToStudio(resume.html, fields);
         editorRef.current.innerHTML = loadedHtml;
         normalizeEditorImages(editorRef.current);
+        normalizeSignatureLayout(editorRef.current);
         pushHistory();
       }
     } else if (initialDocxFile) {
@@ -2103,6 +2279,7 @@ export const SmartWordStudio = ({
       const loadedHtml = convertRawHtmlToStudio(generated.htmlContent, fields);
       editorRef.current.innerHTML = loadedHtml;
       normalizeEditorImages(editorRef.current);
+      normalizeSignatureLayout(editorRef.current);
       pushHistory();
     }
     addToast(
@@ -2873,22 +3050,32 @@ export const SmartWordStudio = ({
   };
 
   // Insert Signature block
-  const handleInsertSignature = (deptName = 'Submitter') => {
+  const handleInsertSignature = (deptName = 'Submitter', initialWidth = 100) => {
     const isSubmitter = deptName === 'Submitter';
+    const normW = normalizeSigWidth(initialWidth);
     const block = document.createElement('div');
     block.className = 'sd-doc-sig-block';
     block.setAttribute('data-sig-slot', deptName);
     block.contentEditable = 'false';
+    applySigWidth(block, normW);
+    block.innerHTML = sigInnerHtml(deptName, normW);
 
-    block.innerHTML = sigInnerHtml(deptName);
-
-    const p = document.createElement('p');
-    p.innerHTML = '<br/>';
+    const space = document.createTextNode(' ');
     const fragment = document.createDocumentFragment();
     fragment.appendChild(block);
-    fragment.appendChild(p);
+    fragment.appendChild(space);
 
-    insertNodeAtCursor(fragment, p);
+    insertNodeAtCursor(fragment, space);
+
+    if (editorRef.current) {
+      normalizeSignatureLayout(editorRef.current);
+      // Ensure there's always a trailing paragraph at the bottom of the document so users can click below the last signature block
+      if (editorRef.current.lastElementChild?.classList?.contains('sd-doc-sig-block')) {
+        const p = document.createElement('p');
+        p.innerHTML = '<br/>';
+        editorRef.current.appendChild(p);
+      }
+    }
 
     // Automatically sync into workflow approval chain if it's a department
     if (!isSubmitter && !workflow.some(w => (typeof w === 'string' ? w : w?.department) === deptName)) {
@@ -3037,14 +3224,32 @@ export const SmartWordStudio = ({
       return;
     }
 
+    // Quick-width pill button on a signature block
+    const sigWidthBtn = e.target.closest('[data-sig-width-btn]');
+    if (sigWidthBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const sigBlock = sigWidthBtn.closest('.sd-doc-sig-block');
+      if (sigBlock) {
+        const newWidth = normalizeSigWidth(sigWidthBtn.getAttribute('data-sig-width-btn'));
+        const slot = sigBlock.getAttribute('data-sig-slot') || 'Submitter';
+        applySigWidth(sigBlock, newWidth);
+        sigBlock.innerHTML = sigInnerHtml(slot, newWidth);
+        pushHistory();
+      }
+      return;
+    }
+
     const sigBlock = e.target.closest('.sd-doc-sig-block');
     if (sigBlock) {
       e.preventDefault();
       e.stopPropagation();
       const slot = sigBlock.getAttribute('data-sig-slot') || 'Submitter';
+      const width = normalizeSigWidth(sigBlock.getAttribute('data-width'));
       setActiveSigEdit({
         element: sigBlock,
-        slot
+        slot,
+        width
       });
       setActiveFieldEdit(null);
       return;
@@ -3128,13 +3333,15 @@ export const SmartWordStudio = ({
     setActiveFieldEdit(null);
   };
 
-  // Change signature slot
-  const handleSaveSigEdit = (newDept) => {
+  // Change signature slot & width
+  const handleSaveSigEdit = (newDept, newWidth = 100) => {
     if (!activeSigEdit?.element) return;
     const el = activeSigEdit.element;
     const isSubmitter = newDept === 'Submitter';
+    const normW = normalizeSigWidth(newWidth);
     el.setAttribute('data-sig-slot', newDept);
-    el.innerHTML = sigInnerHtml(newDept);
+    applySigWidth(el, normW);
+    el.innerHTML = sigInnerHtml(newDept, normW);
 
     if (!isSubmitter && !workflow.some(w => (typeof w === 'string' ? w : w?.department) === newDept)) {
       setWorkflow(prev => [...normalizeWorkflowSteps(prev), newDept]);
@@ -3168,10 +3375,10 @@ export const SmartWordStudio = ({
       }
 
       // Transform raw {{Signature: XYZ}} into interactive signature blocks
-      docHtml = docHtml.replace(/\{\{\s*Signature\s*:\s*([^}]+)\}\}/gi, (match, slot) => {
-        const s = slot.trim();
-        return `<div class="sd-doc-sig-block" data-sig-slot="${escapeHtml(s)}" contenteditable="false">${sigInnerHtml(s)}</div>`;
-      });
+      docHtml = docHtml.replace(
+        /\{\{\s*(?:Signature|sig)\s*:\s*([^}|]+)(?:\|\s*width\s*=\s*([^}]+))?\}\}/gi,
+        (match, slot, w) => buildStudioSigBlockHtml(slot, w || 100)
+      );
 
       // Transform any remaining {{Field Name}} into interactive form pills (system tags are handled next)
       docHtml = docHtml.replace(/\{\{\s*([^}]+)\}\}/g, (match, fieldName) => {
@@ -3189,6 +3396,7 @@ export const SmartWordStudio = ({
       if (editorRef.current) {
         editorRef.current.innerHTML = docHtml;
         normalizeEditorImages(editorRef.current);
+        normalizeSignatureLayout(editorRef.current);
         pushHistory();
       }
 
@@ -3244,12 +3452,17 @@ export const SmartWordStudio = ({
       }
     });
 
-    // 2. Convert .sd-doc-sig-block -> {{Signature: Slot}}
+    // 2. Convert .sd-doc-sig-block -> {{Signature: Slot}} (wrapped in <span data-sig-width="..."> to preserve custom width)
+    normalizeSignatureLayout(clone);
     const sigBlocks = clone.querySelectorAll('.sd-doc-sig-block');
     sigBlocks.forEach(sig => {
       const slot = (sig.getAttribute('data-sig-slot') || 'Submitter').trim();
+      const normW = normalizeSigWidth(sig.getAttribute('data-width'));
       signatureSlots.push(slot);
-      sig.replaceWith(document.createTextNode(`{{Signature: ${slot}}}`));
+      const span = document.createElement('span');
+      span.setAttribute('data-sig-width', String(normW));
+      span.textContent = `{{Signature: ${slot}}}`;
+      sig.replaceWith(span);
     });
 
     // 3. Convert .sd-doc-system-tag -> {{SystemTag}}
@@ -3480,7 +3693,7 @@ export const SmartWordStudio = ({
       const resolvedId = targetTemplate?.id || targetTemplateId;
       const result = await updateTemplate(resolvedId, payload);
       if (result) {
-        addToast('Template Updated', `"${title.trim()}" committed as version ${(targetTemplate?.version || 1) + 1}`, 'success');
+        addToast('Template Updated', `"${title.trim()}" committed as version v${result.version || targetTemplate?.version || '1.1'}`, 'success');
         setShowCommitModal(false);
         onClose();
       }
@@ -5281,63 +5494,109 @@ export const SmartWordStudio = ({
               <div className="sd-field-edit-header">
                 <div className="sd-field-edit-title-group">
                   <div className="sd-field-edit-icon-badge">
-                    <Tag size={16} />
+                    <Tag size={18} />
                   </div>
                   <div>
                     <h4>{activeFieldEdit.isNew ? 'Insert Form Field' : 'Customize Form Field'}</h4>
                     <span className="sd-field-edit-subtitle">
                       {activeFieldEdit.isNew
-                        ? 'Configure field properties before placing it in the document'
-                        : 'Configure how this field appears and behaves in the document'}
+                        ? 'Configure field appearance, validation, and guidance before placing it in the document'
+                        : 'Configure how this field appears and behaves in the document and form filler'}
                     </span>
                   </div>
                 </div>
                 <button
-                  className="sd-icon-btn sd-icon-btn-xs"
+                  type="button"
+                  className="sd-field-close-btn"
                   onClick={handleCancelFieldEdit}
                   title="Close (Esc)"
                 >
-                  <X size={15} />
+                  <X size={16} />
                 </button>
               </div>
 
               <div className="sd-field-edit-body">
-                {/* Live Document Token Preview */}
+                {/* 1. Live Document Preview Card (Editor Token + Live Paper Preview) */}
                 <div className="sd-field-preview-card">
                   <div className="sd-field-preview-header">
                     <span className="sd-field-preview-title">Live Document Preview</span>
-                    <span className="sd-field-preview-mode-tag">
-                      {activeFieldEdit.mode === 'placeholder' ? 'In-Text Placeholder' : 'Direct Input Box'}
-                    </span>
-                  </div>
-                  <div className="sd-field-preview-stage">
-                    <span
-                      className={`sd-doc-field-pill ${activeFieldEdit.mode === 'placeholder' ? 'is-placeholder' : ''} ${activeFieldEdit.bold ? 'is-bold' : ''}`}
-                    >
-                      <span className="sd-doc-pill-icon">{fieldIcon(activeFieldEdit.mode === 'placeholder' ? 'text' : activeFieldEdit.type)}</span>
-                      <span className="sd-doc-pill-label" style={{ fontWeight: activeFieldEdit.bold ? 700 : 400 }}>
-                        {`{{${(activeFieldEdit.label || activeFieldEdit.key || 'Field').trim()}}}`}
+                    <div className="sd-field-preview-badges">
+                      <span className="sd-field-preview-mode-tag">
+                        {activeFieldEdit.mode === 'placeholder' ? '🏷️ In-Text Placeholder' : '📝 Direct Input Box'}
                       </span>
-                      {activeFieldEdit.bold && (
-                        <span className="sd-doc-pill-tag req" style={{ background: 'rgba(245, 158, 11, 0.18)', color: '#f59e0b', borderColor: 'rgba(245, 158, 11, 0.4)' }}>
-                          Bold
+                      <span className={`sd-field-preview-req-tag ${activeFieldEdit.required ? 'is-req' : 'is-opt'}`}>
+                        {activeFieldEdit.required ? 'Mandatory *' : 'Optional'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="sd-field-preview-dual">
+                    {/* Left: Studio Canvas Pill */}
+                    <div className="sd-field-preview-stage">
+                      <span className="sd-field-stage-caption">In Word Studio Editor</span>
+                      <div className="sd-field-stage-content">
+                        <span
+                          className={`sd-doc-field-pill ${activeFieldEdit.mode === 'placeholder' ? 'is-placeholder' : ''} ${activeFieldEdit.bold ? 'is-bold' : ''}`}
+                        >
+                          <span className="sd-doc-pill-icon">{fieldIcon(activeFieldEdit.mode === 'placeholder' ? 'text' : activeFieldEdit.type)}</span>
+                          <span className="sd-doc-pill-label" style={{ fontWeight: activeFieldEdit.bold ? 700 : 500 }}>
+                            {`{{${(activeFieldEdit.label || activeFieldEdit.key || 'Field').trim()}}}`}
+                          </span>
+                          {activeFieldEdit.bold && (
+                            <span className="sd-doc-pill-tag req" style={{ background: 'rgba(245, 158, 11, 0.18)', color: '#f59e0b', borderColor: 'rgba(245, 158, 11, 0.4)' }}>
+                              Bold
+                            </span>
+                          )}
+                          <span className="sd-doc-pill-tag">{activeFieldEdit.mode === 'placeholder' ? 'text' : activeFieldEdit.type}</span>
+                          {activeFieldEdit.mode === 'placeholder' && (
+                            <span className="sd-doc-pill-tag sd-pill-tag-theme">
+                              In-Text
+                            </span>
+                          )}
+                          {activeFieldEdit.required && <span className="sd-doc-pill-tag req">Req</span>}
                         </span>
+                      </div>
+                    </div>
+
+                    {/* Right: Live Paper Appearance */}
+                    <div className="sd-field-preview-paper">
+                      <span className="sd-field-stage-caption is-paper">On Document Paper Sheet</span>
+                      {activeFieldEdit.mode === 'placeholder' ? (
+                        <div className="sd-field-paper-inline-sample">
+                          <span>…agreement entered into by </span>
+                          <span className={`sd-field-paper-token ${activeFieldEdit.bold ? 'is-bold' : ''}`}>
+                            {`{{${(activeFieldEdit.label || 'Field').trim()}${activeFieldEdit.required ? ' *' : ''}}}`}
+                          </span>
+                          <span> as of the effective date…</span>
+                        </div>
+                      ) : (
+                        <div className="sd-field-paper-input-sample">
+                          <div className="sd-field-paper-label" style={{ fontWeight: activeFieldEdit.bold ? 700 : 600 }}>
+                            <span>{(activeFieldEdit.label || 'Field Label').trim()}</span>
+                            {activeFieldEdit.required && <span className="sd-required-star">*</span>}
+                          </div>
+                          <div className="sd-field-paper-mock-box">
+                            {activeFieldEdit.type === 'checkbox'
+                              ? `☐ ${(activeFieldEdit.label || 'Confirm selection').trim()}`
+                              : activeFieldEdit.type === 'dropdown'
+                              ? `-- Select ${(activeFieldEdit.label || 'Option').trim()} -- ▾`
+                              : activeFieldEdit.type === 'date'
+                              ? 'mm / dd / yyyy 📅'
+                              : (activeFieldEdit.placeholder || `Enter ${(activeFieldEdit.label || 'value').trim()}…`)}
+                          </div>
+                        </div>
                       )}
-                      <span className="sd-doc-pill-tag">{activeFieldEdit.mode === 'placeholder' ? 'text' : activeFieldEdit.type}</span>
-                      {activeFieldEdit.mode === 'placeholder' && (
-                        <span className="sd-doc-pill-tag" style={{ background: 'rgba(164, 251, 79, 0.15)', color: 'var(--primary-500, #a4fb4f)', borderColor: 'rgba(164, 251, 79, 0.35)' }}>
-                          In-Text
-                        </span>
-                      )}
-                      {activeFieldEdit.required && <span className="sd-doc-pill-tag req">Req</span>}
-                    </span>
+                    </div>
                   </div>
                 </div>
 
-                {/* Display Mode & Text Weight in a 2-Column Segmented Grid */}
+                {/* 2. Display Mode & Text Weight (2-Column Equal Segmented Controls) */}
                 <div className="sd-field-two-col-grid">
                   <div className="sd-field-setting-block">
-                    <span className="sd-field-setting-label">Display Mode</span>
+                    <div className="sd-field-label-row">
+                      <span className="sd-field-setting-label">Display Mode</span>
+                      <span className="sd-field-label-sub">Placement style</span>
+                    </div>
                     <div className="sd-segmented-control">
                       <button
                         type="button"
@@ -5359,14 +5618,17 @@ export const SmartWordStudio = ({
                   </div>
 
                   <div className="sd-field-setting-block">
-                    <span className="sd-field-setting-label">Text Weight</span>
+                    <div className="sd-field-label-row">
+                      <span className="sd-field-setting-label">Text Weight</span>
+                      <span className="sd-field-label-sub">Typography weight</span>
+                    </div>
                     <div className="sd-segmented-control">
                       <button
                         type="button"
                         className={`sd-segment-btn ${!activeFieldEdit.bold ? 'is-active' : ''}`}
                         onClick={() => setActiveFieldEdit(prev => ({ ...prev, bold: false }))}
                       >
-                        <span>Normal</span>
+                        <span>Normal (400)</span>
                       </button>
                       <button
                         type="button"
@@ -5381,12 +5643,14 @@ export const SmartWordStudio = ({
                   </div>
                 </div>
 
-                {/* Field Label */}
-                <div className="sd-field-row-group">
+                {/* 3. Field Label & Requirement (Aligned 2-Column Row) */}
+                <div className="sd-field-two-col-grid sd-field-label-req-grid">
                   <div className="sd-field-setting-block">
-                    <span className="sd-field-setting-label">
-                      Field Label (Displayed on Form) <span className="sd-required-star">*</span>
-                    </span>
+                    <div className="sd-field-label-row">
+                      <span className="sd-field-setting-label">
+                        Field Label (Displayed on Form) <span className="sd-required-star">*</span>
+                      </span>
+                    </div>
                     <input
                       className="sd-input sd-input-modern"
                       value={activeFieldEdit.label}
@@ -5398,28 +5662,55 @@ export const SmartWordStudio = ({
                       }))}
                     />
                   </div>
+
+                  <div className="sd-field-setting-block">
+                    <div className="sd-field-label-row">
+                      <span className="sd-field-setting-label">Requirement</span>
+                      <span className="sd-field-label-sub">Validation rule</span>
+                    </div>
+                    <button
+                      type="button"
+                      className={`sd-required-toggle-btn ${activeFieldEdit.required ? 'is-required' : 'is-optional'}`}
+                      onClick={() => setActiveFieldEdit(prev => ({ ...prev, required: !prev.required }))}
+                    >
+                      <div className="sd-req-status-dot" />
+                      <span>{activeFieldEdit.required ? 'Mandatory (Required *)' : 'Optional Field'}</span>
+                    </button>
+                  </div>
                 </div>
 
-                {/* Input Type & Validation Toggle Aligned */}
-                <div className="sd-field-two-col-grid" style={{ alignItems: 'flex-end' }}>
-                  <div className="sd-field-setting-block">
+                {/* 4. Input Type & Row Width */}
+                <div className="sd-field-setting-block">
+                  <div className="sd-field-label-row">
                     <span className="sd-field-setting-label">Input Type</span>
                     {activeFieldEdit.mode === 'placeholder' ? (
-                      <div>
-                        <select
-                          className="sd-input sd-input-modern"
-                          disabled
-                          value="text"
-                          title="In-Text tags only support text input"
-                          style={{ opacity: 0.85, cursor: 'not-allowed' }}
+                      <span className="sd-field-inline-lock-note">
+                        In-Text tags use Short Text ·{' '}
+                        <button
+                          type="button"
+                          className="sd-field-inline-switch-btn"
+                          onClick={() => setActiveFieldEdit(prev => ({ ...prev, mode: 'input' }))}
                         >
-                          <option value="text">Short Text (Text only for In-Text Tags)</option>
-                        </select>
-                        <span className="sd-hint" style={{ fontSize: '0.72rem', marginTop: '4px', display: 'block', color: 'var(--muted)' }}>
-                          In-Text tags only support text input. To use dropdowns, dates, or other controls, switch to Input Box.
-                        </span>
-                      </div>
+                          Switch to Input Box for Date / Dropdown / Checkbox →
+                        </button>
+                      </span>
                     ) : (
+                      <span className="sd-field-label-sub">Select interactive form control type</span>
+                    )}
+                  </div>
+
+                  {activeFieldEdit.mode === 'placeholder' ? (
+                    <select
+                      className="sd-input sd-input-modern"
+                      disabled
+                      value="text"
+                      title="In-Text tags only support text input"
+                      style={{ opacity: 0.85, cursor: 'not-allowed' }}
+                    >
+                      <option value="text">Short Text — Locked for In-Text Placeholder</option>
+                    </select>
+                  ) : (
+                    <div className="sd-field-two-col-grid">
                       <select
                         className="sd-input sd-input-modern"
                         value={activeFieldEdit.type === 'select' ? 'dropdown' : activeFieldEdit.type}
@@ -5436,31 +5727,33 @@ export const SmartWordStudio = ({
                         <option value="dropdown">Dropdown Select</option>
                         <option value="checkbox">Checkbox (Yes / No)</option>
                       </select>
-                    )}
-                  </div>
 
-                  <div className="sd-field-setting-block">
-                    <span className="sd-field-setting-label">Requirement</span>
-                    <button
-                      type="button"
-                      className={`sd-required-toggle-btn ${activeFieldEdit.required ? 'is-required' : 'is-optional'}`}
-                      onClick={() => setActiveFieldEdit(prev => ({ ...prev, required: !prev.required }))}
-                    >
-                      <div className="sd-req-status-dot" />
-                      <span>{activeFieldEdit.required ? 'Mandatory (Required *)' : 'Optional Field'}</span>
-                    </button>
-                  </div>
+                      <select
+                        className="sd-input sd-input-modern"
+                        value={activeFieldEdit.width || 0}
+                        onChange={e => setActiveFieldEdit(prev => ({ ...prev, width: parseInt(e.target.value, 10) || 0 }))}
+                        title="Field Width on Form Row"
+                      >
+                        <option value={0}>Width: Auto (Default)</option>
+                        {WIDTH_OPTIONS.map(w => (
+                          <option key={w} value={w}>Width: {w}% of Row</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
 
-                {/* Contextual: Dropdown Options (Positioned immediately below Input Type, only for Input Box) */}
+                {/* Contextual: Dropdown Options (Only for Input Box + Dropdown) */}
                 {activeFieldEdit.mode !== 'placeholder' && (activeFieldEdit.type === 'dropdown' || activeFieldEdit.type === 'select') && (
-                  <div className="sd-field-contextual-box animate-fade-in" style={{ borderColor: 'rgba(164, 251, 79, 0.3)', background: 'rgba(164, 251, 79, 0.03)', padding: '12px 14px' }}>
+                  <div className="sd-field-contextual-box animate-fade-in">
                     <div className="sd-field-setting-block">
-                      <div className="sd-flex-between">
-                        <span className="sd-field-setting-label" style={{ color: 'var(--primary-500, #a4fb4f)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <ChevronDown size={14} /> Dropdown Choices / Options *
+                      <div className="sd-field-label-row">
+                        <span className="sd-field-setting-label" style={{ color: 'var(--primary-500)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <ChevronDown size={14} /> Dropdown Choices / Options <span className="sd-required-star">*</span>
                         </span>
-                        <span className="sd-muted sd-xs">{(activeFieldEdit.options || []).length} choice{(activeFieldEdit.options || []).length === 1 ? '' : 's'}</span>
+                        <span className="sd-field-label-sub">
+                          {(activeFieldEdit.options || []).length} choice{(activeFieldEdit.options || []).length === 1 ? '' : 's'} (comma-separated)
+                        </span>
                       </div>
                       <input
                         id="input-dropdown-options"
@@ -5473,60 +5766,52 @@ export const SmartWordStudio = ({
                         }))}
                         autoFocus={activeFieldEdit.isNew && (activeFieldEdit.type === 'dropdown' || activeFieldEdit.type === 'select')}
                       />
-                      <div className="sd-flex-between sd-mt-xs" style={{ alignItems: 'flex-start', flexWrap: 'wrap', gap: '6px' }}>
-                        <span className="sd-hint" style={{ fontSize: '0.72rem' }}>Separate choices with commas</span>
-                        {(activeFieldEdit.options || []).length > 0 && (
-                          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', maxWidth: '75%', justifyContent: 'flex-end' }}>
-                            {activeFieldEdit.options.map((opt, idx) => (
-                              <span
-                                key={idx}
-                                className="sd-badge sd-badge-xs sd-badge-accent"
-                                style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 7px', fontSize: '0.72rem' }}
+                      {(activeFieldEdit.options || []).length > 0 && (
+                        <div className="sd-field-dropdown-chips">
+                          {activeFieldEdit.options.map((opt, idx) => (
+                            <span key={idx} className="sd-field-opt-chip">
+                              <span>{opt}</span>
+                              <button
+                                type="button"
+                                className="sd-field-opt-chip-remove"
+                                title="Remove choice"
+                                onClick={() => setActiveFieldEdit(prev => ({
+                                  ...prev,
+                                  options: (prev.options || []).filter((_, i) => i !== idx)
+                                }))}
                               >
-                                {opt}
-                                <span
-                                  style={{ cursor: 'pointer', opacity: 0.7, marginLeft: '2px' }}
-                                  title="Remove choice"
-                                  onClick={() => setActiveFieldEdit(prev => ({
-                                    ...prev,
-                                    options: (prev.options || []).filter((_, i) => i !== idx)
-                                  }))}
-                                >
-                                  ×
-                                </span>
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
 
-                {/* Help Description / Guidance for Form Filler */}
-                <div className="sd-field-row-group">
+                {/* 5. Field Description & Placeholder Hint (2-Column Balanced Row) */}
+                <div className="sd-field-two-col-grid">
                   <div className="sd-field-setting-block">
-                    <div className="sd-flex-between">
+                    <div className="sd-field-label-row">
                       <span className="sd-field-setting-label">
-                        <Info size={13} className="sd-muted" /> Field Description &amp; Guidance
+                        <Info size={13} /> Field Description &amp; Guidance
                       </span>
-                      <span className="sd-muted sd-xs">Available when filling form</span>
+                      <span className="sd-field-label-sub">Shown when filling form</span>
                     </div>
-                    <textarea
-                      rows={2}
+                    <input
                       className="sd-input sd-input-modern"
-                      style={{ resize: 'vertical', minHeight: '44px' }}
                       value={activeFieldEdit.description || ''}
-                      placeholder="e.g. Enter full legal entity name as shown on official incorporation documents."
+                      placeholder="e.g. Enter full legal entity name as incorporated."
                       onChange={e => setActiveFieldEdit(prev => ({ ...prev, description: e.target.value }))}
                     />
                   </div>
-                </div>
 
-                {/* Placeholder Hint */}
-                <div className="sd-field-row-group">
                   <div className="sd-field-setting-block">
-                    <span className="sd-field-setting-label">Input Box Placeholder (Optional)</span>
+                    <div className="sd-field-label-row">
+                      <span className="sd-field-setting-label">Input Box Placeholder</span>
+                      <span className="sd-field-label-sub">Optional example text</span>
+                    </div>
                     <input
                       className="sd-input sd-input-modern"
                       value={activeFieldEdit.placeholder}
@@ -5535,28 +5820,6 @@ export const SmartWordStudio = ({
                     />
                   </div>
                 </div>
-
-                {/* Contextual: Field Width (Only if Direct Input Box) */}
-                {activeFieldEdit.mode !== 'placeholder' && (
-                  <div className="sd-field-contextual-box">
-                    <div className="sd-field-setting-block">
-                      <div className="sd-flex-between">
-                        <span className="sd-field-setting-label">Field Width on Form Row</span>
-                        <span className="sd-muted sd-xs">Direct input grid width</span>
-                      </div>
-                      <select
-                        className="sd-input sd-input-modern"
-                        value={activeFieldEdit.width || 0}
-                        onChange={e => setActiveFieldEdit(prev => ({ ...prev, width: parseInt(e.target.value, 10) || 0 }))}
-                      >
-                        <option value={0}>Auto (default)</option>
-                        {WIDTH_OPTIONS.map(w => (
-                          <option key={w} value={w}>{w}% of the row</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                )}
               </div>
 
               {/* Footer */}
@@ -5567,7 +5830,7 @@ export const SmartWordStudio = ({
                     className="sd-btn-delete-field"
                     onClick={handleDeleteFieldEdit}
                   >
-                    <Trash2 size={13} />
+                    <Trash2 size={14} />
                     <span>Remove Field</span>
                   </button>
                 ) : <div />}
@@ -5597,41 +5860,115 @@ export const SmartWordStudio = ({
 
         {/* POPUP 2: Signature Slot Editor */}
         {activeSigEdit && (
-          <div className="sd-field-edit-modal-backdrop">
+          <div className="sd-field-edit-modal-backdrop" onClick={() => setActiveSigEdit(null)}>
             <div className="sd-field-edit-card" onClick={e => e.stopPropagation()}>
               <div className="sd-field-edit-header">
-                <h4>Signature Block Settings</h4>
-                <button className="sd-icon-btn sd-icon-btn-xs" onClick={() => setActiveSigEdit(null)}>
+                <div className="sd-field-edit-title-group">
+                  <div className="sd-field-edit-icon-badge" style={{ background: 'rgba(139, 92, 246, 0.16)', color: '#a78bfa', borderColor: 'rgba(139, 92, 246, 0.35)' }}>
+                    <PenTool size={16} />
+                  </div>
+                  <div>
+                    <h4>Signature Block Settings</h4>
+                    <span className="sd-field-edit-subtitle">Configure signatory role, approval synchronization, and block width</span>
+                  </div>
+                </div>
+                <button type="button" className="sd-icon-btn sd-icon-btn-xs" onClick={() => setActiveSigEdit(null)}>
                   <X size={13} />
                 </button>
               </div>
 
               <div className="sd-field-edit-body">
-                <label className="sd-field">
-                  <span className="sd-label">Signatory Role / Department</span>
-                  <select
-                    className="sd-input"
-                    value={activeSigEdit.slot}
-                    onChange={e => setActiveSigEdit(prev => ({ ...prev, slot: e.target.value }))}
-                  >
-                    <option value="Submitter">Submitter / Applicant Signature</option>
-                    {departments.map(d => (
-                      <option key={d.id} value={d.name}>{d.name} Department Admin Signature</option>
-                    ))}
-                  </select>
-                  <span className="sd-hint">
-                    Adding a department signature automatically synchronizes it with the sequential approval workflow.
-                  </span>
-                </label>
+                {/* Signatory Role / Department */}
+                <div className="sd-field-row-group">
+                  <div className="sd-field-setting-block">
+                    <span className="sd-field-setting-label">Signatory Role / Department</span>
+                    <select
+                      className="sd-input sd-input-modern"
+                      value={activeSigEdit.slot}
+                      onChange={e => setActiveSigEdit(prev => ({ ...prev, slot: e.target.value }))}
+                    >
+                      <option value="Submitter">Submitter / Applicant Signature</option>
+                      {departments.map(d => (
+                        <option key={d.id} value={d.name}>{d.name} Department Admin Signature</option>
+                      ))}
+                    </select>
+                    <span className="sd-hint" style={{ fontSize: '0.72rem' }}>
+                      Adding a department signature automatically synchronizes it with the sequential approval workflow.
+                    </span>
+                  </div>
+                </div>
+
+                {/* Signature Block Width */}
+                <div className="sd-field-contextual-box">
+                  <div className="sd-field-setting-block">
+                    <div className="sd-flex-between">
+                      <span className="sd-field-setting-label">Signature Block Width on Document Row</span>
+                      <span className="sd-muted sd-xs">
+                        {activeSigEdit.width === 'auto' ? 'Auto (Compact)' : `${activeSigEdit.width || 100}% of row`}
+                      </span>
+                    </div>
+
+                    <div className="sd-sig-width-preset-grid">
+                      {SIG_WIDTH_PRESETS.map(preset => {
+                        const isAct = String(activeSigEdit.width ?? 100) === String(preset);
+                        const label = preset === 'auto' ? 'Auto' : `${preset}%`;
+                        return (
+                          <button
+                            key={String(preset)}
+                            type="button"
+                            className={`sd-sig-width-preset-btn ${isAct ? 'is-active' : ''}`}
+                            onClick={() => setActiveSigEdit(prev => ({ ...prev, width: preset }))}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <select
+                      className="sd-input sd-input-modern"
+                      value={activeSigEdit.width ?? 100}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setActiveSigEdit(prev => ({
+                          ...prev,
+                          width: val === 'auto' ? 'auto' : (parseInt(val, 10) || 100)
+                        }));
+                      }}
+                    >
+                      <option value="auto">Auto (Compact ~220px)</option>
+                      {WIDTH_OPTIONS.map(w => (
+                        <option key={w} value={w}>
+                          {w}% of the row {w === 50 ? '(2 signatures side-by-side)' : w === 33 ? '(3 signatures side-by-side)' : w === 25 ? '(4 signatures side-by-side)' : w === 100 ? '(Full width)' : ''}
+                        </option>
+                      ))}
+                    </select>
+
+                    <span className="sd-hint" style={{ fontSize: '0.72rem' }}>
+                      Choose <strong>50%</strong> or <strong>33%</strong> (or click the width pills directly on the signature block) to place multiple signatures side-by-side on the same row.
+                    </span>
+                  </div>
+                </div>
               </div>
 
               <div className="sd-field-edit-footer">
-                <button className="btn btn-outline-danger btn-sm" onClick={handleDeleteSigEdit}>
-                  <Trash2 size={13} /> Remove Block
+                <button type="button" className="sd-btn-delete-field" onClick={handleDeleteSigEdit}>
+                  <Trash2 size={13} />
+                  <span>Remove Block</span>
                 </button>
-                <button className="btn btn-primary btn-sm" onClick={() => handleSaveSigEdit(activeSigEdit.slot)}>
-                  Apply Signature
-                </button>
+                <div className="sd-field-footer-actions">
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => setActiveSigEdit(null)}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm sd-btn-apply-changes"
+                    onClick={() => handleSaveSigEdit(activeSigEdit.slot, activeSigEdit.width)}
+                  >
+                    <Check size={14} />
+                    <span>Apply Signature</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>

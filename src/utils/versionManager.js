@@ -2,7 +2,7 @@
 // Provides version tracking, automated cache-busting on version mismatch (Ctrl+F5 behavior),
 // manual force-refresh, and background server version monitoring.
 
-export const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.2.0';
+export const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.3.0';
 
 const STORAGE_KEY = 'smartdoc_app_version';
 const LAST_RELOAD_KEY = 'smartdoc_last_cache_clear_version';

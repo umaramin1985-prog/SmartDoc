@@ -60,31 +60,6 @@
   color-scheme: dark;
 }
 
-[data-theme="dark"] {
-  color-scheme: dark;
-  --bg-page: #000000;
-  --bg-card: #0a0a0a;
-  --bg-card-hover: #141414;
-  --bg-card-subtle: #141414;
-  --bg-header: rgba(0, 0, 0, 0.88);
-  --bg-surface: #0a0a0a;
-  --border-color: #222222;
-  --border-subtle: #171717;
-  --text-main: #f4f4f5;
-  --text-muted: #a1a1aa;
-  --text-dim: #71717a;
-  --primary: var(--primary-500);
-  --accent-primary: var(--primary-500);
-  --text-primary: #ffffff;
-  --text-secondary: #a1a1aa;
-
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.8);
-  --shadow-md: 0 4px 8px -1px rgba(0, 0, 0, 0.7);
-  --shadow-lg: 0 12px 20px -3px rgba(0, 0, 0, 0.85);
-  --shadow-xl: 0 24px 32px -5px rgba(0, 0, 0, 0.95);
-  --shadow-glow: 0 0 25px rgba(164, 251, 79, 0.35);
-}
-
 /* =====================================================================
    App Accent Color Themes (Default: Green, Red, Orange, Purple, Blue)
    ===================================================================== */
@@ -189,6 +164,155 @@
   --primary-rgb: 59, 130, 246;
 }
 
+/* =====================================================================
+   Surface Modes: Dark Mode & Light Mode
+   ===================================================================== */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-page: #000000;
+  --bg-card: #0a0a0a;
+  --bg-card-hover: #141414;
+  --bg-card-subtle: #141414;
+  --bg-header: rgba(0, 0, 0, 0.88);
+  --bg-surface: #0a0a0a;
+  --border-color: #222222;
+  --border-subtle: #171717;
+  --text-main: #f4f4f5;
+  --text-muted: #a1a1aa;
+  --text-dim: #71717a;
+  --text-primary: #ffffff;
+  --text-secondary: #a1a1aa;
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.8);
+  --shadow-md: 0 4px 8px -1px rgba(0, 0, 0, 0.7);
+  --shadow-lg: 0 12px 20px -3px rgba(0, 0, 0, 0.85);
+  --shadow-xl: 0 24px 32px -5px rgba(0, 0, 0, 0.95);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --bg-page: color-mix(in srgb, var(--primary-500) 4.5%, #f8fafc);
+  --bg-card: #ffffff;
+  --bg-card-hover: color-mix(in srgb, var(--primary-500) 8%, #f1f5f9);
+  --bg-card-subtle: color-mix(in srgb, var(--primary-500) 6%, #f1f5f9);
+  --bg-header: rgba(255, 255, 255, 0.92);
+  --bg-surface: #ffffff;
+  --border-color: color-mix(in srgb, var(--primary-500) 20%, #cbd5e1);
+  --border-subtle: color-mix(in srgb, var(--primary-500) 14%, #e2e8f0);
+  --text-main: #0f172a;
+  --text-muted: #475569;
+  --text-dim: #64748b;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+
+  --shadow-sm: 0 1px 3px 0 rgba(15, 23, 42, 0.06), 0 1px 2px -1px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 12px -1px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 12px 24px -4px rgba(15, 23, 42, 0.10), 0 4px 8px -2px rgba(15, 23, 42, 0.05);
+  --shadow-xl: 0 20px 32px -6px rgba(15, 23, 42, 0.14), 0 8px 14px -4px rgba(15, 23, 42, 0.06);
+}
+
+/* Light Mode High-Contrast & Vibrant Accent Palettes */
+[data-theme="light"],
+[data-theme="light"][data-accent="green"] {
+  --primary-50: #f0fdf4;
+  --primary-100: #dcfce7;
+  --primary-200: #bbf7d0;
+  --primary-300: #4ade80;
+  --primary-400: #22c55e;
+  --primary-500: #16a34a;
+  --primary-600: #15803d;
+  --primary-700: #166534;
+  --primary-800: #14532d;
+  --primary-900: #052e16;
+  --primary: var(--primary-500);
+  --accent-primary: var(--primary-500);
+  --primary-contrast: #ffffff;
+  --primary-rgb: 22, 163, 74;
+  --primary-glow: rgba(22, 163, 74, 0.24);
+  --primary-glow-hover: rgba(22, 163, 74, 0.36);
+  --shadow-glow: 0 0 18px rgba(22, 163, 74, 0.26);
+}
+
+[data-theme="light"][data-accent="red"] {
+  --primary-50: #fef2f2;
+  --primary-100: #fee2e2;
+  --primary-200: #fecaca;
+  --primary-300: #fca5a5;
+  --primary-400: #ef4444;
+  --primary-500: #dc2626;
+  --primary-600: #b91c1c;
+  --primary-700: #991b1b;
+  --primary-800: #7f1d1d;
+  --primary-900: #450a0a;
+  --primary: var(--primary-500);
+  --accent-primary: var(--primary-500);
+  --primary-contrast: #ffffff;
+  --primary-rgb: 220, 38, 38;
+  --primary-glow: rgba(220, 38, 38, 0.24);
+  --primary-glow-hover: rgba(220, 38, 38, 0.36);
+  --shadow-glow: 0 0 18px rgba(220, 38, 38, 0.26);
+}
+
+[data-theme="light"][data-accent="orange"] {
+  --primary-50: #fff7ed;
+  --primary-100: #ffedd5;
+  --primary-200: #fed7aa;
+  --primary-300: #fdba74;
+  --primary-400: #f97316;
+  --primary-500: #ea580c;
+  --primary-600: #c2410c;
+  --primary-700: #9a3412;
+  --primary-800: #7c2d12;
+  --primary-900: #431407;
+  --primary: var(--primary-500);
+  --accent-primary: var(--primary-500);
+  --primary-contrast: #ffffff;
+  --primary-rgb: 234, 88, 12;
+  --primary-glow: rgba(234, 88, 12, 0.24);
+  --primary-glow-hover: rgba(234, 88, 12, 0.36);
+  --shadow-glow: 0 0 18px rgba(234, 88, 12, 0.26);
+}
+
+[data-theme="light"][data-accent="purple"] {
+  --primary-50: #faf5ff;
+  --primary-100: #f3e8ff;
+  --primary-200: #e9d5ff;
+  --primary-300: #d8b4fe;
+  --primary-400: #a855f7;
+  --primary-500: #9333ea;
+  --primary-600: #7e22ce;
+  --primary-700: #6b21a8;
+  --primary-800: #581c87;
+  --primary-900: #3b0764;
+  --primary: var(--primary-500);
+  --accent-primary: var(--primary-500);
+  --primary-contrast: #ffffff;
+  --primary-rgb: 147, 51, 234;
+  --primary-glow: rgba(147, 51, 234, 0.24);
+  --primary-glow-hover: rgba(147, 51, 234, 0.36);
+  --shadow-glow: 0 0 18px rgba(147, 51, 234, 0.26);
+}
+
+[data-theme="light"][data-accent="blue"] {
+  --primary-50: #eff6ff;
+  --primary-100: #dbeafe;
+  --primary-200: #bfdbfe;
+  --primary-300: #93c5fd;
+  --primary-400: #3b82f6;
+  --primary-500: #2563eb;
+  --primary-600: #1d4ed8;
+  --primary-700: #1e40af;
+  --primary-800: #1e3a8a;
+  --primary-900: #172554;
+  --primary: var(--primary-500);
+  --accent-primary: var(--primary-500);
+  --primary-contrast: #ffffff;
+  --primary-rgb: 37, 99, 235;
+  --primary-glow: rgba(37, 99, 235, 0.24);
+  --primary-glow-hover: rgba(37, 99, 235, 0.36);
+  --shadow-glow: 0 0 18px rgba(37, 99, 235, 0.26);
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -200,6 +324,12 @@ img, svg, video, canvas {
   height: auto;
 }
 
+html, body, #root {
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
+}
+
 body {
   font-family: var(--font-sans);
   background-color: var(--bg-page);
@@ -207,8 +337,6 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  min-height: 100vh;
-  overflow-x: hidden;
   transition: background-color 0.25s ease, color 0.25s ease;
 }
 

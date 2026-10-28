@@ -190,7 +190,7 @@ export const BulkImportModal = ({ onClose, onDone, initialDepartment, initialFol
     try {
       const payload = {
         department: activeDept,
-        folderId: folderId ? parseInt(folderId, 10) : null,
+        folderId: folderId || null,
         audience,
         defaultExpiryDays: parseInt(expiryDays, 10) || 14,
         workflow: [],

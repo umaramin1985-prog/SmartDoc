@@ -29,7 +29,8 @@ SmartDoc is an enterprise **Word-template forms & department approval workflow**
 - Sign in with your **username and password** (not email).
 - The first account is the **super admin**, created automatically from the `.env` file (`SUPER_ADMIN_USERNAME` / `SUPER_ADMIN_PASSWORD`).
 - Use **Collapse sidebar** (or `Ctrl+B` / `Cmd+B`) at the bottom of the sidebar to toggle between full width (248px) and compact rail mode (72px).
-- SmartDoc operates in **Pure Black Dark Mode** (`#000000`) with high-contrast **Electric Lime** (`#a4fb4f`) accents.
+- **Dark & Light Mode + 5 Accent Color Themes**: SmartDoc supports both **Pure Black Dark Mode** (`#000000`) and **High-Contrast Light Mode** (`#f8fafc` / `#ffffff`), along with 5 selectable accent themes (**Electric Lime / Green**, **Crimson Red**, **Sunset Orange**, **Royal Purple**, and **Ocean Blue**). You can switch themes anytime from the Login top bar, the Sidebar footer bar, or the **App Theme** tab in **Profile & Signature**.
+- **`100vh` Zero-Scroll Viewport & Pinned Footer**: Every page (except the full-screen **Word Form Studio** editor) is locked to the screen height with zero page-level vertical scrolling and the application footer (`Powered by prynivo.com • v1.3.0`) permanently visible at the bottom.
 
 ---
 
@@ -80,7 +81,7 @@ Every action that opens something has its own link, so you can work on several t
 - Once the item has opened, the link details are cleared from the address bar, so refreshing the page will not reopen it.
 
 ### Collapsible Sidebar
-- **Toggle Button**: Click the collapse button in the sidebar header (`PanelLeftClose` / `PanelLeftOpen`) or at the bottom of the sidebar (`Collapse sidebar` with chevrons) to collapse the sidebar into a slim 72px icon rail.
+- **Toggle Button**: Click the collapse button at the bottom of the sidebar (`Collapse sidebar` with chevrons) to collapse the sidebar into a slim 72px icon rail. The top sidebar brand header cleanly displays only the SmartDoc brand and the Notification Bell.
 - **Keyboard Shortcut**: Press `Ctrl+B` (or `Cmd+B` on macOS) from anywhere in the application to toggle the sidebar instantly. Note that `Ctrl+B` is safely passed through as bold formatting whenever you are actively editing in Word Studio or typing in text inputs.
 - **Icon Rail Mode**: When collapsed, the sidebar preserves quick single-click access to all features, displays native browser hover tooltips for every navigation item, retains compact pending badge counters, and gives you maximum screen width for Word Form Studio, document comparisons, and large tables.
 - **State Persistence**: Your collapsed or expanded preference is automatically remembered across browser tabs and reloads.
@@ -116,6 +117,7 @@ SmartDoc uses a modern, interactive toast notification system for instant feedba
     - **Renew Certificate**: Re-issue your RSA-2048 keypair and certificate on-demand.
     - **Raw PEM Viewer**: Toggle to inspect base64-encoded X.509 certificate data.
   - **Profile Photo Tab**: Drag and drop or upload any photo (JPEG, PNG, WebP), adjust zoom (1x–2.5x) and circular cropping in real time, or remove your photo to revert to your initials. Updating your photo applies immediately across team chat, comments, reviews, and approval logs.
+  - **App Theme Tab**: Switch between **Dark Mode** and **Light Mode** and choose from 5 enterprise accent color palettes (**Green / Lime**, **Red**, **Orange**, **Purple**, **Blue**) with live preview cards.
 
 ---
 
@@ -360,6 +362,7 @@ Place the cursor where you want the element, then click it in **Insert Elements*
 ## 6.3 Signatures & system tags
 - **Submitter signature**: stamped with the submitter's saved signature.
 - **Department signature**: one slot per approving department. Slots are kept in sync with the approval steps.
+- **Signature Block Widths & Side-by-Side Layout**: Click any signature block on the canvas (or use its inline quick-width pills `Auto`, `25%`, `33%`, `50%`, `75%`, `100%`) to customize its horizontal width. Setting two adjacent signatures to `50%` places them side-by-side on the same horizontal row in the editor, live preview, Fill Form sheet, and PDF/Print output.
 - **System tags** are auto-filled on the final document: Form ID, Submitted By, Submitted Date, Department, Version.
 
 ## 6.4 Live Preview
@@ -468,6 +471,25 @@ SmartDoc features an authentic on-screen WYSIWYG document printing engine:
 - Clicking **Print** (`Ctrl+P` / `Cmd+P` or the printer icon in the top header) renders the live on-screen canvas sheet directly to the browser print engine with zero lossy intermediate conversions.
 - **Zero Image Loss & 100% Fidelity**: All embedded images, diagrams, logos, and signatures print at full resolution, exact widths (25%, 50%, 75%, 100%), and alignments (Left, Center, Right).
 - **Print Isolation**: Editor controls, ribbon toolbars, side panels, comments, and field remove buttons are cleanly excluded during print, generating a pristine white A4/Letter document sheet with professional headers and footers.
+
+## 6.12 AI Form & Document Studio (Offline, Free & Instant)
+Word Form Studio includes a built-in **Dual Offline AI Form & Document Studio** (`AiFormGeneratorModal.jsx`, `server/aiFormEngine.js`) combining the **Instant Built-in NLP Synthesizer (`<15ms`)** with **Local Ollama LLM (`http://127.0.0.1:11434`)** support — 100% offline and free with zero API keys:
+- **Opening the AI Studio**:
+  - Click the highlighted **`✨ AI Form Studio`** button in the Forms & Templates Explorer header, click **`✨ AI Prompt`** in the top header bar of Word Form Studio, or click **`AI Prompt`** in the **Home** ribbon tab.
+- **Dedicated Engine & Ollama Inspector Bar**:
+  - Switch seamlessly between **Instant Built-in NLP (<15ms)** and **Local Ollama LLM · BETA** in the fixed-height top bar with zero layout shift.
+  - Click **`>_ Ollama Logs & Req/Res`** to open the built-in developer inspector console featuring 3 tabs (**Console Logs**, **Request Payload** with Copy JSON, and **Response & Output** with Copy JSON) and a **`▶ Test & Inspect`** button to test prompts and inspect live LLM payloads without closing the modal.
+- **Writing or Enhancing a Prompt**:
+  - Describe any corporate form, contract, checklist, or policy memo in plain English.
+  - **Custom Field Parsing**: List specific fields in your prompt (e.g. *"with blood group dropdown (A+, B+, O+, AB+), age, weight, last donation date, and donor consent checkbox"*) — the engine automatically extracts each field, infers its input type (`text`, `textarea`, `date`, `number`, `dropdown`, `checkbox`), populates custom dropdown options from parentheses, and builds a clean 2-column & full-width layout.
+  - **`✨ Suggest / Enhance Prompt` Button**: Type a brief 2–3 word topic (like *"leave form"* or *"laptop request"*) and click **Enhance Prompt** to expand it into a comprehensive specification before generating.
+- **17 Categorized One-Click Enterprise Blueprints**:
+  - Browse and filter blueprints across **All Blueprints**, **HR & People**, **IT & Security**, **Finance**, **Legal & Policy**, and **Operations**.
+- **Customization Controls**:
+  - **Document Style**: Choose between **Form**, **Contract** (flowing prose with in-text placeholders), **Checklist** (audit evaluation matrix), or **Memo** (executive policy directive).
+  - **Detail & Clauses**: Choose **Compact**, **Standard**, or **Detailed** (adds an executive governance notice and an Official Review & Verification table).
+  - **Owning Department**: Select the target department to automatically configure the approval chain and department signature slots.
+- **Undo Support**: Applying an AI-generated form pushes a snapshot to the Studio history stack and shows a toast with a one-click **`[ Undo ]`** button.
 
 ---
 
@@ -741,7 +763,7 @@ Click your profile/avatar in the sidebar footer → **Profile & Signature** → 
 All dialogs and modals in SmartDoc have backdrop outside-click protection enabled. This protects you from accidentally losing unsaved form fields, document edits, commit notes, or folder names if you click outside the modal window. To close any dialog intentionally, click the explicit **Cancel** or **Close (×)** buttons, or press the **Escape** key.
 
 **What does the version number in the footer do?**
-The footer displays the live application version (e.g. `v1.2.0`) with a status indicator. When a new version is deployed to production, SmartDoc automatically detects the update, purges stale browser caches, and performs a hard reload. You can also click the version pill at any time to trigger an immediate cache-clearing hard reload (`Ctrl + F5` equivalent).
+The footer displays the live application version (e.g. `v1.3.0`) with a status indicator. When a new version is deployed to production, SmartDoc automatically detects the update, purges stale browser caches, and performs a hard reload. You can also click the version pill at any time to trigger an immediate cache-clearing hard reload (`Ctrl + F5` equivalent).
 
 ---
 

@@ -23,6 +23,11 @@
 
 ### 2. Microsoft Word & Form Creation Studio (`SmartWordStudio.jsx`)
 - **Full Union of Word Processor + Custom Form Creator**: Design professional documents and interactive forms on an authentic A4 sheet canvas.
+- **Offline Neural AI Form & Document Studio (`AiFormGeneratorModal.jsx`, `server/aiFormEngine.js`)**:
+  - **Dual 100% Offline, Free & Local Engines**: Switch between the **Instant Built-in NLP Synthesizer (`<15ms`)** and your **Local Ollama LLM (`http://127.0.0.1:11434`)** in a fixed-height engine bar with zero layout shift (automatic model discovery and instant fallback if Ollama is offline).
+  - **Ollama Logs, Request & Response Inspector Console (`>_ Ollama Logs & Req/Res`)**: Built-in developer console with 3 tabs (**Console Logs**, **Request Payload** with Copy Request JSON, and **Response & Output** with Copy Response JSON) plus a **`▶ Test & Inspect`** button to run and inspect prompts live without closing the modal.
+  - **23+ Enterprise Domain Blueprints + Dynamic NLP Custom Field Extractor**: Automatically detects domain intent (HR Leave, Performance Review, Onboarding, Offboarding, Overtime, IT Hardware, System Access, Change Management RFC, Expense Claim, Purchase Order, NDA, MSA, Safety Checklist, Incident Report, Visitor Permit, etc.) AND parses any custom fields or parenthetical dropdown options (e.g., `blood group dropdown (A+, B+, O+, AB+)`) directly from your prompt.
+  - **Single-Pane Authoring & Blueprints**: Features a 1-click **`✨ Suggest / Enhance Prompt`** expander, 17 categorized one-click enterprise blueprint cards (`All Blueprints`, `HR & People`, `IT & Security`, `Finance`, `Legal & Policy`, `Operations`), 4 document styles (`Form`, `Contract`, `Checklist`, `Memo`), and 3 detail levels (`Compact`, `Standard`, `Detailed`).
 - **Authentic Microsoft Word & Google Docs-Grade Ribbon**:
   - **Home Tab**:
     - **Google Docs Parity Inline Formatting Engine**: Font family, font size (−/input/+ stepper), bold, italic, underline, strikethrough, text color, and highlight color apply strictly to the selected text (or collapsed caret for next typed characters) without restyling the entire document or altering document base defaults.
@@ -55,7 +60,7 @@
 - **In-Document Interactive Widgets**: Clickable field pills (`.sd-doc-field-pill`), signature blocks (`.sd-doc-sig-block`), and system tags open inline customization popovers directly inside the document canvas for:
   - **Field Format**: Switch between `🏷️ In-Text Placeholder (Dialog)` and `📝 Direct Input Box`.
   - **Text Weight (Template Level)**: Switch between **Normal Text** (standard document body weight) and **Bold (700)** (heavier emphasis for filled values like names or amounts) saved into the template schema (`fields[].bold`).
-  - **Field Sizing & Options**: Setting labels, mandatory toggles, placeholders, dropdown options, and field widths (Auto / 25% / 33% / 50% / 66% / 75% / 100%). Each element features a quick-remove (×) button.
+  - **Field Sizing & Signature Block Widths**: Setting labels, mandatory toggles, placeholders, dropdown options, and custom widths (`Auto`, `25%`, `33%`, `50%`, `66%`, `75%`, `100%`) for both form fields and signature blocks (supporting side-by-side inline `50%` signatures). Each element features a quick-remove (×) button.
   - **Field Guidance & Description**: Add rich multi-line instructions and filling guidance stored on the field schema.
   - **Staging & Clean Cancellation**: Inserting a placeholder stages the field and opens the customizer; canceling or closing the dialog cleanly removes the draft field from the document canvas without leaving orphan tags.
 - **Backdrop Outside-Click Protection**: All dialogs, popovers, and modals in Word Form Studio and across the app feature outside-click protection so accidental clicks on the dark backdrop never discard unsaved changes.
@@ -83,10 +88,11 @@
   - Resuming and publishing a review that originated from an existing template updates that template in-place with a version bump (e.g., `v1.8` → `v1.9`) and a Git commit summary, preventing duplicate templates in the department folder.
 
 ### 4. Interactive Smart Analytics Cockpit (`SmartDashboard.jsx`, `DashboardCharts.jsx`)
+- **Zero-Scroll `100vh` 2×3 Bento Grid Layout**: Engineered to fit the entire executive cockpit within a single `100vh` screen with zero vertical page scroll and a permanently visible footer.
 - **Interactive Workspace & Time Horizon Controls**:
-  - **Workspace Scope Switcher**: Seamlessly toggle between **My Workspace** (personal submissions & queue), **My Department** (department-scoped pipeline & throughput), and **Enterprise Global** (organization-wide activity).
-  - **Dynamic Time Horizon Filter**: Switch between **7 Days**, **30 Days**, **90 Days**, and **All Time** with immediate recalculation of all series, rates, and volume metrics.
-  - **One-Click Live Sync**: On-demand manual data synchronization with smooth animation.
+  - **Workspace Scope Switcher**: Seamlessly toggle between **My Workspace** (personal submissions & queue), **Department Drive** (department-scoped pipeline & throughput), and **Enterprise Global** (organization-wide activity).
+  - **Dynamic Time Horizon Filter**: Switch between **7D**, **30D**, **90D**, and **All** with immediate recalculation of all series, rates, and volume metrics.
+  - **Header Quick Actions**: Direct 1-click access to **Signature & PKI**, **Activity Trail**, and manual **Sync**.
 - **Computed 6-Card Smart Stats Grid**:
   - **Awaiting My Action / In Review**: Live queue counter with automatic **⚡ Urgent (<48h)** deadline urgency tags.
   - **Approval Velocity & Turnaround SLA**: Dynamic turnaround duration calculation (average hours/days to decision) and on-time SLA rate (% of forms completed on or before expiry deadline).
@@ -214,9 +220,10 @@
 - **Search, Filtering & CSV Export**: Real-time debounced keyword search, category pills, and complete CSV ledger export.
 - **Cryptographic Fingerprinting**: Every event is recorded with a verified SHA-256 integrity hash.
 
-### 18. Application Version Tracking & Automated Cache Clearing ("Ctrl + F5")
-- **Live Footer Version Badge**: The footer (`AppFooter.jsx`) displays the real-time application version (`v1.2.0`) with a pulsing status dot and manual cache-clear action.
-- **Automated Cache Clearing**: Automatically purges `CacheStorage` and service workers with cache-busting reload (`Ctrl + F5` equivalent) whenever a new client or server build version is detected, guaranteeing instant deployment pickup without stale cached chunks.
+### 18. Theme System, `100vh` Zero-Scroll Viewport & Version Tracking (`v1.3.0`)
+- **Dark Mode & Light Mode + 5 Accent Themes**: Switch instantly between **Pure Black Dark Mode** (`#000000`) and **High-Contrast Light Mode** (`#f8fafc` / `#ffffff`), paired with 5 accent themes (**Electric Lime / Green**, **Crimson Red**, **Sunset Orange**, **Royal Purple**, **Ocean Blue**) from the Login top bar, Sidebar footer, or Profile & Signature modal (`App Theme` tab).
+- **`100vh` Zero-Scroll Viewport & Pinned Footer**: Every page across the application (except the full-screen `Word Form Studio` overlay) is locked to `100vh` with zero page-level vertical scrolling and `<AppFooter />` (`Powered by prynivo.com • v1.3.0`) permanently visible at the bottom.
+- **Live Footer Version Badge & Automated Cache Clearing ("Ctrl + F5")**: The footer (`AppFooter.jsx`) displays the real-time application version (`v1.3.0`) with a pulsing status dot and manual cache-clear action. Automatically purges `CacheStorage` and service workers with cache-busting reload whenever a new build version is detected.
 - **Universal Backdrop Click Immunity**: All dialogs, popovers, and modals (folder CRUD, field customizers, single-field dialogs, missing fields alerts, commit modals) feature backdrop outside-click protection to safeguard against accidental data loss.
 
 ### 19. Native Disk / Object Storage Engine (`server/storageEngine.js`)
@@ -232,11 +239,12 @@
 
 | Layer | Technology |
 |---|---|
-| **Frontend** | React 19, Vite, Vanilla CSS (`src/App.css`, `src/index.css`), Pure Black Dark Mode (`#000000`), Multi-Accent Support (Electric Lime, Orange, Blue, Red, Purple), Lucide React Icons |
+| **Frontend** | React 19, Vite, Vanilla CSS (`src/App.css`, `src/index.css`), Dark Mode (`#000000`) & Light Mode (`#f8fafc`), 5 Accent Themes (Electric Lime, Red, Orange, Purple, Blue), `100vh` Zero-Scroll Layout, Lucide React Icons |
 | **PKI Cryptography** | Native `node:crypto` (RSA 2048-bit, SHA-256 digests) + `node-forge` (X.509 v3 Digital Certificates) |
 | **Document Rendering** | `docx-preview` (high-fidelity in-browser `.docx` renderer), native PDF embed, image preview, WYSIWYG form-isolated sheet printing |
 | **PDF Export Engine** | `jspdf` (v4.2.1) + `html2canvas` (v1.4.1) (`src/utils/pdfExportEngine.js`) — 3.5× ultra-HD client-side form sheet PDF export with dynamic input capture |
 | **Word Processing Engine** | `docxtemplater`, `pizzip`, `mammoth` (HTML parsing), `html-to-docx` (Word compilation) |
+| **AI Form Synthesis Engine** | Offline Neural & Semantic Form Synthesizer (`server/aiFormEngine.js`) — 100% offline, free, instant (`<15ms`) natural-language form generator with 23+ Enterprise Blueprints & Dynamic NLP Field Extractor |
 | **Diff & Merge Engine** | Custom block/word-level LCS diff with conflict detection and merge synthesis (`reviewDiff.js`) |
 | **Backend** | Node.js, Express (`server/server.js`, port 3001; Vite proxies `/api`) |
 | **File Storage** | Native Disk / Object Storage Engine (`server/storageEngine.js`), zero-copy streaming, SHA-256 integrity |
@@ -248,7 +256,7 @@
 
 ### Route Mapping (`SmartSidebar.jsx` → `App.jsx`)
 - `dashboard` → `<SmartDashboard />` (Live executive metrics & activity)
-- `forms` → `<FormsHub />` (Windows Explorer + `<SmartWordStudio />`, `<TemplateUploadModal />`, `<FillFormModal />`, `<TemplatePermissionsModal />`, `<VersionHistoryModal />`)
+- `forms` → `<FormsHub />` (Windows Explorer + `<SmartWordStudio />`, `<AiFormGeneratorModal />`, `<TemplateUploadModal />`, `<FillFormModal />`, `<TemplatePermissionsModal />`, `<VersionHistoryModal />`)
 - `reviews` → `<ReviewsHub />` (Pre-publication reviews, reviewer edit mode, diff & accept/reject reconciliation)
 - `approvals` → `<FormApprovals />` (+ `<SubmissionDetailModal />`)
 - `dept-messaging` → `<DepartmentMessaging />` (Department team chat)

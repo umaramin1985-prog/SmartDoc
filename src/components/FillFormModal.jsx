@@ -111,13 +111,25 @@ export const FillFormModal = ({
     }
   }, [fields, activeRailField, isViewOnly]);
 
+  // Unified checkbox & field completion helpers (handles 'Yes', 'yes', 'true', true consistently)
+  const isCheckboxChecked = useCallback((val) => {
+    if (val === true) return true;
+    const s = String(val ?? '').trim().toLowerCase();
+    return s === 'yes' || s === 'true' || s === 'checked' || s === '1';
+  }, []);
+
+  const isFieldFilled = useCallback((f, val) => {
+    if (f?.type === 'checkbox') return isCheckboxChecked(val);
+    return String(val ?? '').trim().length > 0;
+  }, [isCheckboxChecked]);
+
   const completedCount = useMemo(() => {
-    return fields.filter(f => String(values[f.key] ?? '').trim().length > 0).length;
-  }, [fields, values]);
+    return fields.filter(f => isFieldFilled(f, values[f.key])).length;
+  }, [fields, values, isFieldFilled]);
 
   const missingMandatoryCount = useMemo(() => {
-    return fields.filter(f => f.required && !String(values[f.key] ?? '').trim()).length;
-  }, [fields, values]);
+    return fields.filter(f => f.required && !isFieldFilled(f, values[f.key])).length;
+  }, [fields, values, isFieldFilled]);
 
   // Robust resolution for on-document form element (direct input wrap/box or in-text placeholder)
   const getDocFieldElement = useCallback((key) => {
@@ -197,8 +209,67 @@ export const FillFormModal = ({
     }
 
     const wsRect = workspaceRef.current.getBoundingClientRect();
-    const docRect = docElem.getBoundingClientRect();
     const railRect = railCard.getBoundingClientRect();
+
+    // Resolve the exact single-line visual rect of the target field/placeholder.
+    // Using getClientRects() prevents inline placeholders that wrap across 2 lines
+    // from returning a full-paragraph union bounding box whose center points to unrelated text.
+    const getTargetAnchorRect = (elem) => {
+      const directWrap = elem.classList?.contains('sd-doc-live-field-wrap')
+        ? elem
+        : elem.closest?.('.sd-doc-live-field-wrap');
+      if (directWrap) {
+        return directWrap.getBoundingClientRect();
+      }
+
+      const inlineToken =
+        elem.querySelector?.('.sd-ph-filled-value, .sd-ph-tag-token, .sd-doc-live-placeholder') ||
+        elem;
+
+      const rawRects = Array.from(inlineToken.getClientRects()).filter(
+        (r) => r.width > 1 && r.height > 1
+      );
+
+      if (rawRects.length === 0) {
+        return elem.getBoundingClientRect();
+      }
+      if (rawRects.length === 1) {
+        return rawRects[0];
+      }
+
+      // Merge rects that sit on the same visual line (within 8px vertical top)
+      const lineGroups = [];
+      for (const r of rawRects) {
+        const existing = lineGroups.find((g) => Math.abs(g.top - r.top) < 8);
+        if (existing) {
+          existing.left = Math.min(existing.left, r.left);
+          existing.right = Math.max(existing.right, r.right);
+          existing.top = Math.min(existing.top, r.top);
+          existing.bottom = Math.max(existing.bottom, r.bottom);
+          existing.width = existing.right - existing.left;
+          existing.height = existing.bottom - existing.top;
+        } else {
+          lineGroups.push({
+            left: r.left,
+            right: r.right,
+            top: r.top,
+            bottom: r.bottom,
+            width: r.width,
+            height: r.height
+          });
+        }
+      }
+
+      lineGroups.sort((a, b) => a.top - b.top);
+
+      // Anchor to the first line fragment if it is wide enough (>= 22px), otherwise the widest line fragment
+      if (lineGroups[0].width >= 22) {
+        return lineGroups[0];
+      }
+      return lineGroups.reduce((best, cur) => (cur.width > best.width ? cur : best), lineGroups[0]);
+    };
+
+    const docRect = getTargetAnchorRect(docElem);
 
     // If elements are not rendered in layout yet
     if (docRect.width === 0 && docRect.height === 0) {
@@ -214,9 +285,16 @@ export const FillFormModal = ({
       }
     }
 
-    // Anchor to top-center of document field/placeholder
+    const isDirectField = !!(
+      docElem.classList?.contains('sd-doc-live-field-wrap') ||
+      docElem.closest?.('.sd-doc-live-field-wrap')
+    );
+
+    // Anchor to document field/placeholder:
+    // For inline text placeholders on Line N, anchor 4px inside the top of Line N
+    // so the pointer lands directly on Line N and never sits on the text line above it (Line N-1).
     const x1 = Math.round(docRect.left + docRect.width / 2 - wsRect.left);
-    const y1 = Math.round(docRect.top - wsRect.top - 2);
+    const y1 = Math.round((isDirectField ? docRect.top - 1 : docRect.top + 4) - wsRect.top);
 
     // Anchor smoothly to the left border of the right rail card
     const x2 = Math.round(railRect.left - wsRect.left);
@@ -264,8 +342,9 @@ export const FillFormModal = ({
     if (!connectorCoords) return '';
     const { x1, y1, x2, y2 } = connectorCoords;
     const dx = Math.max(60, (x2 - x1) * 0.42);
-    // Smooth bezier: leaves the right rail horizontally, arches above text, descends straight onto target pointer
-    return `M ${x1} ${y1 - 7} C ${x1} ${y1 - 52}, ${x2 - dx} ${y2 - 10}, ${x2} ${y2}`;
+    const leadX = Math.min(36, Math.max(12, (x2 - x1) * 0.12));
+    // Smooth low-profile bezier that glides directly into the target line without looping over the line above
+    return `M ${x1} ${y1 - 4} C ${x1 + leadX} ${y1 - 18}, ${x2 - dx} ${y2 - 6}, ${x2} ${y2}`;
   }, [connectorCoords]);
 
   const handleFocusField = (key) => {
@@ -450,8 +529,8 @@ export const FillFormModal = ({
   }, [initialDownload]);
 
   const missing = useMemo(
-    () => fields.filter(f => f.required && !String(values[f.key] ?? '').trim()).map(f => f.key),
-    [fields, values]
+    () => fields.filter(f => f.required && !isFieldFilled(f, values[f.key])).map(f => f.key),
+    [fields, values, isFieldFilled]
   );
   const hasSignature = !!currentUser?.hasSignature;
 
@@ -504,15 +583,58 @@ export const FillFormModal = ({
     let html = rawHtml;
     const placed = new Set();
 
-    // 1. Signature slots: {{Signature: Slot}} or .sd-doc-sig-block
-    html = html.replace(/\{\{\s*Signature\s*:\s*([^}]+)\}\}/gi, (match, slot) => {
-      const s = slot.trim();
-      return `<div class="sd-live-slot-sig" data-sig-slot="${s}"></div>`;
-    });
+    const buildSigSlotHtml = (slot, rawW) => {
+      const s = String(slot || 'Submitter').trim();
+      const normW = (rawW === 'auto' || rawW === 'Auto')
+        ? 'auto'
+        : ((parseInt(rawW, 10) > 0 && parseInt(rawW, 10) <= 100) ? parseInt(rawW, 10) : null);
+      if (normW === 'auto') {
+        return `<span class="sd-live-slot-sig" data-sig-slot="${s}" data-width="auto" style="width: auto; min-width: 210px; max-width: 100%; display: inline-block; vertical-align: top; margin: 8px 10px 8px 0; box-sizing: border-box;"></span>`;
+      }
+      if (normW && normW < 100) {
+        return `<span class="sd-live-slot-sig" data-sig-slot="${s}" data-width="${normW}" style="width: calc(${normW}% - 12px); max-width: calc(${normW}% - 12px); display: inline-block; vertical-align: top; margin: 8px 8px 8px 0; box-sizing: border-box;"></span>`;
+      }
+      if (normW === 100) {
+        return `<span class="sd-live-slot-sig" data-sig-slot="${s}" data-width="100" style="width: 100%; max-width: 100%; display: block; margin: 10px 0; box-sizing: border-box;"></span>`;
+      }
+      return `<span class="sd-live-slot-sig" data-sig-slot="${s}"></span>`;
+    };
 
-    html = html.replace(/<div[^>]*class="[^"]*sd-doc-sig-block[^"]*"[^>]*data-sig-slot="([^"]+)"[^>]*>.*?<\/div>/gi, (match, slot) => {
-      return `<div class="sd-live-slot-sig" data-sig-slot="${slot.trim()}"></div>`;
-    });
+    // 1a. Signature slots wrapped in <span data-sig-width="...">
+    html = html.replace(
+      /<span[^>]*data-sig-width="([^"]+)"[^>]*>\s*\{\{\s*(?:Signature|sig)\s*:\s*([^}|]+)(?:\|[^}]*)?\}\}\s*<\/span>/gi,
+      (match, w, slot) => buildSigSlotHtml(slot, w)
+    );
+
+    // 1b. Signature slots: {{Signature: Slot}} or {{Signature: Slot|width=50}}
+    html = html.replace(
+      /\{\{\s*(?:Signature|sig)\s*:\s*([^}|]+)(?:\|\s*width\s*=\s*([^}]+))?\}\}/gi,
+      (match, slot, w) => buildSigSlotHtml(slot, w)
+    );
+
+    // 1c. Raw .sd-doc-sig-block DOM elements
+    html = html.replace(
+      /<div[^>]*class="[^"]*sd-doc-sig-block[^"]*"[^>]*>[\s\S]*?<\/div>\s*<\/div>/gi,
+      (match) => {
+        const slotMatch = match.match(/data-sig-slot="([^"]+)"/i);
+        const widthMatch = match.match(/data-width="([^"]+)"/i);
+        return buildSigSlotHtml(slotMatch ? slotMatch[1] : 'Submitter', widthMatch ? widthMatch[1] : null);
+      }
+    );
+    html = html.replace(
+      /<div[^>]*class="[^"]*sd-doc-sig-block[^"]*"[^>]*data-sig-slot="([^"]+)"[^>]*>.*?<\/div>/gi,
+      (match, slot) => {
+        const widthMatch = match.match(/data-width="([^"]+)"/i);
+        return buildSigSlotHtml(slot, widthMatch ? widthMatch[1] : null);
+      }
+    );
+
+    // 1d. Collapse paragraph breaks or empty spacer paragraphs between adjacent inline signature slots (< 100% or auto)
+    // so side-by-side signatures (e.g. 50% + 50%) render on the same horizontal row
+    html = html.replace(
+      /(<span class="sd-live-slot-sig"[^>]*><\/span>)\s*(?:<\/p>\s*(?:<p[^>]*>(?:\s|&nbsp;|<br\s*\/?>)*<\/p>\s*)*<p[^>]*>|(?:<p[^>]*>(?:\s|&nbsp;|<br\s*\/?>)*<\/p>\s*)+|<br\s*\/?>\s*)+(?=<span class="sd-live-slot-sig")/gi,
+      '$1 '
+    );
 
     // 2. System tags: {{Form ID}}, {{Submitted By}}, {{Submitted Date}}, {{Department}}, {{Version}}
     const today = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
@@ -793,18 +915,22 @@ export const FillFormModal = ({
       );
     }
     if (f.type === 'checkbox') {
-      const isChecked = !isPrintingBlank && (values[f.key] === 'Yes' || values[f.key] === true || values[f.key] === 'true');
+      const isChecked = !isPrintingBlank && isCheckboxChecked(values[f.key]);
       return (
         <>
-          <label className="sd-doc-live-checkbox">
+          <label className={`sd-doc-live-checkbox ${isChecked ? 'is-checked' : 'is-unchecked'}`}>
             <input
               id={elemId}
               type="checkbox"
               checked={isChecked}
               disabled={isViewOnly}
-              onChange={(e) => !isViewOnly && setValues(prev => ({ ...prev, [f.key]: e.target.checked ? 'Yes' : 'No' }))}
+              onFocus={() => !isViewOnly && handleFocusField(f.key)}
+              onChange={(e) => !isViewOnly && setValues(prev => ({ ...prev, [f.key]: e.target.checked ? 'Yes' : '' }))}
             />
-            <span>{f.placeholder || f.label || 'I Confirm & Agree'}</span>
+            <span className="sd-doc-checkbox-text">{f.placeholder || f.label || 'I Confirm & Agree'}</span>
+            <span className={`sd-doc-checkbox-status-pill sd-print-hide ${isChecked ? 'is-checked' : 'is-unchecked'}`}>
+              {isChecked ? '✓ Checked' : 'Unchecked'}
+            </span>
           </label>
           <div className="sd-print-value sd-print-value-checkbox">
             <span className="sd-print-check-box">{isChecked ? '☑' : '☐'}</span>
@@ -1019,18 +1145,25 @@ export const FillFormModal = ({
         );
       }
 
-      case 'checkbox':
+      case 'checkbox': {
+        const isChecked = isCheckboxChecked(val);
         return (
-          <label className="sd-rail-checkbox-label" onFocus={() => handleRailInputFocus(f.key)}>
+          <label
+            className={`sd-rail-checkbox-label ${isChecked ? 'is-checked' : 'is-unchecked'}`}
+            onFocus={() => handleRailInputFocus(f.key)}
+          >
             <input
               type="checkbox"
               id={inputId}
-              checked={val === true || val === 'true' || val === 'yes'}
-              onChange={e => setValues(prev => ({ ...prev, [f.key]: e.target.checked ? 'yes' : '' }))}
+              checked={isChecked}
+              onChange={e => setValues(prev => ({ ...prev, [f.key]: e.target.checked ? 'Yes' : '' }))}
             />
-            <span>{val === 'yes' || val === true || val === 'true' ? 'Confirmed (Yes)' : 'Not checked (No)'}</span>
+            <span className="sd-rail-checkbox-text">
+              {isChecked ? '✓ Confirmed (Checked)' : 'Unchecked — Click to Confirm'}
+            </span>
           </label>
         );
+      }
 
       case 'text':
       default:
@@ -1516,7 +1649,7 @@ export const FillFormModal = ({
           <div className="sd-rail-body" ref={railBodyRef}>
             {fields.map((f, idx) => {
               const val = values[f.key] ?? '';
-              const hasVal = String(val).trim().length > 0;
+              const hasVal = isFieldFilled(f, val);
               const isFieldInvalid = touched && f.required && !hasVal;
               const isActive = activeRailField === f.key;
 
@@ -1617,10 +1750,9 @@ export const FillFormModal = ({
             strokeDasharray="6 4"
             className="sd-connector-line-animated"
           />
-          {/* Target Pointer at Document Element: pin dot and downward arrowhead */}
-          <circle cx={connectorCoords.x1} cy={connectorCoords.y1 - 7} r={3} fill="var(--primary-500, #a4fb4f)" />
+          {/* Target Pointer at Document Element: compact arrowhead landing directly on the target line */}
           <polygon
-            points={`${connectorCoords.x1 - 4},${connectorCoords.y1 - 7} ${connectorCoords.x1 + 4},${connectorCoords.y1 - 7} ${connectorCoords.x1},${connectorCoords.y1 - 1}`}
+            points={`${connectorCoords.x1 - 4.5},${connectorCoords.y1 - 5} ${connectorCoords.x1 + 4.5},${connectorCoords.y1 - 5} ${connectorCoords.x1},${connectorCoords.y1 + 1}`}
             fill="var(--primary-500, #a4fb4f)"
           />
           {/* Source Marker at Right Rail Card: solid dot + pulsing radar ring */}
@@ -1764,8 +1896,8 @@ export const FillFormModal = ({
                     <label className="sd-doc-live-checkbox" style={{ padding: '6px 0' }}>
                       <input
                         type="checkbox"
-                        checked={dialogFieldValue === 'Yes' || dialogFieldValue === true || dialogFieldValue === 'true'}
-                        onChange={e => setDialogFieldValue(e.target.checked ? 'Yes' : 'No')}
+                        checked={isCheckboxChecked(dialogFieldValue)}
+                        onChange={e => setDialogFieldValue(e.target.checked ? 'Yes' : '')}
                       />
                       <span>{activeDialogField.placeholder || activeDialogField.label || 'I Confirm & Agree'}</span>
                     </label>
@@ -1866,7 +1998,7 @@ export const FillFormModal = ({
                 The following mandatory fields and placeholders must be completed:
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '240px', overflowY: 'auto' }}>
-                {fields.filter(f => f.required && !String(values[f.key] ?? '').trim()).map(f => (
+                {fields.filter(f => f.required && !isFieldFilled(f, values[f.key])).map(f => (
                   <div
                     key={f.key}
                     style={{

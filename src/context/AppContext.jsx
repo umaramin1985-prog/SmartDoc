@@ -6,15 +6,48 @@ import { initVersionWatcher, forceCacheClearReload, APP_VERSION } from '../utils
 const AppContext = createContext();
 
 export const AppProvider = ({ children }) => {
-  // ---------- Theme (Pure Black Dark Mode Only) ----------
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', 'dark');
+  // ---------- Theme ('dark' | 'light') ----------
+  const [theme, setThemeState] = useState(() => {
     try {
-      localStorage.setItem('smartdoc_theme', 'dark');
+      const saved = localStorage.getItem('smartdoc_theme');
+      return saved === 'light' ? 'light' : 'dark';
+    } catch {
+      return 'dark';
+    }
+  });
+
+  const setTheme = useCallback((mode) => {
+    const next = mode === 'light' ? 'light' : 'dark';
+    setThemeState(next);
+    try {
+      localStorage.setItem('smartdoc_theme', next);
     } catch {}
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('data-theme', next);
+      document.body?.removeAttribute('data-theme');
+    }
   }, []);
-  const theme = 'dark';
-  const toggleTheme = () => {};
+
+  const toggleTheme = useCallback(() => {
+    setThemeState((prev) => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      try {
+        localStorage.setItem('smartdoc_theme', next);
+      } catch {}
+      if (typeof document !== 'undefined') {
+        document.documentElement.setAttribute('data-theme', next);
+        document.body?.removeAttribute('data-theme');
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('data-theme', theme);
+      document.body?.removeAttribute('data-theme');
+    }
+  }, [theme]);
 
   // ---------- Sidebar Collapsed ----------
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -69,12 +102,16 @@ export const AppProvider = ({ children }) => {
     } catch {}
     if (typeof document !== 'undefined') {
       document.documentElement.setAttribute('data-accent', selected);
+      document.body?.removeAttribute('data-theme');
+      document.body?.removeAttribute('data-accent');
     }
   }, []);
 
   useEffect(() => {
     if (typeof document !== 'undefined') {
       document.documentElement.setAttribute('data-accent', accentColor);
+      document.body?.removeAttribute('data-theme');
+      document.body?.removeAttribute('data-accent');
     }
   }, [accentColor]);
 
@@ -475,7 +512,12 @@ export const AppProvider = ({ children }) => {
 
   // ---------- Templates ----------
   const createTemplate = async (data) => {
-    const r = await run(() => apiService.createTemplate(data), 'Template published', data.title);
+    const isDraft = data?.isDraft === true || data?.status === 'DRAFT';
+    const r = await run(
+      () => apiService.createTemplate(data),
+      isDraft ? 'Draft saved' : 'Template published',
+      isDraft ? `"${data.title}" saved as draft in ${data.department || 'drive'}` : data.title
+    );
     if (r) {
       await refreshTemplates();
       if (data?.reviewId) await refreshReviews();
@@ -490,7 +532,12 @@ export const AppProvider = ({ children }) => {
     return r;
   };
   const updateTemplate = async (id, data) => {
-    const r = await run(() => apiService.updateTemplate(id, data), 'Form updated', 'Template changes saved.');
+    const isDraft = data?.isDraft === true || data?.status === 'DRAFT';
+    const r = await run(
+      () => apiService.updateTemplate(id, data),
+      isDraft ? 'Draft saved' : 'Form updated',
+      isDraft ? `Draft "${data?.title || 'Template'}" saved.` : 'Template changes saved.'
+    );
     if (r) {
       await refreshTemplates();
       if (data?.reviewId) await refreshReviews();
@@ -720,7 +767,7 @@ export const AppProvider = ({ children }) => {
   }), [templateReviews, currentUser]);
 
   const value = {
-    theme, toggleTheme,
+    theme, setTheme, toggleTheme,
     sidebarCollapsed, setSidebarCollapsed, toggleSidebar,
     toasts, addToast, removeToast,
     currentUser, isAuthenticated, authLoading, isAdmin, isSuperAdmin, login, logout,

@@ -164,6 +164,29 @@ export function deepCloneFormSheet(source) {
     }
   });
 
+  // Replace custom <input type="checkbox"> with explicit DOM boxes so html2canvas renders checkmarks crisply
+  clone.querySelectorAll('.sd-doc-live-checkbox input[type="checkbox"]').forEach(cb => {
+    const isChecked = cb.checked || cb.hasAttribute('checked');
+    const box = document.createElement('span');
+    box.style.display = 'inline-flex';
+    box.style.alignItems = 'center';
+    box.style.justifyContent = 'center';
+    box.style.width = '16px';
+    box.style.height = '16px';
+    box.style.minWidth = '16px';
+    box.style.minHeight = '16px';
+    box.style.borderRadius = '4px';
+    box.style.border = isChecked ? '2px solid #0f172a' : '2px solid #475569';
+    box.style.background = isChecked ? '#0f172a' : '#ffffff';
+    box.style.color = '#ffffff';
+    box.style.fontSize = '11px';
+    box.style.fontWeight = '900';
+    box.style.lineHeight = '1';
+    box.style.flexShrink = '0';
+    box.textContent = isChecked ? '✓' : '';
+    cb.replaceWith(box);
+  });
+
   // 6. For in-text placeholders: if empty, replace with dash
   clone.querySelectorAll('.sd-doc-live-placeholder.is-empty').forEach(el => {
     el.innerHTML = '<span class="sd-ph-empty-print-dash" style="display:inline !important; color:#0f172a !important; font-weight:inherit;">—</span>';
@@ -174,9 +197,19 @@ export function deepCloneFormSheet(source) {
     el.style.color = '#0f172a';
   });
 
-  // 6. Ensure signature blocks have clean transparent styling (only signature, name, and department)
+  // 7. Ensure signature blocks have clean transparent styling and unhide blank signature lines for pending/blank slots
+  clone.querySelectorAll('.sd-print-blank-sig-block').forEach(blankSig => {
+    blankSig.style.setProperty('display', 'block', 'important');
+  });
+
   clone.querySelectorAll('.sd-doc-signature-block').forEach(block => {
-    block.style.display = 'inline-flex';
+    const parentSlot = block.closest('.sd-live-slot-sig');
+    const hasCustomWidth = parentSlot && parentSlot.getAttribute('data-width') && parentSlot.getAttribute('data-width') !== 'auto';
+    block.style.display = hasCustomWidth ? 'flex' : 'inline-flex';
+    if (hasCustomWidth) {
+      block.style.width = '100%';
+      block.style.maxWidth = '100%';
+    }
     block.style.flexDirection = 'column';
     block.style.alignItems = 'flex-start';
     block.style.background = 'transparent';

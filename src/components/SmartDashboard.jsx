@@ -458,7 +458,7 @@ export const SmartDashboard = () => {
           </div>
         </div>
 
-        {/* Time Horizon Filter */}
+        {/* Time Horizon Filter & Quick Shortcuts */}
         <div className="sd-control-group">
           <span className="sd-control-label">Time Window:</span>
           <div className="sd-pill-toggle">
@@ -491,6 +491,21 @@ export const SmartDashboard = () => {
               All Time
             </button>
           </div>
+          <button
+            type="button"
+            className="btn btn-secondary btn-xs"
+            onClick={openSignatureModal}
+            title="Manage Digital Signature & PKI"
+          >
+            <PenLine size={12} /> Signature &amp; PKI
+          </button>
+          <a
+            className="btn btn-secondary btn-xs"
+            {...tabLinkProps(buildAppUrl('activity'), () => setActiveTab('activity'))}
+            title="View Cryptographic Audit Ledger"
+          >
+            <Activity size={12} /> Activity Trail
+          </a>
         </div>
       </div>
 
@@ -653,59 +668,30 @@ export const SmartDashboard = () => {
       </div>
 
       {/* =====================================================================
-          2. Interactive Visualizations (Trend Area/Bar Chart + Donut)
+          2. Zero-Scroll 2×3 Smart Cockpit Bento Grid
           ===================================================================== */}
-      <div className="sd-dashboard-charts-row">
-        {/* Trend Area / Bar Chart */}
-        <div className="sd-chart-col-main">
-          <TrendChart
-            trendData={trendSeries}
-            timeHorizon={timeHorizon}
-            chartMode={chartMode}
-            setChartMode={setChartMode}
-            onSelectDate={(d) => {
-              setActiveFilterDate(activeFilterDate === d.fullDate ? null : d.fullDate);
-            }}
-            activeFilterDate={activeFilterDate}
-          />
-        </div>
-
-        {/* Radial Status Distribution Donut */}
-        <div className="sd-chart-col-side">
-          <StatusDonut
-            statusCounts={donutCounts}
-            activeStatusFilter={activeStatusFilter}
-            onSelectStatus={(status) => setActiveStatusFilter(status)}
-          />
-        </div>
-      </div>
-
-      {/* =====================================================================
-          3. Corporate Throughput & Template Leaderboard Row
-          ===================================================================== */}
-      <div className="sd-two-col">
-        {/* Department Workload & Bottlenecks */}
-        <DepartmentWorkload
-          departmentMetrics={departmentMetrics}
-          activeDeptFilter={activeDeptFilter}
-          onSelectDept={(dept) => setActiveDeptFilter(dept)}
-        />
-
-        {/* Most Utilized Word Templates */}
-        <TemplateLeaderboard
-          templateMetrics={templateMetrics}
-          onFillTemplate={(templateId) => {
-            setActiveTab('forms');
+      <div className="sd-cockpit-bento-grid">
+        {/* Cell 1 (Row 1, Col 1): Trend Area / Bar Chart */}
+        <TrendChart
+          trendData={trendSeries}
+          timeHorizon={timeHorizon}
+          chartMode={chartMode}
+          setChartMode={setChartMode}
+          onSelectDate={(d) => {
+            setActiveFilterDate(activeFilterDate === d.fullDate ? null : d.fullDate);
           }}
+          activeFilterDate={activeFilterDate}
         />
-      </div>
 
-      {/* =====================================================================
-          4. Priority Action Radar & Live Submissions Explorer
-          ===================================================================== */}
-      <div className="sd-two-col">
-        {/* Priority Action Radar */}
-        <section className="sd-card sd-panel">
+        {/* Cell 2 (Row 1, Col 2): Radial Status Distribution Donut */}
+        <StatusDonut
+          statusCounts={donutCounts}
+          activeStatusFilter={activeStatusFilter}
+          onSelectStatus={(status) => setActiveStatusFilter(status)}
+        />
+
+        {/* Cell 3 (Row 1, Col 3): Priority Action Radar */}
+        <section className="sd-card sd-panel sd-bento-panel">
           <header className="sd-panel-header">
             <div className="sd-panel-title-group">
               <h2>Priority Action Radar</h2>
@@ -829,8 +815,8 @@ export const SmartDashboard = () => {
           )}
         </section>
 
-        {/* Live Filterable Submissions Feed */}
-        <section className="sd-card sd-panel">
+        {/* Cell 4 (Row 2, Col 1): Live Filterable Submissions Feed */}
+        <section className="sd-card sd-panel sd-bento-panel">
           <header className="sd-panel-header">
             <div className="sd-panel-title-group">
               <h2>Recent Submissions</h2>
@@ -986,64 +972,21 @@ export const SmartDashboard = () => {
             </ul>
           )}
         </section>
-      </div>
 
-      {/* =====================================================================
-          5. Enterprise Quick Launch Dock
-          ===================================================================== */}
-      <div className="sd-quick-dock sd-card">
-        <div className="sd-dock-header">
-          <span className="sd-dock-title">Quick Actions</span>
-          <span className="sd-muted sd-xs">Direct shortcuts to high-frequency corporate workflows</span>
-        </div>
-        <div className="sd-dock-buttons">
-          <a
-            className="sd-dock-btn"
-            {...tabLinkProps(buildAppUrl('forms'), () => setActiveTab('forms'))}
-          >
-            <Zap size={16} className="sd-dock-icon" />
-            <div>
-              <div className="sd-dock-btn-title">Fill Form</div>
-              <div className="sd-dock-btn-sub">Browse templates &amp; submit</div>
-            </div>
-          </a>
+        {/* Cell 5 (Row 2, Col 2): Department Workload & Bottlenecks */}
+        <DepartmentWorkload
+          departmentMetrics={departmentMetrics}
+          activeDeptFilter={activeDeptFilter}
+          onSelectDept={(dept) => setActiveDeptFilter(dept)}
+        />
 
-          <a
-            className="sd-dock-btn"
-            {...tabLinkProps(buildAppUrl('approvals'), () => setActiveTab('approvals'))}
-          >
-            <CheckCircle2 size={16} className="sd-dock-icon" />
-            <div>
-              <div className="sd-dock-btn-title">Approvals Queue</div>
-              <div className="sd-dock-btn-sub">{myApprovalQueue.length} awaiting decision</div>
-            </div>
-          </a>
-
-          <button
-            type="button"
-            className="sd-dock-btn"
-            onClick={openSignatureModal}
-          >
-            <PenLine size={16} className="sd-dock-icon" />
-            <div>
-              <div className="sd-dock-btn-title">Signature &amp; PKI</div>
-              <div className="sd-dock-btn-sub">
-                {currentUser.hasSignature ? '✓ Verified on record' : 'Set up required'}
-              </div>
-            </div>
-          </button>
-
-          <a
-            className="sd-dock-btn"
-            {...tabLinkProps(buildAppUrl('activity'), () => setActiveTab('activity'))}
-          >
-            <Activity size={16} className="sd-dock-icon" />
-            <div>
-              <div className="sd-dock-btn-title">Activity Trail</div>
-              <div className="sd-dock-btn-sub">Cryptographic audit ledger</div>
-            </div>
-          </a>
-        </div>
+        {/* Cell 6 (Row 2, Col 3): Most Utilized Word Templates */}
+        <TemplateLeaderboard
+          templateMetrics={templateMetrics}
+          onFillTemplate={(templateId) => {
+            setActiveTab('forms');
+          }}
+        />
       </div>
 
       {/* Submission Detail Modal */}

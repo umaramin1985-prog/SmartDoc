@@ -147,6 +147,8 @@ export const VersionHistoryModal = ({ item, target, kind = 'template', onClose }
             if (!!p.required !== !!f.required) list.push(f.required ? 'Marked required' : 'Marked optional');
             if (p.mode !== f.mode && (p.mode || f.mode)) list.push(`Fill format: ${f.mode || 'direct'}`);
             if (p.bold !== f.bold && (p.bold || f.bold)) list.push(`Text weight: ${f.bold ? 'Bold' : 'Normal'}`);
+            if ((p.width || null) !== (f.width || null)) list.push(`Width: ${p.width ? `${p.width}%` : 'Auto'} → ${f.width ? `${f.width}%` : 'Auto'}`);
+            if (JSON.stringify(p.options || []) !== JSON.stringify(f.options || [])) list.push('Dropdown options updated');
             if (list.length > 0) modifiedFields.push({ label: f.label || f.key, changes: list });
           }
         });
@@ -211,6 +213,8 @@ export const VersionHistoryModal = ({ item, target, kind = 'template', onClose }
         if (!!p.required !== !!f.required) list.push(f.required ? 'Marked required' : 'Marked optional');
         if (p.mode !== f.mode && (p.mode || f.mode)) list.push(`Fill format: ${f.mode || 'direct'}`);
         if (p.bold !== f.bold && (p.bold || f.bold)) list.push(`Text weight: ${f.bold ? 'Bold' : 'Normal'}`);
+        if ((p.width || null) !== (f.width || null)) list.push(`Width: ${p.width ? `${p.width}%` : 'Auto'} → ${f.width ? `${f.width}%` : 'Auto'}`);
+        if (JSON.stringify(p.options || []) !== JSON.stringify(f.options || [])) list.push('Dropdown options updated');
         if (list.length > 0) modified.push({ label: f.label || f.key, changes: list });
       }
     });
@@ -717,7 +721,17 @@ export const VersionHistoryModal = ({ item, target, kind = 'template', onClose }
                           <div className="sd-git-preview-view">
                             <div
                               className="sd-git-preview-frame sd-word-editor-body"
-                              dangerouslySetInnerHTML={{ __html: c.htmlContent }}
+                              dangerouslySetInnerHTML={{
+                                __html: String(c.htmlContent).replace(
+                                  /<span[^>]*\bdata-sig-width=["']?([^"'\s>]+)["']?[^>]*>\s*\{\{\s*(?:Signature|Sig)\s*:\s*([^|}]+?)(?:\s*\|[^}]*)?\s*\}\}\s*<\/span>/gi,
+                                  (_, w, slot) => {
+                                    const cleanSlot = String(slot || 'Submitter').trim();
+                                    const normW = String(w || 'auto').toLowerCase();
+                                    const badge = normW !== 'auto' ? ` (${normW}% width)` : '';
+                                    return `<span style="display:inline-block;padding:4px 10px;margin:4px 4px 4px 0;border:1px dashed #6366f1;border-radius:6px;background:#eef2ff;color:#312e81;font-weight:600;font-size:9pt;">✍️ Signature: ${cleanSlot}${badge}</span>`;
+                                  }
+                                )
+                              }}
                             />
                           </div>
                         )}

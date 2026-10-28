@@ -92,6 +92,9 @@ export const apiService = {
   renderPrintDocument: (id, data) => requestBlob(`/forms/templates/${id}/render-print-document`, { method: 'POST', body: JSON.stringify(data || {}) }),
   bulkImportTemplates: (data) => post('/forms/templates/bulk-import', data),
   generateAiForm: (data) => post('/ai/generate-form', data),
+  getOllamaStatus: () => request('/ai/ollama-status'),
+  getOllamaLogs: () => request('/ai/ollama-logs'),
+  clearOllamaLogs: () => request('/ai/ollama-logs', { method: 'DELETE' }),
 
   // Submissions
   getSubmissions: () => request('/forms/submissions'),

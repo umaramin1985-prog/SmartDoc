@@ -153,7 +153,20 @@ export const SubmissionDetailModal = ({ submissionId, onClose }) => {
   };
 
   if (editing) {
-    return <FillFormModal template={template} submission={s} onClose={() => setEditing(false)} />;
+    return (
+      <FillFormModal
+        template={template || {
+          id: s.templateId,
+          title: s.title,
+          department: s.department,
+          fields,
+          workflow: s.workflow
+        }}
+        submission={s}
+        onClose={() => setEditing(false)}
+        onDone={() => { setEditing(false); onClose?.(); }}
+      />
+    );
   }
 
   return (
@@ -704,15 +717,6 @@ export const SubmissionDetailModal = ({ submissionId, onClose }) => {
             setSheetInitialPrint(false);
             setSheetInitialDownload(false);
           }}
-        />
-      )}
-
-      {editing && (
-        <FillFormModal
-          template={template}
-          submission={s}
-          onClose={() => setEditing(false)}
-          onDone={() => { setEditing(false); onClose?.(); }}
         />
       )}
     </>

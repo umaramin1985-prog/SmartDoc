@@ -20,30 +20,8 @@ export const DocumentPreviewModal = () => {
   const [exportingPdf, setExportingPdf] = useState(false);
   const [pdfProgressText, setPdfProgressText] = useState('');
 
-  // If previewing a submission, delegate to authentic form sheet
-  if (documentPreview && documentPreview.kind === 'submission') {
-    const sub = formSubmissions?.find(x => String(x.id) === String(documentPreview.id));
-    const tmpl = formTemplates?.find(t => String(t.id) === String(sub?.templateId));
-    if (sub) {
-      return (
-        <FillFormModal
-          template={tmpl || {
-            id: sub.templateId,
-            title: sub.title,
-            department: sub.department,
-            fields: sub.fields || Object.keys(sub.formData || {}).map(k => ({ key: k, label: k })),
-            workflow: sub.workflow
-          }}
-          submission={sub}
-          isViewOnly={true}
-          onClose={closeDocumentPreview}
-        />
-      );
-    }
-  }
-
   useEffect(() => {
-    if (!documentPreview) {
+    if (!documentPreview || documentPreview.kind === 'submission') {
       if (objectUrl) {
         URL.revokeObjectURL(objectUrl);
         setObjectUrl(null);
@@ -78,10 +56,12 @@ export const DocumentPreviewModal = () => {
           setState({ loading: false, error: '' });
         } else {
           // .docx rendering
-          containerRef.current.innerHTML = '';
-          await renderAsync(blob, containerRef.current, undefined, {
-            inWrapper: true, breakPages: true, useBase64URL: true, ignoreLastRenderedPageBreak: true
-          });
+          if (containerRef.current) {
+            containerRef.current.innerHTML = '';
+            await renderAsync(blob, containerRef.current, undefined, {
+              inWrapper: true, breakPages: true, useBase64URL: true, ignoreLastRenderedPageBreak: true
+            });
+          }
           if (!cancelled) setState({ loading: false, error: '' });
         }
       })
@@ -94,6 +74,28 @@ export const DocumentPreviewModal = () => {
   }, [documentPreview]);
 
   if (!documentPreview) return null;
+
+  // If previewing a submission, delegate to authentic form sheet
+  if (documentPreview.kind === 'submission') {
+    const sub = formSubmissions?.find(x => String(x.id) === String(documentPreview.id));
+    const tmpl = formTemplates?.find(t => String(t.id) === String(sub?.templateId));
+    if (sub) {
+      return (
+        <FillFormModal
+          template={tmpl || {
+            id: sub.templateId,
+            title: sub.title,
+            department: sub.department,
+            fields: sub.fields || Object.keys(sub.formData || {}).map(k => ({ key: k, label: k })),
+            workflow: sub.workflow
+          }}
+          submission={sub}
+          isViewOnly={true}
+          onClose={closeDocumentPreview}
+        />
+      );
+    }
+  }
 
   const defaultExt = fileType === 'pdf' ? '.pdf' : fileType === 'image' ? '.png' : '.docx';
   const fileName = documentPreview.fileName || `${documentPreview.title || 'document'}${defaultExt}`;

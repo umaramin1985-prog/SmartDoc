@@ -226,7 +226,7 @@ export const inlineTextDiff = (oldHtml, newHtml) => {
   const o = blockEl(oldHtml);
   const n = blockEl(newHtml);
   if (!o || !n || o.tagName !== n.tagName) return null;
-  const plain = (el) => !el.querySelector('table, img, [class*="sd-doc-"], ul, ol') && !/^(TABLE|UL|OL)$/.test(el.tagName);
+  const plain = (el) => !el.querySelector('table, img, [class*="sd-doc-"], [data-sig-width], ul, ol') && !/^(TABLE|UL|OL)$/.test(el.tagName);
   if (!plain(o) || !plain(n)) return null;
 
   const ta = (o.textContent || '').split(/(\s+)/).filter(Boolean);

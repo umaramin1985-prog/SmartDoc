@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { Palette, Check } from 'lucide-react';
+import { Palette, Check, Sun, Moon } from 'lucide-react';
 
 export const ACCENT_COLORS = [
   { id: 'green', label: 'Current Green', hex: '#a4fb4f', desc: 'Default Electric Green' },
@@ -11,7 +11,7 @@ export const ACCENT_COLORS = [
 ];
 
 export const ColorThemePicker = () => {
-  const { accentColor = 'green', setAccentColor } = useApp();
+  const { accentColor = 'green', setAccentColor, theme = 'dark', setTheme } = useApp();
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
 
@@ -38,7 +38,7 @@ export const ColorThemePicker = () => {
         type="button"
         className={`sd-icon-btn sd-color-picker-btn ${isOpen ? 'active' : ''}`}
         onClick={() => setIsOpen(!isOpen)}
-        title={`App Color: ${currentColor.label} · Click to customize`}
+        title={`App Theme (${theme === 'light' ? 'Light' : 'Dark'} · ${currentColor.label})`}
         aria-label="Pick App Theme Color"
       >
         <span className="sd-color-swatch-dot" style={{ backgroundColor: currentColor.hex }} />
@@ -48,8 +48,27 @@ export const ColorThemePicker = () => {
       {isOpen && (
         <div className="sd-color-picker-popover" role="dialog" aria-label="Color Palette">
           <div className="sd-color-picker-header">
-            <span className="sd-color-picker-title">App Theme Color</span>
-            <span className="sd-color-picker-sub">Pick your preferred accent</span>
+            <span className="sd-color-picker-title">Appearance &amp; Theme</span>
+            <span className="sd-color-picker-sub">Mode &amp; accent color</span>
+          </div>
+
+          <div className="sd-theme-mode-segmented">
+            <button
+              type="button"
+              className={`sd-theme-mode-seg-btn ${theme === 'dark' ? 'is-active' : ''}`}
+              onClick={() => setTheme('dark')}
+            >
+              <Moon size={13} />
+              <span>Dark</span>
+            </button>
+            <button
+              type="button"
+              className={`sd-theme-mode-seg-btn ${theme === 'light' ? 'is-active' : ''}`}
+              onClick={() => setTheme('light')}
+            >
+              <Sun size={13} />
+              <span>Light</span>
+            </button>
           </div>
 
           <div className="sd-color-options-list">

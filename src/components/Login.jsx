@@ -13,40 +13,78 @@ import {
   AlertCircle,
   KeyRound,
   Layers,
-  FolderTree,
-  CheckCircle2,
-  Clock,
-  PenTool,
-  ShieldCheck,
-  Sparkles
+  Award,
+  Sparkles,
+  X,
+  Check,
+  Loader2,
+  Wand2,
+  Sun,
+  Moon
 } from 'lucide-react';
 
+const SAVED_USERNAME_KEY = 'smartdoc_saved_username';
+
 export const Login = () => {
-  const { login, accentColor = 'green', setAccentColor } = useApp();
+  const { login, accentColor = 'green', setAccentColor, theme = 'dark', toggleTheme } = useApp();
+  const isLight = theme === 'light';
 
   useEffect(() => {
     document.title = 'SmartDoc | Sign In';
   }, []);
 
-  const [username, setUsername] = useState('');
+  const [username, setUsername] = useState(() => {
+    try {
+      return localStorage.getItem(SAVED_USERNAME_KEY) || '';
+    } catch {
+      return '';
+    }
+  });
+  const [rememberUsername, setRememberUsername] = useState(() => {
+    try {
+      return Boolean(localStorage.getItem(SAVED_USERNAME_KEY));
+    } catch {
+      return true;
+    }
+  });
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [capsLockOn, setCapsLockOn] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleKeyEvent = (e) => {
+    if (typeof e.getModifierState === 'function') {
+      setCapsLockOn(e.getModifierState('CapsLock'));
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
 
-    if (!username.trim() || !password.trim()) {
+    const trimmedUser = username.trim();
+    const trimmedPass = password.trim();
+
+    if (!trimmedUser || !trimmedPass) {
       setErrorMsg('Please enter both your username and password.');
       return;
+    }
+
+    try {
+      if (rememberUsername) {
+        localStorage.setItem(SAVED_USERNAME_KEY, trimmedUser);
+      } else {
+        localStorage.removeItem(SAVED_USERNAME_KEY);
+      }
+    } catch {
+      // Ignore storage errors
     }
 
     setIsSubmitting(true);
 
     try {
-      const result = await login(username.trim(), password.trim());
+      const result = await login(trimmedUser, trimmedPass);
       setIsSubmitting(false);
 
       if (!result.success) {
@@ -60,24 +98,37 @@ export const Login = () => {
 
   return (
     <div className="smartdoc-login-screen">
-      {/* Background Ambient Glows */}
+      {/* Subtle Ambient Background Glows */}
       <div className="login-bg-glow glow-1" />
       <div className="login-bg-glow glow-2" />
       <div className="login-bg-glow glow-3" />
 
-      {/* Top Bar */}
+      {/* Clean Top Bar */}
       <header className="login-top-bar">
         <div className="login-logo-pill">
           <div className="smart-brand-icon-box sm">
             <SmartDocLogoIcon size={18} className="smart-brand-icon" />
           </div>
-          <span className="login-brand-text">SmartDoc</span>
-          <span className="login-brand-tag">Enterprise Word &amp; Workflow</span>
+          <div className="login-brand-copy">
+            <span className="login-brand-text">SmartDoc</span>
+            <span className="login-brand-tag">Enterprise Word &amp; Workflow</span>
+          </div>
         </div>
 
-        {/* Theme Accent Switcher in Top Bar */}
         <div className="login-top-bar-right">
-          <div className="login-theme-switcher" title="Switch Theme Color">
+          <button
+            id="btn-login-theme-toggle"
+            type="button"
+            className="login-mode-toggle-btn"
+            onClick={toggleTheme}
+            title={isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+            aria-label={isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+          >
+            {isLight ? <Moon size={14} /> : <Sun size={14} />}
+            <span>{isLight ? 'Dark' : 'Light'}</span>
+          </button>
+
+          <div className="login-theme-switcher" title="Switch Interface Accent Color">
             <span className="login-theme-label">Theme</span>
             <div className="login-theme-dots">
               {ACCENT_COLORS.map((c) => (
@@ -98,119 +149,89 @@ export const Login = () => {
 
       {/* Main Split Showcase Container */}
       <main className="login-split-container">
-        {/* Left Pane: Enterprise Platform Showcase */}
+        {/* Left Pane: Clean, Breathable Platform & AI Spotlight */}
         <section className="login-showcase-pane">
           <div className="login-badge-pill">
-            <Sparkles size={14} className="login-badge-icon" />
-            <span>Word Form Studio &amp; Approval Engine</span>
+            <Sparkles size={13} className="login-badge-icon" />
+            <span>AI Form Studio · Word Templates · Live Approvals</span>
           </div>
 
           <h1 className="login-hero-title">
-            Intelligent Word Templates, <span className="login-hero-highlight">Live Approvals</span> &amp; Governance
+            <span className="login-hero-highlight">AI-Powered</span> Word Forms &amp; Multi-Tier Approvals
           </h1>
 
           <p className="login-hero-desc">
-            Transform Word templates into interactive forms, automate multi-tier department sign-offs, and maintain compliance with tamper-evident digital signatures.
+            Generate interactive Word forms from plain-English prompts, manage department drives, and sign off with tamper-evident X.509 digital signatures.
           </p>
 
-          {/* 3 Core Capability Highlights */}
-          <div className="login-feature-grid">
-            <div className="login-feature-card">
-              <div className="login-feature-icon-box">
-                <FileText size={18} />
+          {/* Featured AI Form Generation Spotlight Card */}
+          <div className="login-ai-spotlight-card">
+            <div className="login-ai-spotlight-head">
+              <div className="login-ai-spotlight-icon">
+                <Wand2 size={20} />
               </div>
-              <div className="login-feature-content">
-                <h2 className="login-feature-title">Word Form Studio</h2>
-                <p className="login-feature-desc">Interactive inputs, tables, dropdowns &amp; dynamic signature slots in native Word docs.</p>
-              </div>
-            </div>
-
-            <div className="login-feature-card">
-              <div className="login-feature-icon-box">
-                <Layers size={18} />
-              </div>
-              <div className="login-feature-content">
-                <h2 className="login-feature-title">Multi-Tier Approvals</h2>
-                <p className="login-feature-desc">Sequential department workflows, objection reviews, version history &amp; instant alerts.</p>
+              <div className="login-ai-spotlight-titles">
+                <div className="login-ai-spotlight-title-row">
+                  <h2>AI Form &amp; Document Studio</h2>
+                  <span className="login-feature-ai-badge">BETA</span>
+                </div>
+                <p>
+                  Describe any form, contract, or checklist to automatically synthesize structured Word templates with interactive fields, tables, and approval workflows.
+                </p>
               </div>
             </div>
-
-            <div className="login-feature-card">
-              <div className="login-feature-icon-box">
-                <FolderTree size={18} />
-              </div>
-              <div className="login-feature-content">
-                <h2 className="login-feature-title">Explorer Hierarchy</h2>
-                <p className="login-feature-desc">Windows Explorer folder navigation with strict department drive isolation.</p>
-              </div>
+            <div className="login-ai-spotlight-pills">
+              <span className="login-ai-pill is-highlight">
+                <Sparkles size={12} />
+                Instant Built-in NLP &amp; Local Ollama LLM
+              </span>
+              <span className="login-ai-pill">17 Enterprise Blueprints</span>
+              <span className="login-ai-pill">Auto In-Text &#123;&#123;Tags&#125;&#125; &amp; Signatures</span>
             </div>
           </div>
 
-          {/* Live Workflow Glass Preview Card */}
-          <div className="login-preview-card">
-            <div className="login-preview-header">
-              <div className="login-preview-file">
-                <div className="login-preview-file-icon">
-                  <FileText size={16} />
-                </div>
-                <div>
-                  <div className="login-preview-filename">Procurement-Requisition-2026.docx</div>
-                  <div className="login-preview-dept">Operations &amp; Finance · Stage 2 of 3</div>
-                </div>
+          {/* 3 Clean Core Pillars */}
+          <div className="login-pillars-grid">
+            <div className="login-pillar-card">
+              <div className="login-feature-icon-box">
+                <FileText size={17} />
               </div>
-              <span className="login-preview-status-pill">
-                <span className="login-preview-status-pulse" />
-                In Review
-              </span>
+              <h3 className="login-feature-title">Word Form Studio</h3>
+              <p className="login-feature-desc">
+                Rich A4 canvas with in-text placeholders, custom field widths &amp; side-by-side signatures.
+              </p>
             </div>
 
-            <div className="login-preview-flow">
-              <div className="login-preview-step step-done">
-                <div className="login-step-circle"><CheckCircle2 size={13} /></div>
-                <div className="login-step-text">
-                  <span className="login-step-name">Submitted</span>
-                  <span className="login-step-sub">Interactive Form</span>
-                </div>
+            <div className="login-pillar-card">
+              <div className="login-feature-icon-box">
+                <Layers size={17} />
               </div>
-
-              <div className="login-step-connector connector-done" />
-
-              <div className="login-preview-step step-active">
-                <div className="login-step-circle"><Clock size={13} /></div>
-                <div className="login-step-text">
-                  <span className="login-step-name">Dept Admin</span>
-                  <span className="login-step-sub">Operations Sign-off</span>
-                </div>
-              </div>
-
-              <div className="login-step-connector" />
-
-              <div className="login-preview-step step-pending">
-                <div className="login-step-circle"><PenTool size={13} /></div>
-                <div className="login-step-text">
-                  <span className="login-step-name">Final Approval</span>
-                  <span className="login-step-sub">Digital Signature</span>
-                </div>
-              </div>
+              <h3 className="login-feature-title">Multi-Tier Approvals</h3>
+              <p className="login-feature-desc">
+                Sequential department sign-offs, objection handling &amp; redline peer review diffs.
+              </p>
             </div>
 
-            <div className="login-preview-footer">
-              <div className="login-preview-shield">
-                <ShieldCheck size={14} />
-                <span>Digitally Verified Signature · Audit Trail Active</span>
+            <div className="login-pillar-card">
+              <div className="login-feature-icon-box">
+                <Award size={17} />
               </div>
+              <h3 className="login-feature-title">X.509 PKI &amp; Drives</h3>
+              <p className="login-feature-desc">
+                Personal RSA-2048 certificates, SHA-256 audit trails &amp; scoped Explorer drives.
+              </p>
             </div>
           </div>
         </section>
 
-        {/* Right Pane: Sign-in Card with Consistent 360° Glow */}
+        {/* Right Pane: Clean, Spacious Sign-in Card */}
         <section className="login-form-pane">
           <div className="login-card-glow-halo-wrap">
             <div className="login-card-ambient-aura" />
             <div className="login-glass-card">
               <div className="login-card-header">
                 <div className="login-icon-avatar">
-                  <KeyRound size={24} />
+                  <KeyRound size={22} />
                 </div>
                 <h2 className="login-title">Sign In to SmartDoc</h2>
                 <p className="login-subtitle">
@@ -219,29 +240,46 @@ export const Login = () => {
               </div>
 
               {errorMsg && (
-                <div className="login-error-banner animate-fade-in">
-                  <AlertCircle size={18} />
+                <div className="login-error-banner animate-fade-in" role="alert">
+                  <AlertCircle size={16} />
                   <span>{errorMsg}</span>
                 </div>
               )}
 
-              <form onSubmit={handleSubmit} className="login-form">
+              <form onSubmit={handleSubmit} className="login-form" noValidate>
                 {/* Username Field */}
                 <div className="login-field-group">
-                  <label className="login-label" htmlFor="login-username">Username</label>
+                  <div className="login-field-header">
+                    <label className="login-label" htmlFor="login-username">Username</label>
+                  </div>
                   <div className="login-input-wrap">
                     <User size={16} className="login-input-icon" />
                     <input
                       id="login-username"
                       type="text"
                       className="login-input"
-                      placeholder="e.g. admin"
+                      placeholder="Enter your username"
                       value={username}
-                      onChange={(e) => setUsername(e.target.value)}
+                      onChange={(e) => {
+                        setUsername(e.target.value);
+                        if (errorMsg) setErrorMsg('');
+                      }}
                       autoComplete="username"
-                      autoFocus
+                      autoFocus={!username}
                       required
                     />
+                    {username && (
+                      <button
+                        type="button"
+                        className="login-input-clear"
+                        onClick={() => setUsername('')}
+                        title="Clear username"
+                        aria-label="Clear username"
+                        tabIndex={-1}
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -249,6 +287,12 @@ export const Login = () => {
                 <div className="login-field-group">
                   <div className="login-field-header">
                     <label className="login-label" htmlFor="login-password">Password</label>
+                    {capsLockOn && (
+                      <span className="login-capslock-badge" role="status">
+                        <AlertCircle size={11} />
+                        Caps Lock ON
+                      </span>
+                    )}
                   </div>
                   <div className="login-input-wrap">
                     <Lock size={16} className="login-input-icon" />
@@ -256,21 +300,45 @@ export const Login = () => {
                       id="login-password"
                       type={showPassword ? 'text' : 'password'}
                       className="login-input"
-                      placeholder="••••••••"
+                      placeholder="Enter your password"
                       value={password}
-                      onChange={(e) => setPassword(e.target.value)}
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        if (errorMsg) setErrorMsg('');
+                      }}
+                      onKeyDown={handleKeyEvent}
+                      onKeyUp={handleKeyEvent}
+                      onBlur={() => setCapsLockOn(false)}
                       autoComplete="current-password"
+                      autoFocus={Boolean(username)}
                       required
                     />
                     <button
                       type="button"
                       className="login-pw-toggle"
                       onClick={() => setShowPassword(!showPassword)}
-                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      title={showPassword ? 'Hide password' : 'Show password'}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
                     >
                       {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
                   </div>
+                </div>
+
+                {/* Remember Username Row */}
+                <div className="login-options-row">
+                  <label className="login-remember-label">
+                    <input
+                      type="checkbox"
+                      className="login-remember-checkbox-input"
+                      checked={rememberUsername}
+                      onChange={(e) => setRememberUsername(e.target.checked)}
+                    />
+                    <span className={`login-remember-box ${rememberUsername ? 'is-checked' : ''}`}>
+                      {rememberUsername && <Check size={11} strokeWidth={3} />}
+                    </span>
+                    <span>Remember username on this device</span>
+                  </label>
                 </div>
 
                 {/* Submit Button */}
@@ -280,13 +348,24 @@ export const Login = () => {
                   className="login-submit-btn"
                   disabled={isSubmitting}
                 >
-                  <span>{isSubmitting ? 'Authenticating…' : 'Sign In'}</span>
-                  <ArrowRight size={17} />
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 size={17} className="sd-spin" />
+                      <span>Authenticating…</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Sign In</span>
+                      <ArrowRight size={17} />
+                    </>
+                  )}
                 </button>
               </form>
 
               <div className="login-card-footer-info">
-                <p className="login-help-text">Forgot password? Contact your IT Administrator.</p>
+                <p className="login-help-text">
+                  Forgot password? Contact your IT Administrator.
+                </p>
               </div>
             </div>
           </div>

@@ -7,7 +7,7 @@ import WordExtractor from 'word-extractor';
 import mammoth from 'mammoth';
 
 const DELIMITERS = { start: '{{', end: '}}' };
-const SIGNATURE_RE = /^(?:signature|sig)\s*:\s*(.+)$/i;
+const SIGNATURE_RE = /^(?:signature|sig)\s*:\s*([^|}]+?)(?:\s*\|.*)?$/i;
 
 // Tags filled automatically by the system (never asked from the user)
 export const SYSTEM_TAGS = ['Form ID', 'Submitted By', 'Submitted Date', 'Version', 'Department'];

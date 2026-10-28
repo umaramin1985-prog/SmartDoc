@@ -8,14 +8,16 @@ import { getPathForTab, tabLinkProps } from '../utils/router';
 import {
   LayoutGrid, FolderOpen, FileText, CheckCircle2, MessageSquare, Settings,
   LogOut, PenLine, ClipboardCheck, Camera,
-  PanelLeftClose, PanelLeftOpen, ChevronLeft, ChevronRight, History, UserCheck
+  PanelLeftClose, PanelLeftOpen, ChevronLeft, ChevronRight, History, UserCheck,
+  Sun, Moon
 } from 'lucide-react';
 
 export const SmartSidebar = () => {
   const {
     activeTab, setActiveTab, currentUser, logout,
     isSuperAdmin, myApprovalQueue, reviewsNeedingMe, openSignatureModal, openProfileModal,
-    sidebarCollapsed, toggleSidebar, accentColor, setAccentColor
+    sidebarCollapsed, toggleSidebar, accentColor, setAccentColor,
+    theme, toggleTheme
   } = useApp();
 
   const items = [
@@ -27,6 +29,8 @@ export const SmartSidebar = () => {
     { id: 'activity', label: 'Activity Log', icon: History },
     ...(isSuperAdmin ? [{ id: 'settings', label: 'Users & Departments', icon: Settings }] : [])
   ];
+
+  const isLight = theme === 'light';
 
   return (
     <aside className={`smart-sidebar ${sidebarCollapsed ? 'is-collapsed' : ''}`} aria-label="Main sidebar">
@@ -49,16 +53,6 @@ export const SmartSidebar = () => {
           <div className="smart-sidebar-bell-wrap">
             <NotificationBell />
           </div>
-          <button
-            id="btn-toggle-sidebar"
-            type="button"
-            className="sd-icon-btn smart-sidebar-toggle-btn"
-            onClick={toggleSidebar}
-            title={sidebarCollapsed ? "Expand sidebar (Ctrl+B)" : "Collapse sidebar (Ctrl+B)"}
-            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
-          </button>
         </div>
       </div>
 
@@ -105,7 +99,6 @@ export const SmartSidebar = () => {
           )}
         </button>
 
-
         <button
           id="btn-sidebar-collapse-footer"
           type="button"
@@ -118,8 +111,16 @@ export const SmartSidebar = () => {
         </button>
 
         {!sidebarCollapsed && (
-          <div className="smart-sidebar-color-bar" title="App Theme Color">
-            <span className="smart-sidebar-color-bar-label">Theme:</span>
+          <div className="smart-sidebar-color-bar" title="Appearance & Accent Theme">
+            <button
+              type="button"
+              className="smart-sidebar-mode-pill"
+              onClick={toggleTheme}
+              title={isLight ? 'Current: Light Mode · Click for Dark Mode' : 'Current: Dark Mode · Click for Light Mode'}
+            >
+              {isLight ? <Sun size={12} /> : <Moon size={12} />}
+              <span>{isLight ? 'Light' : 'Dark'}</span>
+            </button>
             <div className="smart-sidebar-color-dots">
               {ACCENT_COLORS.map(c => (
                 <button
@@ -172,4 +173,3 @@ export const SmartSidebar = () => {
     </aside>
   );
 };
-

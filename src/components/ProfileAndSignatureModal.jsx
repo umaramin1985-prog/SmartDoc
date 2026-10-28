@@ -3,7 +3,8 @@ import { useApp } from '../context/AppContext';
 import { Modal } from './ui';
 import {
   PenLine, Camera, Eraser, Save, Trash2, Check, PenTool, Type, Upload,
-  RefreshCw, CheckCircle2, ZoomIn, ZoomOut, Palette, ShieldCheck, Download, Copy, FileText, Lock
+  RefreshCw, CheckCircle2, ZoomIn, ZoomOut, Palette, ShieldCheck, Download, Copy, FileText, Lock,
+  Sun, Moon
 } from 'lucide-react';
 import { ACCENT_COLORS } from './ColorThemePicker';
 
@@ -162,6 +163,8 @@ export const ProfileAndSignatureModal = () => {
     saveAvatar,
     accentColor,
     setAccentColor,
+    theme = 'dark',
+    setTheme,
     getPkiCertificate,
     generatePkiCertificate,
     addToast
@@ -279,7 +282,7 @@ export const ProfileAndSignatureModal = () => {
         setPhotoRemoved(false);
       }
     }
-  }, [isOpen, isSelf, profileModalInitialTab, isSignatureModalOpen, isProfileModalOpen, user, currentUser]);
+  }, [isOpen, isSelf, profileModalInitialTab, isSignatureModalOpen, isProfileModalOpen, user?.id]);
 
   // Update processed signature upload
   useEffect(() => {
@@ -411,15 +414,36 @@ export const ProfileAndSignatureModal = () => {
     }
   };
 
-  // ==================== Photo Handlers ====================
-  const handlePhotoSelect = (file) => {
+  // ==================== Signature Upload & Photo Handlers ====================
+  const handleFileSelect = (file) => {
     if (!file) return;
     if (!file.type.startsWith('image/')) {
-      alert('Please select a valid image file (JPEG, PNG, WebP).');
+      addToast('Invalid File', 'Please select a valid image file (PNG, JPEG, WebP).', 'warning');
       return;
     }
     if (file.size > 8 * 1024 * 1024) {
-      alert('The selected image is larger than 8MB. Please choose a smaller photo.');
+      addToast('File Too Large', 'Please choose a signature image smaller than 8MB.', 'warning');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        setRawUploadImg(img);
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handlePhotoSelect = (file) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      addToast('Invalid File', 'Please select a valid image file (JPEG, PNG, WebP).', 'warning');
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      addToast('File Too Large', 'The selected image is larger than 8MB. Please choose a smaller photo.', 'warning');
       return;
     }
 
@@ -1018,12 +1042,72 @@ export const ProfileAndSignatureModal = () => {
       {/* ============================================================== */}
       {activeTab === 'color' && (
         <div className="animate-fade-in" style={{ padding: '8px 0' }}>
-          <div style={{ marginBottom: '16px' }}>
+          <div style={{ marginBottom: '14px' }}>
             <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '4px' }}>
-              Choose App Theme Color
+              Appearance Mode
+            </h3>
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '10px' }}>
+              Switch between Pure Black Dark Mode and Crisp Light Mode.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              {[
+                { id: 'dark', label: 'Dark Mode', desc: 'Pure Black OLED Workspace', icon: Moon },
+                { id: 'light', label: 'Light Mode', desc: 'Crisp Daylight Paper Workspace', icon: Sun }
+              ].map((m) => {
+                const isSelected = theme === m.id;
+                const ModeIcon = m.icon;
+                return (
+                  <button
+                    key={m.id}
+                    id={`btn-modal-mode-${m.id}`}
+                    type="button"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                      padding: '12px 14px',
+                      borderRadius: 'var(--radius-lg)',
+                      border: `1px solid ${isSelected ? 'var(--primary-500)' : 'var(--border-color)'}`,
+                      background: isSelected ? 'color-mix(in srgb, var(--primary-500) 12%, transparent)' : 'var(--bg-card-subtle)',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      color: 'var(--text-main)',
+                      transition: 'all 0.15s ease'
+                    }}
+                    onClick={() => setTheme(m.id)}
+                  >
+                    <span
+                      style={{
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '8px',
+                        backgroundColor: m.id === 'dark' ? '#0a0a0a' : '#f8fafc',
+                        color: m.id === 'dark' ? '#f4f4f5' : '#0f172a',
+                        border: '1px solid var(--border-color)',
+                        display: 'grid',
+                        placeItems: 'center',
+                        flexShrink: 0
+                      }}
+                    >
+                      <ModeIcon size={16} />
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{m.label}</span>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{m.desc}</span>
+                    </div>
+                    {isSelected && <Check size={18} style={{ color: 'var(--primary-500)', flexShrink: 0 }} />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ marginBottom: '12px', paddingTop: '8px', borderTop: '1px solid var(--border-subtle)' }}>
+            <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '4px' }}>
+              Choose App Accent Color
             </h3>
             <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-              Select your personalized theme color. Current green is active by default.
+              Select your personalized accent color. Current green is active by default.
             </p>
           </div>
 
@@ -1163,7 +1247,7 @@ export const ProfileAndSignatureModal = () => {
                     Subject Common Name (CN)
                   </span>
                   <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', marginTop: '2px' }}>
-                    {pkiData?.subject?.commonName || user?.fullName || 'SmartDoc Signer'}
+                    {pkiData?.parsed?.subject?.CN || pkiData?.subject?.commonName || pkiData?.name || user?.name || user?.fullName || 'SmartDoc Signer'}
                   </div>
                 </div>
 
@@ -1172,7 +1256,7 @@ export const ProfileAndSignatureModal = () => {
                     Department / Organization
                   </span>
                   <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', marginTop: '2px' }}>
-                    {pkiData?.subject?.organizationalUnitName || user?.department || 'Enterprise'}
+                    {pkiData?.parsed?.subject?.OU || pkiData?.subject?.organizationalUnitName || pkiData?.department || user?.department || 'Enterprise'}
                   </div>
                 </div>
 
@@ -1297,7 +1381,7 @@ export const ProfileAndSignatureModal = () => {
                         fontFamily: 'monospace',
                         fontSize: '0.72rem',
                         lineHeight: 1.4,
-                        background: '#050505',
+                        background: 'var(--bg-card-subtle)',
                         color: 'var(--text-dim)',
                         border: '1px solid var(--border-color)',
                         borderRadius: 'var(--radius-md)',
@@ -1317,8 +1401,8 @@ export const ProfileAndSignatureModal = () => {
                   gap: '10px',
                   padding: '10px 12px',
                   borderRadius: 'var(--radius-md)',
-                  background: 'rgba(255, 255, 255, 0.02)',
-                  border: '1px solid rgba(255, 255, 255, 0.05)',
+                  background: 'var(--bg-card-subtle)',
+                  border: '1px solid var(--border-color)',
                   fontSize: '0.76rem',
                   color: 'var(--text-muted)',
                   lineHeight: 1.45
