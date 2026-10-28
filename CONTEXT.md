@@ -21,6 +21,7 @@
 | Database | PostgreSQL (`server/pgDb.js`), auto-creates DB + tables on start, seeds super admin from `.env` |
 | File Storage | Native Disk / Object Storage Engine (`server/storageEngine.js`) — decouples binary files from PostgreSQL into physical storage (`storage/templates/`, `storage/submissions/`, `storage/temp/`), with SHA-256 integrity hashing and zero-copy streaming (`streamTemplateFile`) |
 | Word engine | `docxtemplater` + `pizzip` + `word-extractor` + `mammoth` + `html-to-docx` (`server/docxEngine.js`) — universal parser and editor for `.docx` and legacy `.doc` (Word 97-2004 OLE2 / RTF) |
+| AI Form Engine | Hybrid Generative AI (`server/aiFormEngine.js`): Built-in Smart Form Synthesizer (instant, zero-config, offline) + optional Google Gemini / OpenAI API integration |
 
 `.env` keys: PG connection (host/port/user/password/db) and `SUPER_ADMIN_USERNAME` / `SUPER_ADMIN_PASSWORD`.
 No mock data is ever seeded — only the super admin.
@@ -273,6 +274,7 @@ handles blob downloads, `parseDocx`, `htmlToDocx`, notification endpoints, and t
 | `POST /api/forms/templates/parse` | base64 docx/doc → `{fields, signatureSlots, systemTags}` |
 | `POST /api/forms/templates/parse-docx` / `parse-word` | base64 docx/doc → `{html, fields, signatureSlots, systemTags, messages, isLegacyDoc}` via `mammoth` (docx) & `word-extractor` (doc) |
 | `POST /api/forms/templates/html-to-docx` | HTML → `.docx` buffer via `html-to-docx` |
+| `POST /api/ai/generate-form` | `{ prompt, department, style, apiKey?, provider? }` → `{ title, department, description, style, htmlContent, fields, workflow, source }` — synthesizes complete form template from natural language prompt |
 | `GET /api/forms/templates`, `GET /:id/file` | visibility: own dept or audience `ALL`; superadmin all |
 | `POST /api/forms/templates/:id/render-print-document` | `{ values, blank, customHtml }` → `.docx` buffer formatted for authentic Word printing (filled or pristine blank with handwriting lines) |
 | `POST /api/forms/templates` | admin (forced to own dept) / superadmin; supports `htmlContent`, `folderId`, `reviewId`, `isDraft: boolean`, and `status: 'DRAFT'` bypassing mandatory workflow requirement |
@@ -374,6 +376,22 @@ SmartDoc decouples binary files from PostgreSQL into a high-performance native d
 ---
 
 ## 10. Revision Log
+
+- **2026-10-28** — AI Form Generator & Natural Language Prompt Synthesis:
+  - **Word Form Studio AI Integration (`SmartWordStudio.jsx`)**:
+    * Added dedicated **`[ ✨ AI Prompt ]`** button (`#btn-studio-ai-generate`) in the Studio header actions right beside `Blank Form`.
+    * Added **`AI Prompt`** tool button in the Home ribbon tab under Form Items for instant authoring access.
+    * Integrated with canvas state: updates Document Title, owning Department, Sequential Approval Workflow chain, and automatically converts synthesized HTML and fields into interactive pills (`convertRawHtmlToStudio`), normalizes images, and registers undo history (`pushHistory()`).
+    * Displays celebratory actionable toast with a one-click `[ Undo ]` button.
+  - **AI Form Generator Modal (`AiFormGeneratorModal.jsx`)**:
+    * Cyber-glow modal with animated Sparkles icon, prompt textarea with character counter, and 6 curated one-click prompt inspiration presets (IT Requisition, Mutual NDA, Travel Claim, Safety Checklist, Performance Review, Medical Leave).
+    * Segmented Document Style switcher: Corporate Form (direct inputs & tables), Legal Contract (in-text placeholders & clauses), and Audit Checklist (criteria evaluation table).
+    * Target department dropdown and real-time generation progress feedback.
+    * Expandable "AI Model & API Key (Optional)" panel supporting custom Google Gemini or OpenAI API keys stored locally in browser.
+  - **Hybrid AI Generation Engine (`server/aiFormEngine.js`, `POST /api/ai/generate-form`)**:
+    * Hybrid architecture: executes Google Gemini or OpenAI if API key is provided/configured, and falls back seamlessly to the **Built-in Smart Form Synthesizer**.
+    * Synthesizer performs intelligent domain/intent recognition, generates clean MS Word A4 layouts with reference codes, applicant metadata, in-text tags, declarations, submitter + department signatures, and domain-specific schemas (Leave Applications with absence dates & handovers, Performance Appraisals, Access Requests, Contracts, Checklists), with itemized billing tables strictly suppressed unless procurement/expenses are requested.
+    * Added `apiService.generateAiForm(data)`.
 
 - **2026-10-27** — Interactive Actionable Toasts & System Reset Completion Modal:
   - **App-Wide Interactive Toast System (`ToastContainer.jsx`, `AppContext.jsx`)**:

@@ -10,6 +10,7 @@ import { parseTemplate, parseWordDocument, convertDocTextToHtml, renderFilledDoc
 import { generateUserCertificate, parseCertificateInfo, signPayload, verifySignatureBundle } from './pkiEngine.js';
 import mammoth from 'mammoth';
 import htmlToDocx from 'html-to-docx';
+import { generateFormWithAi } from './aiFormEngine.js';
 import {
   initStorage,
   saveTemplateFile,
@@ -870,6 +871,35 @@ app.post('/api/forms/templates/html-to-docx', async (req, res) => {
   } catch (err) {
     console.error('[POST html-to-docx]', err);
     res.status(500).json({ error: err.message || 'Failed to generate Word document from editor' });
+  }
+});
+
+// ============================================================
+// AI Form Generator (Prompt to Word Form)
+// ============================================================
+app.post('/api/ai/generate-form', async (req, res) => {
+  try {
+    const actor = await requireActor(req, res);
+    if (!actor) return;
+    if (!isAdmin(actor)) return res.status(403).json({ error: 'Only department admins can generate forms with AI' });
+
+    const { prompt, department, style, apiKey, provider } = req.body;
+    if (!prompt || !prompt.trim()) {
+      return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    const result = await generateFormWithAi({
+      prompt: prompt.trim(),
+      department: department || actor.department,
+      style: style || 'form',
+      apiKey,
+      provider
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error('[POST /api/ai/generate-form]', err);
+    res.status(500).json({ error: err.message || 'Failed to generate form with AI' });
   }
 });
 

@@ -91,6 +91,7 @@ export const apiService = {
   getTemplateFile: (id) => requestBlob(`/forms/templates/${id}/file`),
   renderPrintDocument: (id, data) => requestBlob(`/forms/templates/${id}/render-print-document`, { method: 'POST', body: JSON.stringify(data || {}) }),
   bulkImportTemplates: (data) => post('/forms/templates/bulk-import', data),
+  generateAiForm: (data) => post('/ai/generate-form', data),
 
   // Submissions
   getSubmissions: () => request('/forms/submissions'),

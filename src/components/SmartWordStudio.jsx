@@ -5,6 +5,7 @@ import { fileToBase64, Modal } from './ui';
 import { hasChanges as docHasChanges } from './reviewDiff';
 import { PrePublishReviewPromptModal } from './PrePublishReviewPromptModal';
 import { SendForReviewModal } from './SendForReviewModal';
+import { AiFormGeneratorModal } from './AiFormGeneratorModal';
 import {
   Bold, Italic, Underline, Strikethrough, AlignLeft, AlignCenter, AlignRight, AlignJustify,
   List, ListOrdered, Table as TableIcon, Type, Calendar, Hash, CheckSquare, ChevronDown,
@@ -1976,6 +1977,7 @@ export const SmartWordStudio = ({
   // Pre-publish prompt & Send for review states
   const [showPrePublishPrompt, setShowPrePublishPrompt] = useState(false);
   const [showSendForReview, setShowSendForReview] = useState(false);
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
 
   // In-form Word-style Comments / Objections margin pane state
   const [showCommentsPane, setShowCommentsPane] = useState(() => ((targetTemplate?.comments?.length || 0) > 0));
@@ -2089,6 +2091,26 @@ export const SmartWordStudio = ({
     if (workflow.length === 0 && activeDept) {
       setWorkflow([activeDept]);
     }
+  };
+
+  const handleApplyAiGeneratedForm = (generated) => {
+    if (!generated) return;
+    if (generated.title) setTitle(generated.title);
+    if (generated.department && isSuperAdmin) setDepartment(generated.department);
+    if (Array.isArray(generated.workflow) && generated.workflow.length > 0) setWorkflow(generated.workflow);
+    if (editorRef.current) {
+      const fields = generated.fields || [];
+      const loadedHtml = convertRawHtmlToStudio(generated.htmlContent, fields);
+      editorRef.current.innerHTML = loadedHtml;
+      normalizeEditorImages(editorRef.current);
+      pushHistory();
+    }
+    addToast(
+      'AI Form Generated!',
+      'Synthesized "' + (generated.title || 'Form') + '" with ' + (generated.fields?.length || 0) + ' fields and ' + (generated.workflow?.length || 1) + ' approval step(s).',
+      'success',
+      { action: { label: 'Undo', onClick: () => handleUndo() } }
+    );
   };
 
   const escapeHtml = (str) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -3722,6 +3744,17 @@ export const SmartWordStudio = ({
                     >
                       Blank Form
                     </button>
+                    <button
+                      id="btn-studio-ai-generate"
+                      type="button"
+                      className="btn btn-secondary btn-sm sd-btn-ai-prompt"
+                      onClick={() => setIsAiModalOpen(true)}
+                      disabled={saving || parsing}
+                      title="Generate complete document, fields, and workflow using AI prompt"
+                    >
+                      <Sparkles size={14} className="sd-ai-btn-sparkle" />
+                      <span>AI Prompt</span>
+                    </button>
                   </>
                 )}
                 <button
@@ -4241,6 +4274,14 @@ export const SmartWordStudio = ({
                       onClick={() => handleInsertField('text', 'New Placeholder', 'placeholder')}
                     >
                       <Tag size={13} style={{ marginRight: 5, color: 'var(--primary-500)' }} /> Placeholder
+                    </button>
+                    <button
+                      type="button"
+                      className="sd-ribbon-btn-text sd-ribbon-btn-ai"
+                      title="Generate complete document, fields, and workflow with AI"
+                      onClick={() => setIsAiModalOpen(true)}
+                    >
+                      <Sparkles size={13} style={{ marginRight: 5, color: 'var(--primary-500)' }} /> AI Prompt
                     </button>
                   </div>
                 </div>
@@ -5672,6 +5713,14 @@ export const SmartWordStudio = ({
           onClose={() => setShowImageModal(false)}
           onInsert={insertImageAtCursor}
           addToast={addToast}
+        />
+
+        {/* POPUP 7: AI Form Generator Modal */}
+        <AiFormGeneratorModal
+          isOpen={isAiModalOpen}
+          onClose={() => setIsAiModalOpen(false)}
+          onGenerated={handleApplyAiGeneratedForm}
+          currentDepartment={activeDept}
         />
       </div>
     </div>
