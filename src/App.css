@@ -15514,3 +15514,272 @@ a.sd-address-crumb:focus-visible {
   border-color: color-mix(in srgb, var(--primary-500) 45%, #94a3b8);
 }
 
+/* =====================================================================
+   Word Form Studio — Removable Elements (Table / HR) & MS Word Page Zoom (%)
+   ===================================================================== */
+.sd-word-editor-body hr {
+  border: none;
+  border-top: 2px solid #cbd5e1;
+  margin: 14px 0;
+  cursor: pointer;
+  position: relative;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.sd-word-editor-body hr:hover,
+.sd-word-editor-body hr.sd-hr-selected {
+  border-top-color: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.18);
+}
+
+.sd-word-editor-body table:hover {
+  outline: 1px dashed rgba(239, 68, 68, 0.45);
+  outline-offset: 2px;
+}
+
+.sd-block-remove-popover {
+  position: fixed;
+  z-index: 10050;
+  pointer-events: auto;
+}
+
+.sd-block-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #ffffff;
+  background: #dc2626;
+  border: 1px solid #ef4444;
+  border-radius: 999px;
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.35);
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.12s ease;
+  white-space: nowrap;
+}
+
+.sd-block-remove-btn:hover {
+  background: #b91c1c;
+  transform: translateY(-1px);
+}
+
+.sd-block-remove-x {
+  font-size: 0.85rem;
+  line-height: 1;
+  margin-left: 2px;
+  opacity: 0.9;
+}
+
+/* Header Compact Page Zoom (%) Control */
+.sd-header-zoom-group {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-card-subtle);
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.sd-header-zoom-btn {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-main);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.sd-header-zoom-btn:hover:not(:disabled) {
+  background: var(--bg-card);
+  color: var(--primary-500);
+}
+
+.sd-header-zoom-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.sd-header-zoom-select {
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0 4px;
+  cursor: pointer;
+  outline: none;
+}
+
+.sd-header-zoom-select option {
+  background: var(--bg-card);
+  color: var(--text-main);
+}
+
+/* MS Word Bottom Status Bar with Page Size / Zoom (%) Slider */
+.sd-studio-zoom-statusbar {
+  height: 32px;
+  min-height: 32px;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  user-select: none;
+  z-index: 25;
+}
+
+.sd-studio-statusbar-left,
+.sd-studio-statusbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sd-statusbar-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.sd-statusbar-sep {
+  opacity: 0.45;
+}
+
+.sd-statusbar-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.71rem;
+  font-weight: 600;
+  background: rgba(239, 68, 68, 0.14);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  cursor: pointer;
+}
+
+.sd-statusbar-remove-btn:hover {
+  background: rgba(239, 68, 68, 0.24);
+}
+
+.sd-statusbar-zoom-label {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.sd-statusbar-presets {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.sd-statusbar-preset-btn {
+  padding: 2px 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card-subtle);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.sd-statusbar-preset-btn:hover {
+  color: var(--text-main);
+  border-color: var(--primary-500);
+}
+
+.sd-statusbar-preset-btn.is-active {
+  background: color-mix(in srgb, var(--primary-500) 18%, transparent);
+  color: var(--primary-500);
+  border-color: color-mix(in srgb, var(--primary-500) 45%, transparent);
+}
+
+.sd-statusbar-step-btn {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card-subtle);
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+.sd-statusbar-step-btn:hover:not(:disabled) {
+  border-color: var(--primary-500);
+  color: var(--primary-500);
+}
+
+.sd-statusbar-step-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.sd-statusbar-zoom-slider {
+  width: 110px;
+  height: 4px;
+  accent-color: var(--primary-500);
+  cursor: pointer;
+}
+
+.sd-statusbar-zoom-readout {
+  min-width: 44px;
+  padding: 2px 6px;
+  font-size: 0.73rem;
+  font-weight: 700;
+  color: var(--text-main);
+  background: var(--bg-card-subtle);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: center;
+}
+
+.sd-statusbar-zoom-readout:hover {
+  border-color: var(--primary-500);
+  color: var(--primary-500);
+}
+
+[data-theme="light"] .sd-studio-zoom-statusbar {
+  background: #ffffff;
+  border-top-color: #cbd5e1;
+  color: #475569;
+}
+
+[data-theme="light"] .sd-statusbar-remove-btn {
+  background: #fef2f2;
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+@media print {
+  .sd-studio-zoom-statusbar,
+  .sd-block-remove-popover,
+  .sd-header-zoom-group {
+    display: none !important;
+  }
+  .sd-word-page-sheet,
+  .sd-pv-filler-sheet {
+    zoom: 1 !important;
+  }
+}
+
+

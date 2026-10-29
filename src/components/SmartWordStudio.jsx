@@ -356,7 +356,7 @@ const applySigWidth = (el, width) => {
 // ---------- Word-style table helpers (operate directly on the live DOM table) ----------
 const NO_TABLE_CTX = { inTable: false, canMerge: false, canSplit: false };
 
-// Remove editor-only UI state (cell selection highlight, image selection outlines) so it never reaches history/publish/preview
+// Remove editor-only UI state (cell selection highlight, image/HR selection outlines) so it never reaches history/publish/preview
 const stripEditorState = (root) => {
   if (!root) return;
   root.querySelectorAll('.sd-cell-selected').forEach(c => {
@@ -371,11 +371,92 @@ const stripEditorState = (root) => {
     img.classList.remove('is-selected');
     if (!img.getAttribute('class')) img.removeAttribute('class');
   });
+  root.querySelectorAll('.sd-hr-selected').forEach(hr => {
+    hr.classList.remove('sd-hr-selected');
+    if (!hr.getAttribute('class')) hr.removeAttribute('class');
+  });
   root.querySelectorAll('.sd-link-editing').forEach(a => {
     a.classList.remove('sd-link-editing');
     if (!a.getAttribute('class')) a.removeAttribute('class');
   });
   root.querySelectorAll('.sd-image-remove').forEach(rm => rm.remove());
+};
+
+// Normalize any loaded/uploaded/AI-generated DOM so it strictly conforms to Manual Mode capabilities
+// (No h4-h6, no thead/th, no inline vertical margins/paddings on paragraphs/headings, and in-text placeholders locked to Short Text)
+const normalizeToManualModeDom = (root) => {
+  if (!root) return;
+
+  // 1. Convert h4, h5, h6 to h3 (Manual Mode supports H1, H2, H3, Normal)
+  root.querySelectorAll('h4, h5, h6').forEach(el => {
+    const h3 = document.createElement('h3');
+    for (const attr of Array.from(el.attributes)) {
+      h3.setAttribute(attr.name, attr.value);
+    }
+    while (el.firstChild) h3.appendChild(el.firstChild);
+    el.replaceWith(h3);
+  });
+
+  // 2. Unwrap thead/tfoot into tbody and convert th into td with strong (matching Manual Mode createTableElement)
+  root.querySelectorAll('table').forEach(tbl => {
+    let tbody = tbl.querySelector('tbody');
+    if (!tbody) {
+      tbody = document.createElement('tbody');
+      tbl.appendChild(tbody);
+    }
+    tbl.querySelectorAll('thead, tfoot').forEach(sec => {
+      const rows = Array.from(sec.querySelectorAll('tr'));
+      if (sec.tagName === 'THEAD') {
+        rows.reverse().forEach(r => tbody.insertBefore(r, tbody.firstChild));
+      } else {
+        rows.forEach(r => tbody.appendChild(r));
+      }
+      sec.remove();
+    });
+    tbl.querySelectorAll('th').forEach(th => {
+      const td = document.createElement('td');
+      for (const attr of Array.from(th.attributes)) {
+        td.setAttribute(attr.name, attr.value);
+      }
+      if (th.childNodes.length === 1 && th.firstChild.nodeType === 1 && th.firstChild.tagName === 'STRONG') {
+        td.appendChild(th.firstChild);
+      } else {
+        const strong = document.createElement('strong');
+        while (th.firstChild) strong.appendChild(th.firstChild);
+        td.appendChild(strong);
+      }
+      th.replaceWith(td);
+    });
+  });
+
+  // 3. Strip unsupported inline margin/padding from paragraphs, headings, lists, and tables
+  root.querySelectorAll('p, h1, h2, h3, ul, ol, li, table, tr, td').forEach(el => {
+    if (el.closest('.sd-doc-field-pill, .sd-doc-sig-block, .sd-doc-system-tag, .sd-doc-image-wrap')) return;
+    if (!el.getAttribute('style')) return;
+    el.style.marginTop = '';
+    el.style.marginBottom = '';
+    el.style.marginRight = '';
+    if (el.tagName === 'TABLE' || el.tagName === 'TR' || el.tagName === 'TD') {
+      el.style.margin = '';
+      el.style.padding = '';
+    } else {
+      el.style.padding = '';
+      el.style.paddingTop = '';
+      el.style.paddingBottom = '';
+      el.style.paddingLeft = '';
+      el.style.paddingRight = '';
+    }
+    if (!el.getAttribute('style')?.trim()) el.removeAttribute('style');
+  });
+
+  // 4. Enforce Manual Mode lock: In-Text Placeholders strictly use type="text" and auto width
+  root.querySelectorAll('.sd-doc-field-pill[data-field-mode="placeholder"]').forEach(pill => {
+    pill.setAttribute('data-field-type', 'text');
+    pill.removeAttribute('data-width');
+    pill.style.width = '';
+    pill.style.minWidth = '';
+    pill.style.maxWidth = '';
+  });
 };
 
 // Normalize all images inside the editor so they fit the page, never overflow, and have interactive controls
@@ -1015,21 +1096,17 @@ const buildPreviewHtml = (editorEl) => {
 
 const isSubmitterSlot = (slot) => ['submitter', 'applicant', 'originator'].includes(String(slot || '').toLowerCase());
 
-// Same markup as FillFormModal.renderSignatureSlot (before submission)
+// Same markup as FillFormModal.renderSignatureSlot (before submission — Preview screen never shows user signatures by default)
 const fillerSignatureHtml = (slot, ctx) => {
   if (isSubmitterSlot(slot)) {
-    const name = esc(ctx.userName);
     const dept = ctx.userDept ? `<div class="sd-doc-signature-dept">${esc(ctx.userDept)}</div>` : '';
-    if (ctx.signatureImage) {
-      return `<div class="sd-doc-signature-block"><img src="${esc(ctx.signatureImage)}" alt="${name}'s signature" class="sd-doc-signature-img" /><div class="sd-doc-signature-name">${name}</div>${dept}</div>`;
-    }
-    return `<div class="sd-doc-signature-block is-unsigned"><button type="button" class="sd-doc-live-sig-draw-btn sd-print-hide" tabindex="-1">${penLineSvg(14)} Draw &amp; Save Signature</button><div class="sd-print-blank-sig-block"><span class="sd-print-line"></span><div class="sd-doc-signature-name">${name}</div>${dept}</div></div>`;
+    return `<div class="sd-doc-signature-block is-department is-pending"><div class="sd-doc-signature-pending-notice sd-print-hide">${penLineSvg(12)} Applicant / Submitter Signature (Signed on Submission)</div><div class="sd-print-blank-sig-block"><span class="sd-print-line"></span><div class="sd-doc-signature-name">Applicant / Submitter</div>${dept}</div></div>`;
   }
   const s = esc(slot);
   return `<div class="sd-doc-signature-block is-department is-pending"><div class="sd-doc-signature-pending-notice sd-print-hide">${clockSvg(12)} Pending ${s} Department Approval</div><div class="sd-print-blank-sig-block"><span class="sd-print-line"></span><div class="sd-doc-signature-name">${s} Approver</div><div class="sd-doc-signature-dept">${s}</div></div></div>`;
 };
 
-// Resolve signature slots / system tags exactly as FillFormModal does for a new submission
+// Resolve signature slots / system tags for blank form preview (no user signature stamped by default)
 const resolvePreviewHtml = (html, ctx) => {
   if (!html || typeof document === 'undefined') return { html: html || '', hasSubmitterSig: false };
   const box = document.createElement('div');
@@ -1054,12 +1131,12 @@ const resolvePreviewHtml = (html, ctx) => {
   return { html: box.innerHTML, hasSubmitterSig };
 };
 
-// Live preview of the document — renders the identical sheet users see in Fill Form
-const FormPreviewPane = ({ html, department, workflow, fontFamily, fontSize, currentUser, templateCode, version }) => {
+// Live preview of the document — renders the sheet users see in Fill Form (without showing personal user signatures by default)
+const FormPreviewPane = ({ html, department, workflow, fontFamily, fontSize, currentUser, templateCode, version, pageZoom = 100 }) => {
   const ctx = useMemo(() => ({
     userName: currentUser?.name || 'Submitter',
     userDept: currentUser?.department || department || '',
-    signatureImage: currentUser?.signatureImage || null,
+    signatureImage: null,
     department: department || 'Department',
     version: version || '1.0',
     today: new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
@@ -1071,7 +1148,11 @@ const FormPreviewPane = ({ html, department, workflow, fontFamily, fontSize, cur
     <aside className="sd-studio-preview-scroll sd-pv-filler-desk" aria-label="Live form preview">
       <div
         className="sd-pv-filler-sheet size-a4 portrait margins-normal"
-        style={{ fontFamily: fontFamily || undefined, fontSize: fontSize || undefined }}
+        style={{
+          fontFamily: fontFamily || undefined,
+          fontSize: fontSize || undefined,
+          zoom: pageZoom !== 100 ? `${pageZoom}%` : undefined
+        }}
       >
         <div className="sd-word-page-header-mark">
           <span>{department} — Enterprise Word Form</span>
@@ -1083,13 +1164,6 @@ const FormPreviewPane = ({ html, department, workflow, fontFamily, fontSize, cur
           style={{ fontFamily: fontFamily || undefined, fontSize: fontSize || undefined }}
           dangerouslySetInnerHTML={{ __html: resolved.html }}
         />
-
-        {!resolved.hasSubmitterSig && (
-          <div
-            style={{ marginTop: '36px', paddingTop: '20px', borderTop: '1px solid #e2e8f0' }}
-            dangerouslySetInnerHTML={{ __html: fillerSignatureHtml('Submitter', ctx) }}
-          />
-        )}
       </div>
 
       <div className="sd-pv-foot">
@@ -1454,6 +1528,20 @@ export const SmartWordStudio = ({
   const [margins, setMargins] = useState('normal'); // 'normal' | 'narrow' | 'wide'
   const [pageSize, setPageSize] = useState('A4'); // 'A4' | 'letter'
   const [orientation, setOrientation] = useState('portrait');
+  const [pageZoom, setPageZoom] = useState(100); // MS Word style page zoom percentage (50% - 200%)
+  const PAGE_ZOOM_PRESETS = [50, 75, 100, 125, 150, 175, 200];
+  const setPageZoomClamped = (val) => {
+    const num = Math.max(50, Math.min(200, Math.round(Number(val) || 100)));
+    setPageZoom(num);
+  };
+  const stepPageZoom = (delta) => {
+    setPageZoom(prev => Math.max(50, Math.min(200, prev + delta)));
+  };
+
+  // Selected Horizontal Rule (<hr>) & Hovered Block Element (<table> / <hr>) for instant 1-click removal
+  const [selectedHrEl, setSelectedHrEl] = useState(null);
+  const [hoveredBlockInfo, setHoveredBlockInfo] = useState(null); // { el, type: 'table' | 'hr', top, left }
+  const hoverHideTimerRef = useRef(null);
 
   // ---- Undo / Redo (snapshot history of the editor HTML + caret position) ----
   // Native contentEditable undo cannot track our programmatic inserts/removals, so we keep our own stack.
@@ -1537,6 +1625,8 @@ export const SmartWordStudio = ({
     setActiveSigEdit(null);
     setSelectedImageEl(null);
     setImageToolbarPos(null);
+    setSelectedHrEl(null);
+    setHoveredBlockInfo(null);
     setShowTextColorPicker(false);
     setShowHighlightPicker(false);
     setLinkDialog(null);
@@ -1953,11 +2043,58 @@ export const SmartWordStudio = ({
     }
     resizeHoverRef.current = hover;
     ed.classList.toggle('sd-col-resize', !!hover);
+
+    // Track hovered <table> or <hr> for floating quick-remove button
+    const hoveredTable = e.target.closest?.('table');
+    const hoveredHr = e.target.closest?.('hr');
+    const targetBlock = (hoveredHr && ed.contains(hoveredHr))
+      ? hoveredHr
+      : (hoveredTable && ed.contains(hoveredTable))
+      ? hoveredTable
+      : null;
+
+    if (targetBlock) {
+      if (hoverHideTimerRef.current) {
+        clearTimeout(hoverHideTimerRef.current);
+        hoverHideTimerRef.current = null;
+      }
+      const rect = targetBlock.getBoundingClientRect();
+      const bType = targetBlock.tagName === 'HR' ? 'hr' : 'table';
+      setHoveredBlockInfo({
+        el: targetBlock,
+        type: bType,
+        top: Math.max(72, rect.top - (bType === 'hr' ? 28 : 14)),
+        left: Math.min(window.innerWidth - 130, rect.right - 105)
+      });
+    } else if (hoveredBlockInfo && !selectedHrEl) {
+      if (!hoverHideTimerRef.current) {
+        hoverHideTimerRef.current = setTimeout(() => {
+          hoverHideTimerRef.current = null;
+          setHoveredBlockInfo(prev => (prev && prev.el === selectedHrEl ? prev : null));
+        }, 280);
+      }
+    }
   };
 
   const handleEditorMouseUp = () => {
     dragStartRef.current = null;
     endResize();
+    saveSelection();
+  };
+
+  const handleRemoveBlockElement = (elToRemove) => {
+    const ed = editorRef.current;
+    const target = elToRemove || selectedHrEl || hoveredBlockInfo?.el;
+    if (!ed || !target || !ed.contains(target)) return;
+    target.remove();
+    if (!ed.innerHTML.trim()) {
+      ed.innerHTML = '<p><br/></p>';
+    }
+    clearCellSelection();
+    setSelectedHrEl(null);
+    setHoveredBlockInfo(null);
+    setTableCtx(NO_TABLE_CTX);
+    pushHistory();
     saveSelection();
   };
 
@@ -1970,6 +2107,33 @@ export const SmartWordStudio = ({
       setImageToolbarPos(null);
       pushHistory();
       return;
+    }
+
+    // Delete/Backspace on a selected Horizontal Line (<hr>) removes it immediately
+    if (selectedHrEl && selectedHrEl.isConnected && (e.key === 'Delete' || e.key === 'Backspace')) {
+      e.preventDefault();
+      handleRemoveBlockElement(selectedHrEl);
+      return;
+    }
+
+    // Backspace at the very start of a block right after an <hr> removes that <hr>
+    if (e.key === 'Backspace' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount && sel.isCollapsed && editorRef.current) {
+        const r = sel.getRangeAt(0);
+        const block = (r.startContainer.nodeType === 1 ? r.startContainer : r.startContainer.parentElement)?.closest('p, h1, h2, h3, div');
+        if (block && block.parentElement === editorRef.current && r.startOffset === 0) {
+          const prev = block.previousElementSibling;
+          if (prev && prev.tagName === 'HR') {
+            e.preventDefault();
+            prev.remove();
+            setSelectedHrEl(null);
+            setHoveredBlockInfo(null);
+            pushHistory();
+            return;
+          }
+        }
+      }
     }
 
     const range = cellRangeRef.current;
@@ -2199,6 +2363,7 @@ export const SmartWordStudio = ({
       if (editorRef.current && templateToEdit.htmlContent) {
         const loadedHtml = convertRawHtmlToStudio(templateToEdit.htmlContent, templateToEdit.fields);
         editorRef.current.innerHTML = loadedHtml;
+        normalizeToManualModeDom(editorRef.current);
         normalizeEditorImages(editorRef.current);
         normalizeSignatureLayout(editorRef.current);
         pushHistory();
@@ -2211,6 +2376,7 @@ export const SmartWordStudio = ({
             if (editorRef.current && parsed?.html) {
               const loadedHtml = convertRawHtmlToStudio(parsed.html, templateToEdit.fields);
               editorRef.current.innerHTML = loadedHtml;
+              normalizeToManualModeDom(editorRef.current);
               normalizeEditorImages(editorRef.current);
               normalizeSignatureLayout(editorRef.current);
               pushHistory();
@@ -2226,6 +2392,7 @@ export const SmartWordStudio = ({
         const fields = reviewSession.review?.settings?.fields || reviewSession.review?.fields || [];
         const loadedHtml = convertRawHtmlToStudio(reviewSession.html, fields);
         editorRef.current.innerHTML = loadedHtml;
+        normalizeToManualModeDom(editorRef.current);
         normalizeEditorImages(editorRef.current);
         normalizeSignatureLayout(editorRef.current);
         pushHistory();
@@ -2235,6 +2402,7 @@ export const SmartWordStudio = ({
         const fields = resume.settings?.fields || targetTemplate?.fields || [];
         const loadedHtml = convertRawHtmlToStudio(resume.html, fields);
         editorRef.current.innerHTML = loadedHtml;
+        normalizeToManualModeDom(editorRef.current);
         normalizeEditorImages(editorRef.current);
         normalizeSignatureLayout(editorRef.current);
         pushHistory();
@@ -2278,6 +2446,7 @@ export const SmartWordStudio = ({
       const fields = generated.fields || [];
       const loadedHtml = convertRawHtmlToStudio(generated.htmlContent, fields);
       editorRef.current.innerHTML = loadedHtml;
+      normalizeToManualModeDom(editorRef.current);
       normalizeEditorImages(editorRef.current);
       normalizeSignatureLayout(editorRef.current);
       pushHistory();
@@ -3131,6 +3300,36 @@ export const SmartWordStudio = ({
     saveSelection();
   };
 
+  // Insert Horizontal Rule (<hr>) with trailing paragraph so it is always easy to select or delete
+  const handleInsertHorizontalRule = () => {
+    const ed = editorRef.current;
+    if (!ed) return;
+    ed.focus();
+    const sel = window.getSelection();
+    let node = null;
+    if (savedRangeRef.current && ed.contains(savedRangeRef.current.commonAncestorContainer)) {
+      node = savedRangeRef.current.commonAncestorContainer;
+    } else if (sel && sel.rangeCount && ed.contains(sel.anchorNode)) {
+      node = sel.anchorNode;
+    }
+    let block = node && (node.nodeType === 1 ? node : node.parentElement);
+    while (block && block.parentElement !== ed) block = block.parentElement;
+
+    const hr = document.createElement('hr');
+    const p = document.createElement('p');
+    p.innerHTML = '<br/>';
+    if (block) {
+      const isEmptyPara = block.tagName === 'P' && !block.textContent.trim()
+        && !block.querySelector('.sd-doc-field-pill, .sd-doc-sig-block, .sd-doc-system-tag, img, table');
+      if (isEmptyPara) block.replaceWith(hr, p); else block.after(hr, p);
+    } else {
+      ed.append(hr, p);
+    }
+    placeCaret(p);
+    pushHistory();
+    saveSelection();
+  };
+
   // Handle document click delegation for interactive widgets
   const handleEditorClick = (e) => {
     // Quick-remove (×) button on any widget
@@ -3148,6 +3347,33 @@ export const SmartWordStudio = ({
         pushHistory();
       }
       return;
+    }
+
+    // Click on Horizontal Rule (<hr>) selects it and shows the Remove Line floating button
+    const hrEl = e.target.closest('hr');
+    if (hrEl && editorRef.current?.contains(hrEl)) {
+      e.preventDefault();
+      e.stopPropagation();
+      editorRef.current.querySelectorAll('.sd-hr-selected').forEach(h => h.classList.remove('sd-hr-selected'));
+      hrEl.classList.add('sd-hr-selected');
+      setSelectedHrEl(hrEl);
+      const rect = hrEl.getBoundingClientRect();
+      setHoveredBlockInfo({
+        el: hrEl,
+        type: 'hr',
+        top: Math.max(72, rect.top - 28),
+        left: Math.min(window.innerWidth - 130, rect.right - 105)
+      });
+      setActiveFieldEdit(null);
+      setActiveSigEdit(null);
+      setSelectedImageEl(null);
+      setImageToolbarPos(null);
+      return;
+    }
+
+    if (selectedHrEl) {
+      editorRef.current?.querySelectorAll('.sd-hr-selected').forEach(h => h.classList.remove('sd-hr-selected'));
+      setSelectedHrEl(null);
     }
 
     const imgEl = e.target.closest('img');
@@ -3384,7 +3610,7 @@ export const SmartWordStudio = ({
       docHtml = docHtml.replace(/\{\{\s*([^}]+)\}\}/g, (match, fieldName) => {
         const fn = fieldName.trim();
         if (SYSTEM_TAGS_LIST.some(st => st.toLowerCase() === fn.toLowerCase())) return match;
-        return `<span class="sd-doc-field-pill" data-field-key="${escapeHtml(fn)}" data-field-label="${escapeHtml(fn)}" data-field-type="text" data-required="true" data-placeholder="" data-options="[]" contenteditable="false">${pillInnerHtml(fn, 'text', true)}</span>`;
+        return `<span class="sd-doc-field-pill is-placeholder" data-field-key="${escapeHtml(fn)}" data-field-label="${escapeHtml(fn)}" data-field-type="text" data-field-mode="placeholder" data-field-bold="false" data-required="true" data-placeholder="" data-description="" data-options="[]" contenteditable="false">${pillInnerHtml(fn, 'text', true, 'placeholder', false)}</span>`;
       });
 
       // Transform raw {{System Tag}} into system tags
@@ -3395,6 +3621,7 @@ export const SmartWordStudio = ({
 
       if (editorRef.current) {
         editorRef.current.innerHTML = docHtml;
+        normalizeToManualModeDom(editorRef.current);
         normalizeEditorImages(editorRef.current);
         normalizeSignatureLayout(editorRef.current);
         pushHistory();
@@ -3916,6 +4143,41 @@ export const SmartWordStudio = ({
                 title="Preview the form only"
               >
                 <Eye size={13} /> Preview
+              </button>
+            </div>
+
+            {/* Compact MS Word-style Page Zoom (%) control in Header */}
+            <div className="sd-header-zoom-group" title="Adjust page size in percentage (MS Word Zoom)">
+              <button
+                type="button"
+                className="sd-header-zoom-btn"
+                onClick={() => stepPageZoom(-10)}
+                disabled={pageZoom <= 50}
+                title="Zoom Out (-10%)"
+              >
+                <Minus size={12} />
+              </button>
+              <select
+                className="sd-header-zoom-select"
+                value={pageZoom}
+                onChange={e => setPageZoomClamped(e.target.value)}
+                title="Select Page Zoom (%)"
+              >
+                {!PAGE_ZOOM_PRESETS.includes(pageZoom) && (
+                  <option value={pageZoom}>{pageZoom}%</option>
+                )}
+                {PAGE_ZOOM_PRESETS.map(z => (
+                  <option key={z} value={z}>{z}%</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="sd-header-zoom-btn"
+                onClick={() => stepPageZoom(10)}
+                disabled={pageZoom >= 200}
+                title="Zoom In (+10%)"
+              >
+                <Plus size={12} />
               </button>
             </div>
 
@@ -4496,6 +4758,28 @@ export const SmartWordStudio = ({
                     >
                       <Sparkles size={13} style={{ marginRight: 5, color: 'var(--primary-500)' }} /> AI Prompt
                     </button>
+                    {tableCtx.inTable && (
+                      <button
+                        type="button"
+                        className="btn btn-outline-danger btn-sm"
+                        title="Remove current table from document"
+                        onMouseDown={keepEditorFocus}
+                        onClick={handleTableDelete}
+                      >
+                        <Trash2 size={13} /> Remove Table
+                      </button>
+                    )}
+                    {selectedHrEl && (
+                      <button
+                        type="button"
+                        className="btn btn-outline-danger btn-sm"
+                        title="Remove selected horizontal line"
+                        onMouseDown={keepEditorFocus}
+                        onClick={() => handleRemoveBlockElement(selectedHrEl)}
+                      >
+                        <Trash2 size={13} /> Remove Line
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -4636,7 +4920,7 @@ export const SmartWordStudio = ({
                     >
                       <TableIcon size={13} /> Table <ChevronDown size={11} />
                     </button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => execCmd('insertHorizontalRule')}>
+                    <button className="btn btn-secondary btn-sm" onClick={handleInsertHorizontalRule}>
                       Horizontal Rule
                     </button>
                     <button
@@ -4648,12 +4932,32 @@ export const SmartWordStudio = ({
                     >
                       <LinkIcon size={13} /> Link
                     </button>
+                    {tableCtx.inTable && (
+                      <button
+                        type="button"
+                        className="btn btn-outline-danger btn-sm"
+                        title="Remove current table from document"
+                        onClick={handleTableDelete}
+                      >
+                        <Trash2 size={13} /> Remove Table
+                      </button>
+                    )}
+                    {selectedHrEl && (
+                      <button
+                        type="button"
+                        className="btn btn-outline-danger btn-sm"
+                        title="Remove selected horizontal line"
+                        onClick={() => handleRemoveBlockElement(selectedHrEl)}
+                      >
+                        <Trash2 size={13} /> Remove Line
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
             )}
 
-            {/* TAB 3: LAYOUT (Margins, Page sizing) */}
+            {/* TAB 3: LAYOUT (Margins, Page sizing, Zoom %) */}
             {activeRibbonTab === 'layout' && (
               <div className="sd-ribbon-group-row">
                 <div className="sd-ribbon-group">
@@ -4708,6 +5012,42 @@ export const SmartWordStudio = ({
                       onClick={() => setOrientation('landscape')}
                     >
                       Landscape
+                    </button>
+                  </div>
+                </div>
+
+                <div className="sd-ribbon-divider" />
+
+                <div className="sd-ribbon-group">
+                  <span className="sd-ribbon-group-title">Page Zoom / Size (%)</span>
+                  <div className="sd-ribbon-tools">
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => stepPageZoom(-10)}
+                      disabled={pageZoom <= 50}
+                      title="Decrease Page Size (-10%)"
+                    >
+                      <Minus size={13} />
+                    </button>
+                    {PAGE_ZOOM_PRESETS.map(z => (
+                      <button
+                        key={z}
+                        type="button"
+                        className={`btn btn-sm ${pageZoom === z ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => setPageZoomClamped(z)}
+                      >
+                        {z}%
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => stepPageZoom(10)}
+                      disabled={pageZoom >= 200}
+                      title="Increase Page Size (+10%)"
+                    >
+                      <Plus size={13} />
                     </button>
                   </div>
                 </div>
@@ -4981,7 +5321,15 @@ export const SmartWordStudio = ({
         {/* Studio workspace: editor canvas + optional live form preview */}
         <div className={`sd-studio-workspace mode-${viewMode}`}>
         {/* Studio Canvas Area (A4 Sheet Presentation) */}
-        <main className="sd-studio-canvas-scroll">
+        <main
+          className="sd-studio-canvas-scroll"
+          onWheel={e => {
+            if (e.ctrlKey || e.metaKey) {
+              e.preventDefault();
+              stepPageZoom(e.deltaY < 0 ? 10 : -10);
+            }
+          }}
+        >
           {isReviewer && (
             <div className="sd-studio-review-banner" id="review-banner">
               <UserCheck size={16} />
@@ -5023,6 +5371,7 @@ export const SmartWordStudio = ({
           <div ref={canvasLayoutRef} className="sd-studio-canvas-layout">
             <div
               className={`sd-word-page-sheet margins-${margins} size-${pageSize.toLowerCase()} ${orientation}`}
+              style={{ zoom: pageZoom !== 100 ? `${pageZoom}%` : undefined }}
             >
               {/* Page Header */}
               <div className="sd-word-page-header-mark" contentEditable="false">
@@ -5061,6 +5410,43 @@ export const SmartWordStudio = ({
                 <span>Page 1 of 1</span>
               </div>
             </div>
+
+            {/* Floating Quick-Remove Button for Hovered or Selected Table / Horizontal Line (<hr>) */}
+            {hoveredBlockInfo && hoveredBlockInfo.el?.isConnected && (
+              <div
+                className="sd-block-remove-popover sd-print-hide"
+                style={{
+                  top: `${hoveredBlockInfo.top}px`,
+                  left: `${hoveredBlockInfo.left}px`
+                }}
+                onMouseEnter={() => {
+                  if (hoverHideTimerRef.current) {
+                    clearTimeout(hoverHideTimerRef.current);
+                    hoverHideTimerRef.current = null;
+                  }
+                }}
+                onMouseLeave={() => {
+                  if (!selectedHrEl) {
+                    setHoveredBlockInfo(null);
+                  }
+                }}
+                onMouseDown={e => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+              >
+                <button
+                  type="button"
+                  className="sd-block-remove-btn"
+                  title={hoveredBlockInfo.type === 'hr' ? 'Remove Horizontal Line' : 'Remove Table'}
+                  onClick={() => handleRemoveBlockElement(hoveredBlockInfo.el)}
+                >
+                  <Trash2 size={12} />
+                  <span>{hoveredBlockInfo.type === 'hr' ? 'Remove Line' : 'Remove Table'}</span>
+                  <span className="sd-block-remove-x">×</span>
+                </button>
+              </div>
+            )}
 
             {/* Floating Image Quick Toolbar */}
             {selectedImageEl && imageToolbarPos && (
@@ -5439,9 +5825,87 @@ export const SmartWordStudio = ({
             currentUser={currentUser}
             templateCode={targetTemplate?.code}
             version={targetTemplate?.version}
+            pageZoom={pageZoom}
           />
         )}
         </div>
+
+        {/* MS Word-Style Bottom Status Bar with Page Size / Zoom (%) Slider & Presets */}
+        <footer className="sd-studio-zoom-statusbar sd-print-hide" aria-label="Document Status & Page Zoom">
+          <div className="sd-studio-statusbar-left">
+            <span className="sd-statusbar-item">
+              <FileText size={12} /> {pageSize} ({orientation === 'landscape' ? 'Landscape' : 'Portrait'})
+            </span>
+            <span className="sd-statusbar-sep">·</span>
+            <span className="sd-statusbar-item">Margins: {margins}</span>
+            {(tableCtx.inTable || selectedHrEl) && (
+              <>
+                <span className="sd-statusbar-sep">·</span>
+                <button
+                  type="button"
+                  className="sd-statusbar-remove-btn"
+                  onClick={() => tableCtx.inTable ? handleTableDelete() : handleRemoveBlockElement(selectedHrEl)}
+                >
+                  <Trash2 size={11} /> {tableCtx.inTable ? 'Remove Current Table' : 'Remove Selected Line'}
+                </button>
+              </>
+            )}
+          </div>
+
+          <div className="sd-studio-statusbar-right">
+            <span className="sd-statusbar-zoom-label">Page Size:</span>
+            <div className="sd-statusbar-presets">
+              {[75, 100, 125, 150].map(pct => (
+                <button
+                  key={pct}
+                  type="button"
+                  className={`sd-statusbar-preset-btn ${pageZoom === pct ? 'is-active' : ''}`}
+                  onClick={() => setPageZoomClamped(pct)}
+                  title={`Set page size to ${pct}%`}
+                >
+                  {pct}%
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="sd-statusbar-step-btn"
+              onClick={() => stepPageZoom(-10)}
+              disabled={pageZoom <= 50}
+              title="Zoom Out (-10%)"
+            >
+              <Minus size={12} />
+            </button>
+            <input
+              type="range"
+              min={50}
+              max={200}
+              step={5}
+              value={pageZoom}
+              onChange={e => setPageZoomClamped(e.target.value)}
+              className="sd-statusbar-zoom-slider"
+              aria-label="Page size percentage slider"
+              title={`Page Zoom: ${pageZoom}% (Drag to resize page)`}
+            />
+            <button
+              type="button"
+              className="sd-statusbar-step-btn"
+              onClick={() => stepPageZoom(10)}
+              disabled={pageZoom >= 200}
+              title="Zoom In (+10%)"
+            >
+              <Plus size={12} />
+            </button>
+            <button
+              type="button"
+              className="sd-statusbar-zoom-readout"
+              onClick={() => setPageZoomClamped(100)}
+              title="Click to reset page size to 100%"
+            >
+              {pageZoom}%
+            </button>
+          </div>
+        </footer>
 
         {tablePicker && (
           <TableGridPicker

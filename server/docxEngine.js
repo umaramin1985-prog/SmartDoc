@@ -67,7 +67,43 @@ function extractRtfText(rtfString) {
 }
 
 /**
- * Convert extracted Word .doc text into structured HTML paragraphs, headings, and tables.
+ * Sanitizes HTML produced from uploaded Word (.docx / .doc) files so it strictly uses
+ * only tags and formatting supported in Manual Mode (no inline margin/padding, no h4-h6, no thead/th).
+ */
+export function sanitizeHtmlToManualMode(rawHtml) {
+  if (!rawHtml) return '<p></p>';
+  let s = String(rawHtml);
+
+  // Convert h4, h5, h6 to h3 (Manual Mode supports H1, H2, H3)
+  s = s.replace(/<h[4-6]\b([^>]*)>([\s\S]*?)<\/h[4-6]>/gi, '<h3$1>$2</h3>');
+
+  // Unwrap thead / tfoot and convert th cells to td with strong (matching Manual Mode tables)
+  s = s.replace(/<\/?(?:thead|tfoot)\b[^>]*>/gi, '');
+  s = s.replace(/<th\b([^>]*)>([\s\S]*?)<\/th>/gi, (_, attrs, inner) => {
+    const trimmed = inner.trim();
+    const wrapped = /^<strong\b/i.test(trimmed) ? trimmed : `<strong>${trimmed}</strong>`;
+    return `<td${attrs}>${wrapped}</td>`;
+  });
+
+  // Strip inline margin and padding declarations from paragraphs, headings, tables, and lists
+  s = s.replace(/(<(?:p|h[1-3]|table|tr|td|ul|ol|li|blockquote)\b[^>]*?)\sstyle="([^"]*)"/gi, (full, tagStart, styleVal) => {
+    const allowed = styleVal
+      .split(';')
+      .map(rule => rule.trim())
+      .filter(Boolean)
+      .filter(rule => {
+        const prop = (rule.split(':')[0] || '').trim().toLowerCase();
+        return ['text-align', 'color', 'background-color', 'font-family', 'font-size', 'font-weight', 'font-style', 'text-decoration', 'width'].includes(prop);
+      });
+    return allowed.length > 0 ? `${tagStart} style="${allowed.join('; ')}"` : tagStart;
+  });
+
+  return s.trim() || '<p></p>';
+}
+
+/**
+ * Convert extracted Word .doc text into structured HTML paragraphs, headings, and tables
+ * strictly matching Manual Mode output (no inline margin/padding; uses <p><br/></p> line breaks).
  */
 export function convertDocTextToHtml(text) {
   if (!text) return '<p></p>';
@@ -75,37 +111,38 @@ export function convertDocTextToHtml(text) {
   const blocks = normalized.split(/\n{2,}/);
   const parts = [];
 
-  for (const block of blocks) {
-    const trimmed = block.trim();
+  for (let i = 0; i < blocks.length; i++) {
+    const trimmed = blocks[i].trim();
     if (!trimmed) continue;
     const lines = trimmed.split('\n');
     const hasTabs = lines.some(l => l.includes('\t'));
 
     if (hasTabs && lines.length > 0) {
-      let tbl = '<table style="width: 100%; border-collapse: collapse; margin: 12px 0;"><tbody>';
+      let tbl = '<table><tbody>';
       for (const line of lines) {
         tbl += '<tr>';
         for (const cell of line.split('\t')) {
-          tbl += `<td style="border: 1px solid #d1d5db; padding: 6px 10px;">${escXml(cell.trim()) || '&nbsp;'}</td>`;
+          tbl += `<td>${escXml(cell.trim()) || '&nbsp;'}</td>`;
         }
         tbl += '</tr>';
       }
       tbl += '</tbody></table>';
       parts.push(tbl);
-      continue;
-    }
-
-    // Heading heuristic: short single line in uppercase or typical title keyword
-    if (lines.length === 1 && trimmed.length < 80 && !/[.?!]$/.test(trimmed) && !trimmed.includes('{{')) {
-      if (/^[A-Z0-9\s—–:-]{4,}$/.test(trimmed) || /^(agreement|contract|form|policy|application|request|memorandum|notice)\b/i.test(trimmed)) {
-        parts.push(`<h2 style="margin: 12px 0 8px;">${escXml(trimmed)}</h2>`);
-        continue;
+    } else if (lines.length === 1 && trimmed.length < 80 && !/[.?!]$/.test(trimmed) && !trimmed.includes('{{') && (
+      /^[A-Z0-9\s—–:-]{4,}$/.test(trimmed) || /^(agreement|contract|form|policy|application|request|memorandum|notice)\b/i.test(trimmed)
+    )) {
+      parts.push(`<h2>${escXml(trimmed)}</h2>`);
+    } else {
+      for (const line of lines) {
+        const cleanLine = escXml(line.trim());
+        if (cleanLine) {
+          parts.push(`<p>${cleanLine}</p>`);
+        }
       }
     }
 
-    const paraHtml = lines.map(l => escXml(l.trim())).filter(Boolean).join('<br>');
-    if (paraHtml) {
-      parts.push(`<p style="margin: 0 0 10px;">${paraHtml}</p>`);
+    if (i < blocks.length - 1) {
+      parts.push('<p><br/></p>');
     }
   }
 
@@ -217,7 +254,7 @@ export async function parseWordDocument(base64) {
   }
 
   return {
-    html,
+    html: sanitizeHtmlToManualMode(html),
     fields: parsed.fields,
     signatureSlots: parsed.signatureSlots,
     systemTags: parsed.systemTags,

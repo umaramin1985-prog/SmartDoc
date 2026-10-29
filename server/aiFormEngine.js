@@ -148,7 +148,7 @@ export function extractCustomFieldsFromPrompt(prompt, style = 'form') {
 
   if (!segment) return [];
 
-  segment = segment.replace(/(?:,?\s+and\s+|\.\s+)(?:sequential\s+|dual\s+|multi-tier\s+|final\s+)?(?:approval|sign-off|authorization|review|signature)s?\s+(?:by|from|for)\s+[^.]+$/i, '');
+  segment = segment.replace(/(?:,?\s*(?:and\s+)?|\.\s+)(?:sequential\s+|dual\s+|multi-tier\s+|final\s+)?(?:approval|sign-off|authorization|review|signature)s?\s+(?:by|from|for)\s+[^.]*\.?\s*$/i, '');
 
   const tokens = [];
   let current = '';
@@ -204,6 +204,7 @@ export function extractCustomFieldsFromPrompt(prompt, style = 'form') {
 
     if (
       /^(?:signature\s+(?:slots?|blocks?)|digital\s+signatures?|approval\s+chain|workflow|itemized\s+.*table|criteria\s+table|evaluation\s+table|pass\/fail\s+table|both\s+parties)$/i.test(item) ||
+      /^(?:human\s+resources|it\s*&\s*systems|finance\s*&\s*accounting|legal\s*&\s*compliance|executive\s+management|operations)$/i.test(item) ||
       /\b(?:approval|sign-?off|signatures?|signature\s+blocks?|table|matrix)\s*$/i.test(item) ||
       /^approval\s+(?:by|from)\b/i.test(item)
     ) {
@@ -282,17 +283,16 @@ export function extractCustomFieldsFromPrompt(prompt, style = 'form') {
     }
     usedKeys.add(key);
 
-    const width = (type === 'textarea' || type === 'checkbox') ? 100 : 50;
-    const mode = style === 'contract' && (type === 'text' || type === 'date') ? 'placeholder' : 'input';
+    const mode = style === 'contract' && type === 'text' ? 'placeholder' : 'input';
 
     extracted.push({
       key,
       label: cleanLabel,
-      type,
+      type: mode === 'placeholder' ? 'text' : type,
       required: !isOptional,
       mode,
       bold: type === 'number' && /total|amount|budget|days/i.test(cleanLabel),
-      width,
+      width: null,
       options: type === 'dropdown' ? customOptions : undefined,
       description: `${cleanLabel} (${type === 'dropdown' ? 'select one option' : type})`
     });
@@ -367,55 +367,29 @@ function mergeBlueprintWithCustomFields(baseFields, customFields) {
 }
 
 /**
- * Renders a clean 2-column grid of field tags so labels are never squished or truncated
+ * Renders field tags one per paragraph line (matching Manual Mode "Enter" line breaks with zero inline margin/padding)
  */
 function renderFieldRowsHtml(fieldsList) {
   if (!fieldsList || fieldsList.length === 0) return '';
-  const rows = [];
-  let pair = [];
-
-  for (const f of fieldsList) {
-    if (f.width === 100 || f.type === 'textarea' || f.type === 'checkbox') {
-      if (pair.length > 0) {
-        rows.push(`<p style="margin-bottom: 10px;">${pair.map(p => `{{${p.key}}}`).join(' &nbsp; ')}</p>`);
-        pair = [];
-      }
-      rows.push(`<p style="margin-bottom: 12px;">{{${f.key}}}</p>`);
-    } else {
-      pair.push(f);
-      if (pair.length === 2) {
-        rows.push(`<p style="margin-bottom: 10px;">${pair.map(p => `{{${p.key}}}`).join(' &nbsp; ')}</p>`);
-        pair = [];
-      }
-    }
-  }
-  if (pair.length > 0) {
-    rows.push(`<p style="margin-bottom: 10px;">${pair.map(p => `{{${p.key}}}`).join(' &nbsp; ')}</p>`);
-  }
-  return rows.join('\n');
+  return fieldsList.map(f => `<p>{{${f.key}}}</p>`).join('\n');
 }
 
 /**
- * Renders the top document header block
+ * Renders the top document header block using only Manual Mode formatting and line breaks
  */
 function renderDocumentHeader(title, includeHeaderMeta = true) {
   const metaHtml = includeHeaderMeta
-    ? `<p style="text-align: center; color: #64748b; font-size: 10pt; margin-top: 0; margin-bottom: 18px;">
-  Form ID: <strong>{{Form ID}}</strong> &nbsp;·&nbsp; Department: <strong>{{Department}}</strong> &nbsp;·&nbsp; Date: <strong>{{Submitted Date}}</strong> &nbsp;·&nbsp; Version: <strong>{{Version}}</strong>
-</p>`
-    : `<p style="margin-bottom: 14px;"></p>`;
+    ? `<p style="text-align: center;">Form ID: <strong>{{Form ID}}</strong> · Department: <strong>{{Department}}</strong> · Date: <strong>{{Submitted Date}}</strong> · Version: <strong>{{Version}}</strong></p>\n<p><br/></p>`
+    : `<p><br/></p>`;
 
-  return `<h1 style="text-align: center; margin-bottom: 4px;">${esc(title)}</h1>\n${metaHtml}`;
+  return `<h1 style="text-align: center;">${esc(title)}</h1>\n${metaHtml}`;
 }
 
 /**
- * Renders an optional executive instructions banner
+ * Renders an optional executive instructions line using standard Manual Mode paragraph + line break
  */
 function renderInstructionsBanner(purposeText) {
-  return `
-<div style="background-color: #f8fafc; border-left: 4px solid #0f172a; padding: 10px 14px; margin-bottom: 16px; font-size: 9.5pt; color: #334155;">
-  <strong>Instructions & Governance Notice:</strong> ${esc(purposeText)} All mandatory fields marked with <em>* Required</em> must be completed prior to digital signature and workflow routing.
-</div>`;
+  return `<p><strong>Instructions & Governance Notice:</strong> <em>${esc(purposeText)} All mandatory fields marked with * Required must be completed prior to digital signature and workflow routing.</em></p>\n<p><br/></p>`;
 }
 
 /**
@@ -423,38 +397,37 @@ function renderInstructionsBanner(purposeText) {
  */
 function renderOfficialUseSection(workflow = []) {
   const approverDept = workflow[0] || 'Department Head';
-  return `
-<h3 style="margin-top: 20px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">Official Review & Verification Summary</h3>
-<table style="width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 9.5pt;">
+  return `<p><br/></p>
+<h3>Official Review & Verification Summary</h3>
+<table>
   <tbody>
-    <tr style="background-color: #f8fafc;">
-      <td style="border: 1px solid #cbd5e1; padding: 8px; width: 25%;"><strong>Reviewing Authority:</strong></td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; width: 25%;">${esc(approverDept)}</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; width: 25%;"><strong>Compliance Verification:</strong></td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; width: 25%;">[ &nbsp; ] Verified &nbsp; [ &nbsp; ] Exception</td>
+    <tr>
+      <td><strong>Reviewing Authority:</strong></td>
+      <td>${esc(approverDept)}</td>
+      <td><strong>Compliance Verification:</strong></td>
+      <td>[ ] Verified   [ ] Exception</td>
     </tr>
     <tr>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;"><strong>Budget / Policy Code:</strong></td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;"></td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;"><strong>Audit Reference:</strong></td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">{{Form ID}}</td>
+      <td><strong>Budget / Policy Code:</strong></td>
+      <td></td>
+      <td><strong>Audit Reference:</strong></td>
+      <td>{{Form ID}}</td>
     </tr>
   </tbody>
 </table>`;
 }
 
 /**
- * Renders multi-tier digital signature blocks
+ * Renders multi-tier digital signature blocks matching Manual Mode (each signature on its own paragraph line at default 100% width)
  */
 function renderSignaturesBlock(workflow = [], submitterTitle = 'Applicant Digital Signature', sectionNumber = 4) {
-  const totalSigs = 1 + (workflow?.length || 0);
-  const sigWidth = totalSigs === 2 ? 50 : totalSigs >= 3 ? 33 : 100;
-  return `
-<h3 style="margin-top: 22px; margin-bottom: 12px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">${sectionNumber}. Authorization & Digital Sign-Off</h3>
-<p style="margin-top: 12px; margin-bottom: 16px;">
-  <span data-sig-width="${sigWidth}">{{Signature: Submitter}}</span>
-  ${workflow.map(dept => `<span data-sig-width="${sigWidth}">{{Signature: ${esc(dept)}}}</span>`).join(' ')}
-</p>`;
+  const sigLines = [
+    '<p>{{Signature: Submitter}}</p>',
+    ...(workflow || []).map(dept => `<p>{{Signature: ${esc(dept)}}}</p>`)
+  ];
+  return `<p><br/></p>
+<h3>${sectionNumber}. Authorization & Digital Sign-Off</h3>
+${sigLines.join('\n')}`;
 }
 
 /**
@@ -663,41 +636,23 @@ export function synthesizeFormTemplate({
     htmlContent = `
 ${renderDocumentHeader(title, includeHeaderMeta)}
 ${includeInstructions ? renderInstructionsBanner('Complete all highlighted in-text placeholders and commercial schedule fields before executing with PKI digital signatures.') : ''}
-
-<p style="margin-bottom: 14px; text-align: justify;">
-  This <strong>${esc(title)}</strong> (the <em>"Agreement"</em>) is entered into and made effective as of
-  <strong>{{effective_date}}</strong> (the <em>"Effective Date"</em>), by and between
-  <strong>{{party_one_name}}</strong>${fields.some(f => f.key === 'party_one_address') ? `, with principal offices at {{party_one_address}}` : ''} (<em>"First Party"</em>), and
-  <strong>{{party_two_name}}</strong>${fields.some(f => f.key === 'party_two_address') ? `, with principal offices at {{party_two_address}}` : ''} (<em>"Second Party"</em>).
-</p>
-
-<h3 style="margin-top: 18px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">1. Purpose & Commercial Scope</h3>
-<p style="margin-bottom: 10px; text-align: justify;">
-  The Parties wish to establish a formal, legally binding relationship and, in connection with this engagement, may disclose proprietary technical, financial, or operational information subject to the terms set forth below:
-</p>
-<p style="margin-bottom: 14px;">
-  {{scope_of_disclosure}}
-</p>
-
-<h3 style="margin-top: 18px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">2. Term, Confidentiality & Obligations</h3>
-<p style="margin-bottom: 12px; text-align: justify;">
-  Each Receiving Party agrees to hold all proprietary disclosures in strict confidence and not to disclose them to any third party without prior written consent. The obligations under this Agreement shall remain in full force and effect for a term of years specified below${fields.some(f => f.key === 'notice_period_days') ? `, subject to written termination notice` : ''}:
-</p>
-<p style="margin-bottom: 14px;">
-  {{term_duration_years}} ${fields.some(f => f.key === 'notice_period_days') ? '&nbsp; {{notice_period_days}}' : ''}
-</p>
-
-<h3 style="margin-top: 18px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">3. Governing Law, Remedies & Severability</h3>
-<p style="margin-bottom: 14px; text-align: justify;">
-  This Agreement and any dispute or claim arising out of or in connection with its subject matter shall be governed by and construed exclusively in accordance with the laws of <strong>{{governing_law}}</strong>. Any breach of confidentiality may entitle the aggrieved Party to immediate injunctive relief in addition to legal remedies.
-</p>
-
-${extraCustomFields.length > 0 ? `
-<h3 style="margin-top: 18px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">4. Additional Special Provisions</h3>
-${renderFieldRowsHtml(extraCustomFields)}
-` : ''}
-
-${includeDeclaration ? `<p style="margin-top: 14px; margin-bottom: 16px;">{{confidentiality_agreed}}</p>` : ''}
+<p style="text-align: justify;">This <strong>${esc(title)}</strong> (the <em>"Agreement"</em>) is entered into and made effective as of <strong>{{effective_date}}</strong> (the <em>"Effective Date"</em>), by and between <strong>{{party_one_name}}</strong>${fields.some(f => f.key === 'party_one_address') ? `, with principal offices at {{party_one_address}}` : ''} (<em>"First Party"</em>), and <strong>{{party_two_name}}</strong>${fields.some(f => f.key === 'party_two_address') ? `, with principal offices at {{party_two_address}}` : ''} (<em>"Second Party"</em>).</p>
+<p><br/></p>
+<h3>1. Purpose & Commercial Scope</h3>
+<p style="text-align: justify;">The Parties wish to establish a formal, legally binding relationship and, in connection with this engagement, may disclose proprietary technical, financial, or operational information subject to the terms set forth below:</p>
+<p>{{scope_of_disclosure}}</p>
+<p><br/></p>
+<h3>2. Term, Confidentiality & Obligations</h3>
+<p style="text-align: justify;">Each Receiving Party agrees to hold all proprietary disclosures in strict confidence and not to disclose them to any third party without prior written consent. The obligations under this Agreement shall remain in full force and effect for a term of years specified below${fields.some(f => f.key === 'notice_period_days') ? `, subject to written termination notice` : ''}:</p>
+<p>{{term_duration_years}}</p>
+${fields.some(f => f.key === 'notice_period_days') ? '<p>{{notice_period_days}}</p>' : ''}
+<p><br/></p>
+<h3>3. Governing Law, Remedies & Severability</h3>
+<p style="text-align: justify;">This Agreement and any dispute or claim arising out of or in connection with its subject matter shall be governed by and construed exclusively in accordance with the laws of <strong>{{governing_law}}</strong>. Any breach of confidentiality may entitle the aggrieved Party to immediate injunctive relief in addition to legal remedies.</p>
+${extraCustomFields.length > 0 ? `<p><br/></p>
+<h3>4. Additional Special Provisions</h3>
+${renderFieldRowsHtml(extraCustomFields)}` : ''}
+${includeDeclaration ? `<p><br/></p>\n<p>{{confidentiality_agreed}}</p>` : ''}
 ${includeOfficialUse ? renderOfficialUseSection(workflow) : ''}
 ${renderSignaturesBlock(workflow, 'First Party / Originator Signatory', extraCustomFields.length > 0 ? 5 : 4)}
 `;
@@ -728,27 +683,26 @@ ${renderSignaturesBlock(workflow, 'First Party / Originator Signatory', extraCus
 
     htmlContent = `
 ${renderDocumentHeader(title, includeHeaderMeta)}
-<table style="width: 100%; border-collapse: collapse; margin-bottom: 18px; font-size: 10pt;">
+<table>
   <tbody>
     <tr>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; width: 50%; background-color: #f8fafc;">{{memo_to}}</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; width: 50%; background-color: #f8fafc;">{{memo_from}}</td>
+      <td>{{memo_to}}</td>
+      <td>{{memo_from}}</td>
     </tr>
     <tr>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">{{effective_date}}</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">{{classification}}</td>
+      <td>{{effective_date}}</td>
+      <td>{{classification}}</td>
     </tr>
   </tbody>
 </table>
-
-<h3 style="margin-top: 16px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">1. Background & Policy Statement</h3>
-<p style="margin-bottom: 14px;">{{executive_summary}}</p>
-
-<h3 style="margin-top: 16px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">2. Implementation & Required Actions</h3>
-<p style="margin-bottom: 14px;">{{action_items}}</p>
-
+<p><br/></p>
+<h3>1. Background & Policy Statement</h3>
+<p>{{executive_summary}}</p>
+<p><br/></p>
+<h3>2. Implementation & Required Actions</h3>
+<p>{{action_items}}</p>
 ${renderFieldRowsHtml(fields.filter(f => !baseFields.some(bf => bf.key === f.key)))}
-${includeDeclaration ? `<p style="margin-bottom: 16px;">{{directive_ack}}</p>` : ''}
+${includeDeclaration ? `<p>{{directive_ack}}</p>` : ''}
 ${includeOfficialUse ? renderOfficialUseSection(workflow) : ''}
 ${renderSignaturesBlock(workflow, 'Issuing Author Signatory', 3)}
 `;
@@ -785,58 +739,54 @@ ${renderSignaturesBlock(workflow, 'Issuing Author Signatory', 3)}
     htmlContent = `
 ${renderDocumentHeader(title, includeHeaderMeta)}
 ${includeInstructions ? renderInstructionsBanner('Evaluate each operational criterion objectively. Record any non-conformance and required Corrective & Preventive Actions (CAPA) in Section 3.') : ''}
-
-<h3 style="margin-top: 14px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">1. Audit Scope & Inspector Metadata</h3>
+<h3>1. Audit Scope & Inspector Metadata</h3>
 ${renderFieldRowsHtml(fields.filter(f => !['findings_summary', 'audit_declaration'].includes(f.key)))}
-
-${tableMode !== false ? `
-<h3 style="margin-top: 18px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">2. Standardized Inspection Criteria Matrix</h3>
-<table style="width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 9.5pt;">
-  <thead>
-    <tr style="background-color: #f8fafc;">
-      <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: center; width: 8%;">#</th>
-      <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: left; width: 44%;">Inspection Standard / Control Checkpoint</th>
-      <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: center; width: 24%;">Evaluation Result</th>
-      <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: left; width: 24%;">Inspector Evidence / Notes</th>
-    </tr>
-  </thead>
+${tableMode !== false ? `<p><br/></p>
+<h3>2. Standardized Inspection Criteria Matrix</h3>
+<table>
   <tbody>
     <tr>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">01</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">Emergency exits unobstructed, evacuation maps posted, and safety lighting operational</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">[ &nbsp; ] Pass &nbsp; [ &nbsp; ] Fail &nbsp; [ &nbsp; ] N/A</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;"></td>
+      <td><strong>#</strong></td>
+      <td><strong>Inspection Standard / Control Checkpoint</strong></td>
+      <td><strong>Evaluation Result</strong></td>
+      <td><strong>Inspector Evidence / Notes</strong></td>
     </tr>
     <tr>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">02</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">Machinery, hardware, and instrumentation operating within calibrated safety thresholds</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">[ &nbsp; ] Pass &nbsp; [ &nbsp; ] Fail &nbsp; [ &nbsp; ] N/A</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;"></td>
+      <td>01</td>
+      <td>Emergency exits unobstructed, evacuation maps posted, and safety lighting operational</td>
+      <td>[ ] Pass   [ ] Fail   [ ] N/A</td>
+      <td></td>
     </tr>
     <tr>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">03</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">Standard Operating Procedures (SOPs) and compliance logs current at workstation</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">[ &nbsp; ] Pass &nbsp; [ &nbsp; ] Fail &nbsp; [ &nbsp; ] N/A</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;"></td>
+      <td>02</td>
+      <td>Machinery, hardware, and instrumentation operating within calibrated safety thresholds</td>
+      <td>[ ] Pass   [ ] Fail   [ ] N/A</td>
+      <td></td>
     </tr>
     <tr>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">04</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">Personal Protective Equipment (PPE) & first-aid stations stocked and accessible</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">[ &nbsp; ] Pass &nbsp; [ &nbsp; ] Fail &nbsp; [ &nbsp; ] N/A</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;"></td>
+      <td>03</td>
+      <td>Standard Operating Procedures (SOPs) and compliance logs current at workstation</td>
+      <td>[ ] Pass   [ ] Fail   [ ] N/A</td>
+      <td></td>
     </tr>
     <tr>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">05</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">Access controls, visitor logs, and restricted zone security locks verified</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">[ &nbsp; ] Pass &nbsp; [ &nbsp; ] Fail &nbsp; [ &nbsp; ] N/A</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;"></td>
+      <td>04</td>
+      <td>Personal Protective Equipment (PPE) & first-aid stations stocked and accessible</td>
+      <td>[ ] Pass   [ ] Fail   [ ] N/A</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>05</td>
+      <td>Access controls, visitor logs, and restricted zone security locks verified</td>
+      <td>[ ] Pass   [ ] Fail   [ ] N/A</td>
+      <td></td>
     </tr>
   </tbody>
 </table>` : ''}
-
-<h3 style="margin-top: 18px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">3. Audit Findings & Corrective Action Plan</h3>
-<p style="margin-bottom: 12px;">{{findings_summary}}</p>
-${includeDeclaration ? `<p style="margin-bottom: 16px;">{{audit_declaration}}</p>` : ''}
+<p><br/></p>
+<h3>3. Audit Findings & Corrective Action Plan</h3>
+<p>{{findings_summary}}</p>
+${includeDeclaration ? `<p>{{audit_declaration}}</p>` : ''}
 ${includeOfficialUse ? renderOfficialUseSection(workflow) : ''}
 ${renderSignaturesBlock(workflow, 'Lead Auditor / Inspector Signature', 4)}
 `;
@@ -880,40 +830,36 @@ ${renderSignaturesBlock(workflow, 'Lead Auditor / Inspector Signature', 4)}
     htmlContent = `
 ${renderDocumentHeader(title, includeHeaderMeta)}
 ${includeInstructions ? renderInstructionsBanner('Submit annual leave requests at least 5 business days in advance. Medical certificates must accompany sick leave exceeding 2 consecutive working days.') : ''}
-
-<h3 style="margin-top: 14px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">1. Employee Profile & Leave Category</h3>
+<h3>1. Employee Profile & Leave Category</h3>
 ${renderFieldRowsHtml(sec1Fields)}
-
-<h3 style="margin-top: 18px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">2. Absence Schedule & Coverage Arrangement</h3>
+<p><br/></p>
+<h3>2. Absence Schedule & Coverage Arrangement</h3>
 ${renderFieldRowsHtml(sec2Fields)}
-
-${tableMode === true ? `
-<h3 style="margin-top: 18px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">Task Delegation & Handover Matrix</h3>
-<table style="width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 9.5pt;">
-  <thead>
-    <tr style="background-color: #f8fafc;">
-      <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: left; width: 45%;">Active Deliverable / Responsibility</th>
-      <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: left; width: 30%;">Covering Colleague</th>
-      <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: left; width: 25%;">Due Date / Status</th>
-    </tr>
-  </thead>
+${tableMode === true ? `<p><br/></p>
+<h3>Task Delegation & Handover Matrix</h3>
+<table>
   <tbody>
     <tr>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">Daily operational inquiries & client escalations</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;"></td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">Briefed</td>
+      <td><strong>Active Deliverable / Responsibility</strong></td>
+      <td><strong>Covering Colleague</strong></td>
+      <td><strong>Due Date / Status</strong></td>
     </tr>
     <tr>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">Scheduled project milestones & weekly reporting</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;"></td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">Handed Over</td>
+      <td>Daily operational inquiries & client escalations</td>
+      <td></td>
+      <td>Briefed</td>
+    </tr>
+    <tr>
+      <td>Scheduled project milestones & weekly reporting</td>
+      <td></td>
+      <td>Handed Over</td>
     </tr>
   </tbody>
 </table>` : ''}
-
-<h3 style="margin-top: 18px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">3. Handover Details & Employee Declaration</h3>
-<p style="margin-bottom: 12px;">{{leave_reason}}</p>
-${includeDeclaration ? `<p style="margin-bottom: 16px;">{{handover_declaration}}</p>` : ''}
+<p><br/></p>
+<h3>3. Handover Details & Employee Declaration</h3>
+<p>{{leave_reason}}</p>
+${includeDeclaration ? `<p>{{handover_declaration}}</p>` : ''}
 ${includeOfficialUse ? renderOfficialUseSection(workflow) : ''}
 ${renderSignaturesBlock(workflow, 'Employee Signature', 4)}
 `;
@@ -957,46 +903,43 @@ ${renderSignaturesBlock(workflow, 'Employee Signature', 4)}
 
     htmlContent = `
 ${renderDocumentHeader(title, includeHeaderMeta)}
-<h3 style="margin-top: 14px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">1. Personnel & Employment Details</h3>
+<h3>1. Personnel & Employment Details</h3>
 ${renderFieldRowsHtml(fields.filter(f => !['provisioning_notes', 'clearance_declaration'].includes(f.key)))}
-
-${tableMode !== false ? `
-<h3 style="margin-top: 18px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">2. ${isOnboarding ? 'IT, Security & Workspace Provisioning Matrix' : 'Departmental Asset & Access De-Provisioning Matrix'}</h3>
-<table style="width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 9.5pt;">
-  <thead>
-    <tr style="background-color: #f8fafc;">
-      <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: left; width: 25%;">Domain</th>
-      <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: left; width: 45%;">Action Item / Asset Verification</th>
-      <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: center; width: 30%;">Status</th>
-    </tr>
-  </thead>
+${tableMode !== false ? `<p><br/></p>
+<h3>2. ${isOnboarding ? 'IT, Security & Workspace Provisioning Matrix' : 'Departmental Asset & Access De-Provisioning Matrix'}</h3>
+<table>
   <tbody>
     <tr>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;"><strong>IT & Hardware</strong></td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">${isOnboarding ? 'Corporate laptop imaged, encrypted, and peripherals assigned' : 'Corporate laptop, charger, monitors, and peripherals returned intact'}</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">[ &nbsp; ] Completed &nbsp; [ &nbsp; ] N/A</td>
+      <td><strong>Domain</strong></td>
+      <td><strong>Action Item / Asset Verification</strong></td>
+      <td><strong>Status</strong></td>
     </tr>
     <tr>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;"><strong>Identity & SSO</strong></td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">${isOnboarding ? 'Corporate email, SSO, MFA token, and VPN credentials issued' : 'SSO, email forwarding configured, and VPN/cloud tokens revoked'}</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">[ &nbsp; ] Completed &nbsp; [ &nbsp; ] N/A</td>
+      <td><strong>IT & Hardware</strong></td>
+      <td>${isOnboarding ? 'Corporate laptop imaged, encrypted, and peripherals assigned' : 'Corporate laptop, charger, monitors, and peripherals returned intact'}</td>
+      <td>[ ] Completed   [ ] N/A</td>
     </tr>
     <tr>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;"><strong>Facilities & Badge</strong></td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">${isOnboarding ? 'Smart ID badge printed, parking pass, and desk assigned' : 'Building access badge, keys, and parking transponder surrendered'}</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">[ &nbsp; ] Completed &nbsp; [ &nbsp; ] N/A</td>
+      <td><strong>Identity & SSO</strong></td>
+      <td>${isOnboarding ? 'Corporate email, SSO, MFA token, and VPN credentials issued' : 'SSO, email forwarding configured, and VPN/cloud tokens revoked'}</td>
+      <td>[ ] Completed   [ ] N/A</td>
     </tr>
     <tr>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;"><strong>HR & Payroll</strong></td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">${isOnboarding ? 'Signed employment contract, NDA, and payroll bank details filed' : 'Leave balance calculated, exit interview held, and final settlement queued'}</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">[ &nbsp; ] Completed &nbsp; [ &nbsp; ] N/A</td>
+      <td><strong>Facilities & Badge</strong></td>
+      <td>${isOnboarding ? 'Smart ID badge printed, parking pass, and desk assigned' : 'Building access badge, keys, and parking transponder surrendered'}</td>
+      <td>[ ] Completed   [ ] N/A</td>
+    </tr>
+    <tr>
+      <td><strong>HR & Payroll</strong></td>
+      <td>${isOnboarding ? 'Signed employment contract, NDA, and payroll bank details filed' : 'Leave balance calculated, exit interview held, and final settlement queued'}</td>
+      <td>[ ] Completed   [ ] N/A</td>
     </tr>
   </tbody>
 </table>` : ''}
-
-<h3 style="margin-top: 18px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">3. Notes & Compliance Sign-Off</h3>
-<p style="margin-bottom: 12px;">{{provisioning_notes}}</p>
-${includeDeclaration ? `<p style="margin-bottom: 16px;">{{clearance_declaration}}</p>` : ''}
+<p><br/></p>
+<h3>3. Notes & Compliance Sign-Off</h3>
+<p>{{provisioning_notes}}</p>
+${includeDeclaration ? `<p>{{clearance_declaration}}</p>` : ''}
 ${includeOfficialUse ? renderOfficialUseSection(workflow) : ''}
 ${renderSignaturesBlock(workflow, isOnboarding ? 'Hiring Manager Signature' : 'Employee Signature', 4)}
 `;
@@ -1030,42 +973,39 @@ ${renderSignaturesBlock(workflow, isOnboarding ? 'Hiring Manager Signature' : 'E
 
     htmlContent = `
 ${renderDocumentHeader(title, includeHeaderMeta)}
-<h3 style="margin-top: 14px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">1. Employee & Appraisal Metadata</h3>
+<h3>1. Employee & Appraisal Metadata</h3>
 ${renderFieldRowsHtml(fields.filter(f => !['achievements_summary', 'growth_goals', 'review_acknowledgment'].includes(f.key)))}
-
-${tableMode !== false ? `
-<h3 style="margin-top: 18px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">2. Core Competency Evaluation Matrix</h3>
-<table style="width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 9.5pt;">
-  <thead>
-    <tr style="background-color: #f8fafc;">
-      <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: left; width: 32%;">Competency Pillar</th>
-      <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: left; width: 43%;">Evaluation Benchmark</th>
-      <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: center; width: 25%;">Score (1 - 5)</th>
-    </tr>
-  </thead>
+${tableMode !== false ? `<p><br/></p>
+<h3>2. Core Competency Evaluation Matrix</h3>
+<table>
   <tbody>
     <tr>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;"><strong>Execution & Quality</strong></td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">Delivers accurate, reliable results on schedule with minimal rework</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">[ 1 ] [ 2 ] [ 3 ] [ 4 ] [ 5 ]</td>
+      <td><strong>Competency Pillar</strong></td>
+      <td><strong>Evaluation Benchmark</strong></td>
+      <td><strong>Score (1 - 5)</strong></td>
     </tr>
     <tr>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;"><strong>Problem Solving & Initiative</strong></td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">Identifies bottlenecks proactively and proposes scalable solutions</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">[ 1 ] [ 2 ] [ 3 ] [ 4 ] [ 5 ]</td>
+      <td><strong>Execution & Quality</strong></td>
+      <td>Delivers accurate, reliable results on schedule with minimal rework</td>
+      <td>[ 1 ] [ 2 ] [ 3 ] [ 4 ] [ 5 ]</td>
     </tr>
     <tr>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;"><strong>Collaboration & Leadership</strong></td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">Communicates clearly across teams and mentors peers constructively</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">[ 1 ] [ 2 ] [ 3 ] [ 4 ] [ 5 ]</td>
+      <td><strong>Problem Solving & Initiative</strong></td>
+      <td>Identifies bottlenecks proactively and proposes scalable solutions</td>
+      <td>[ 1 ] [ 2 ] [ 3 ] [ 4 ] [ 5 ]</td>
+    </tr>
+    <tr>
+      <td><strong>Collaboration & Leadership</strong></td>
+      <td>Communicates clearly across teams and mentors peers constructively</td>
+      <td>[ 1 ] [ 2 ] [ 3 ] [ 4 ] [ 5 ]</td>
     </tr>
   </tbody>
 </table>` : ''}
-
-<h3 style="margin-top: 18px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">3. Key Achievements & Next Cycle Objectives</h3>
-<p style="margin-bottom: 12px;">{{achievements_summary}}</p>
-<p style="margin-bottom: 12px;">{{growth_goals}}</p>
-${includeDeclaration ? `<p style="margin-bottom: 16px;">{{review_acknowledgment}}</p>` : ''}
+<p><br/></p>
+<h3>3. Key Achievements & Next Cycle Objectives</h3>
+<p>{{achievements_summary}}</p>
+<p>{{growth_goals}}</p>
+${includeDeclaration ? `<p>{{review_acknowledgment}}</p>` : ''}
 ${includeOfficialUse ? renderOfficialUseSection(workflow) : ''}
 ${renderSignaturesBlock(workflow, 'Employee Signature', 4)}
 `;
@@ -1110,13 +1050,12 @@ ${renderSignaturesBlock(workflow, 'Employee Signature', 4)}
     htmlContent = `
 ${renderDocumentHeader(title, includeHeaderMeta)}
 ${includeInstructions ? renderInstructionsBanner('All access and production change requests are logged under ISO-27001 / SOC-2 security controls. Privileged access is subject to quarterly recertification.') : ''}
-
-<h3 style="margin-top: 14px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">1. Requester & Technical Specifications</h3>
+<h3>1. Requester & Technical Specifications</h3>
 ${renderFieldRowsHtml(fields.filter(f => !['business_justification', 'security_agreement'].includes(f.key)))}
-
-<h3 style="margin-top: 18px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">2. ${isChangeRequest ? 'Implementation & Rollback Plan' : 'Operational Justification & Security Compliance'}</h3>
-<p style="margin-bottom: 12px;">{{business_justification}}</p>
-${includeDeclaration ? `<p style="margin-bottom: 16px;">{{security_agreement}}</p>` : ''}
+<p><br/></p>
+<h3>2. ${isChangeRequest ? 'Implementation & Rollback Plan' : 'Operational Justification & Security Compliance'}</h3>
+<p>{{business_justification}}</p>
+${includeDeclaration ? `<p>{{security_agreement}}</p>` : ''}
 ${includeOfficialUse ? renderOfficialUseSection(workflow) : ''}
 ${renderSignaturesBlock(workflow, 'Requester Digital Signature', 3)}
 `;
@@ -1163,12 +1102,12 @@ ${renderSignaturesBlock(workflow, 'Requester Digital Signature', 3)}
 
     htmlContent = `
 ${renderDocumentHeader(title, includeHeaderMeta)}
-<h3 style="margin-top: 14px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">1. Primary Identification & Classification</h3>
+<h3>1. Primary Identification & Classification</h3>
 ${renderFieldRowsHtml(fields.filter(f => !['narrative_details', 'safety_declaration'].includes(f.key)))}
-
-<h3 style="margin-top: 18px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">2. Detailed Report & Action Plan</h3>
-<p style="margin-bottom: 12px;">{{narrative_details}}</p>
-${includeDeclaration ? `<p style="margin-bottom: 16px;">{{safety_declaration}}</p>` : ''}
+<p><br/></p>
+<h3>2. Detailed Report & Action Plan</h3>
+<p>{{narrative_details}}</p>
+${includeDeclaration ? `<p>{{safety_declaration}}</p>` : ''}
 ${includeOfficialUse ? renderOfficialUseSection(workflow) : ''}
 ${renderSignaturesBlock(workflow, 'Originator Signature', 3)}
 `;
@@ -1259,39 +1198,37 @@ ${renderSignaturesBlock(workflow, 'Originator Signature', 3)}
     const section1Short = shortFields.slice(0, Math.max(2, midpoint));
     const section2Short = shortFields.slice(Math.max(2, midpoint));
 
-    const tableSectionHtml = showTable ? `
-<h3 style="margin-top: 18px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">${section2Short.length > 0 ? '3' : '2'}. ${isOvertime ? 'Overtime Shift & Hours Breakdown' : 'Itemized Schedule & Cost Breakdown'}</h3>
-<table style="width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 9.5pt;">
-  <thead>
-    <tr style="background-color: #f8fafc;">
-      <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: center; width: 8%;">#</th>
-      <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: left; width: 46%;">${isOvertime ? 'Date & Shift Activity Description' : 'Item / Service Specification'}</th>
-      <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: center; width: 12%;">${isOvertime ? 'Hours' : 'Qty'}</th>
-      <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: right; width: 17%;">${isOvertime ? 'Rate Multiplier' : 'Unit Cost'}</th>
-      <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: right; width: 17%;">Line Total</th>
-    </tr>
-  </thead>
+    const tableSectionHtml = showTable ? `<p><br/></p>
+<h3>${section2Short.length > 0 ? '3' : '2'}. ${isOvertime ? 'Overtime Shift & Hours Breakdown' : 'Itemized Schedule & Cost Breakdown'}</h3>
+<table>
   <tbody>
     <tr>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">01</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">Primary item / activity specification</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">1</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: right;">—</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: right;">—</td>
+      <td><strong>#</strong></td>
+      <td><strong>${isOvertime ? 'Date & Shift Activity Description' : 'Item / Service Specification'}</strong></td>
+      <td><strong>${isOvertime ? 'Hours' : 'Qty'}</strong></td>
+      <td><strong>${isOvertime ? 'Rate Multiplier' : 'Unit Cost'}</strong></td>
+      <td><strong>Line Total</strong></td>
     </tr>
     <tr>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">02</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">Secondary item / operational provision</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">1</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: right;">—</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: right;">—</td>
+      <td>01</td>
+      <td>Primary item / activity specification</td>
+      <td>1</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>02</td>
+      <td>Secondary item / operational provision</td>
+      <td>1</td>
+      <td>—</td>
+      <td>—</td>
     </tr>
   </tbody>
 </table>` : '';
 
     let nextSec = 2;
-    const sec2Html = section2Short.length > 0 ? `
-<h3 style="margin-top: 18px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">${nextSec++}. Specifications & Parameters</h3>
+    const sec2Html = section2Short.length > 0 ? `<p><br/></p>
+<h3>${nextSec++}. Specifications & Parameters</h3>
 ${renderFieldRowsHtml(section2Short)}` : '';
 
     if (showTable) nextSec++;
@@ -1299,20 +1236,24 @@ ${renderFieldRowsHtml(section2Short)}` : '';
     htmlContent = `
 ${renderDocumentHeader(title, includeHeaderMeta)}
 ${includeInstructions ? renderInstructionsBanner('Complete all required applicant and specification fields accurately. Attach any supporting documentation prior to routing for departmental approval.') : ''}
-
-<h3 style="margin-top: 14px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">1. Applicant & Identification Details</h3>
+<h3>1. Applicant & Identification Details</h3>
 ${renderFieldRowsHtml(section1Short)}
-
 ${sec2Html}
 ${tableSectionHtml}
-
-<h3 style="margin-top: 18px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">${nextSec++}. Details, Justification & Declarations</h3>
+<p><br/></p>
+<h3>${nextSec++}. Details, Justification & Declarations</h3>
 ${renderFieldRowsHtml(longAndCheckFields)}
-
 ${includeOfficialUse ? renderOfficialUseSection(workflow) : ''}
 ${renderSignaturesBlock(workflow, 'Applicant Digital Signature', nextSec)}
 `;
   }
+
+  // Strictly normalize fields to Manual Mode defaults (width: null Auto, In-Text placeholder locked to 'text')
+  const normalizedFields = fields.map(f => ({
+    ...f,
+    type: f.mode === 'placeholder' ? 'text' : f.type,
+    width: null
+  }));
 
   return {
     success: true,
@@ -1322,7 +1263,7 @@ ${renderSignaturesBlock(workflow, 'Applicant Digital Signature', nextSec)}
     style,
     complexity,
     htmlContent,
-    fields,
+    fields: normalizedFields,
     workflow,
     source: 'builtin-nlp'
   };
@@ -1504,8 +1445,7 @@ Include 6 to 10 relevant fields covering applicant details, domain-specific inpu
 
       const rawType = String(f.type || 'text').toLowerCase();
       const type = validTypes.has(rawType) ? rawType : 'text';
-      const width = (type === 'textarea' || type === 'checkbox') ? 100 : 50;
-      const mode = style === 'contract' && (type === 'text' || type === 'date') ? 'placeholder' : 'input';
+      const mode = style === 'contract' && type === 'text' ? 'placeholder' : 'input';
       const options = type === 'dropdown'
         ? (Array.isArray(f.options) && f.options.length >= 2 ? f.options.map(String) : ['Option 1', 'Option 2', 'Option 3'])
         : undefined;
@@ -1513,11 +1453,11 @@ Include 6 to 10 relevant fields covering applicant details, domain-specific inpu
       return {
         key,
         label,
-        type,
+        type: mode === 'placeholder' ? 'text' : type,
         required: f.required !== false,
         mode,
         bold: type === 'number' && /total|amount|budget|days/i.test(label),
-        width,
+        width: null,
         options,
         description: f.description || `${label}`
       };
@@ -1540,7 +1480,7 @@ Include 6 to 10 relevant fields covering applicant details, domain-specific inpu
         required: true,
         mode: 'input',
         bold: false,
-        width: 100,
+        width: null,
         description: 'Mandatory compliance affirmation.'
       });
     }
@@ -1565,46 +1505,39 @@ Include 6 to 10 relevant fields covering applicant details, domain-specific inpu
     const htmlContent = `
 ${renderDocumentHeader(title, includeHeaderMeta)}
 ${includeInstructions ? renderInstructionsBanner(parsed.introParagraph || 'Complete all mandatory fields accurately before signing and submitting for departmental approval.') : ''}
-
-<h3 style="margin-top: 14px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">${secNum++}. Primary Information & Identification</h3>
+<h3>${secNum++}. Primary Information & Identification</h3>
 ${renderFieldRowsHtml(sec1Fields)}
-
-${sec2Fields.length > 0 ? `
-<h3 style="margin-top: 18px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">${secNum++}. Operational Details & Specifications</h3>
+<p><br/></p>
+${sec2Fields.length > 0 ? `<h3>${secNum++}. Operational Details & Specifications</h3>
 ${renderFieldRowsHtml(sec2Fields)}
-` : ''}
-
-${showTable ? `
-<h3 style="margin-top: 18px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">${secNum++}. Structured Schedule & Breakdown</h3>
-<table style="width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 9.5pt;">
-  <thead>
-    <tr style="background-color: #f8fafc;">
-      <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: center; width: 8%;">#</th>
-      <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: left; width: 52%;">Description / Specification</th>
-      <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: center; width: 20%;">Reference / Qty</th>
-      <th style="border: 1px solid #cbd5e1; padding: 8px; text-align: left; width: 20%;">Status / Notes</th>
-    </tr>
-  </thead>
+<p><br/></p>` : ''}
+${showTable ? `<h3>${secNum++}. Structured Schedule & Breakdown</h3>
+<table>
   <tbody>
     <tr>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">01</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">Primary entry specification</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">1</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;"></td>
+      <td><strong>#</strong></td>
+      <td><strong>Description / Specification</strong></td>
+      <td><strong>Reference / Qty</strong></td>
+      <td><strong>Status / Notes</strong></td>
     </tr>
     <tr>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">02</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;">Secondary entry specification</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">1</td>
-      <td style="border: 1px solid #cbd5e1; padding: 8px;"></td>
+      <td>01</td>
+      <td>Primary entry specification</td>
+      <td>1</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>02</td>
+      <td>Secondary entry specification</td>
+      <td>1</td>
+      <td></td>
     </tr>
   </tbody>
 </table>
-` : ''}
-
-<h3 style="margin-top: 18px; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">${secNum++}. Supporting Notes & Compliance</h3>
+<p><br/></p>` : ''}
+<h3>${secNum++}. Supporting Notes & Compliance</h3>
 ${renderFieldRowsHtml(longAndCheckFields)}
-
+<p><br/></p>
 ${includeOfficialUse ? renderOfficialUseSection(workflow) : ''}
 ${renderSignaturesBlock(workflow, 'Applicant Digital Signature', secNum)}
 `;

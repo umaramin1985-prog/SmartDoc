@@ -96,7 +96,7 @@ export const TemplateUploadModal = ({ onClose, initialDepartment, initialFolderI
         setFields((parsed.fields || []).map(key => ({
           key,
           label: key,
-          type: guessType(key),
+          type: 'text',
           mode: 'placeholder',
           bold: false,
           required: true,
