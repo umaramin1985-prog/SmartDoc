@@ -57,6 +57,8 @@ export const FormsHub = () => {
   const [versionHistoryTarget, setVersionHistoryTarget] = useState(null);
   const [fillTemplate, setFillTemplate] = useState(null);
   const [printDirect, setPrintDirect] = useState(false);
+  const [downloadDirect, setDownloadDirect] = useState(false);
+  const [viewOnlyFill, setViewOnlyFill] = useState(false);
   const [detailSubmissionId, setDetailSubmissionId] = useState(null);
   const [folderModal, setFolderModal] = useState(null); // { mode: 'create'|'rename', dept, parentId, folderId, name }
   const [deleteFolderTarget, setDeleteFolderTarget] = useState(null);
@@ -84,7 +86,7 @@ export const FormsHub = () => {
     setDownloadingFormat('docx');
     try {
       addToast('Downloading Word File', `Retrieving ${t.title} (.docx)…`, 'info');
-      const blob = await apiService.getTemplateFile(t.id);
+      const blob = await apiService.getTemplateFile(t.id, { download: true });
       const name = t.fileName || `${t.title || 'template'}.docx`;
       downloadBlob(blob, name);
       addToast('Download Complete', `Downloaded ${name}`, 'success');
@@ -97,6 +99,15 @@ export const FormsHub = () => {
   };
 
   const handleDownloadPdfFromModal = async (t) => {
+    const isEditableDocx = t?.isEditable !== false && (!t?.fileType || t.fileType === 'docx' || t.fileType === 'doc');
+    if (isEditableDocx) {
+      setDownloadTarget(null);
+      setViewOnlyFill(true);
+      setPrintDirect(false);
+      setDownloadDirect(true);
+      setFillTemplate(t);
+      return;
+    }
     setDownloadingFormat('pdf');
     setDownloadPdfProgress('Preparing document…');
     try {
@@ -117,7 +128,9 @@ export const FormsHub = () => {
   };
 
   const handlePrintTemplate = (t) => {
+    setViewOnlyFill(true);
     setPrintDirect(true);
+    setDownloadDirect(false);
     setFillTemplate(t);
   };
 
@@ -161,7 +174,9 @@ export const FormsHub = () => {
       addToast('Cannot Fill Form', 'This document cannot be filled because no approval workflow has been configured. An authorized admin must configure the approval chain first.', 'warn');
       return;
     }
+    setViewOnlyFill(false);
     setPrintDirect(false);
+    setDownloadDirect(false);
     setFillTemplate(t);
   };
 
@@ -1737,14 +1752,20 @@ export const FormsHub = () => {
       {fillTemplate && (
         <FillFormModal
           template={fillTemplate}
+          isViewOnly={viewOnlyFill}
           initialPrint={printDirect}
+          initialDownload={downloadDirect}
           onClose={() => {
             setFillTemplate(null);
+            setViewOnlyFill(false);
             setPrintDirect(false);
+            setDownloadDirect(false);
           }}
           onDone={() => {
             setFillTemplate(null);
+            setViewOnlyFill(false);
             setPrintDirect(false);
+            setDownloadDirect(false);
           }}
         />
       )}

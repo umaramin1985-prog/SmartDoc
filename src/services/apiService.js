@@ -67,6 +67,7 @@ export const apiService = {
   // Departments
   getDepartments: () => request('/departments'),
   createDepartment: (data) => post('/departments', data),
+  updateDepartment: (id, data) => put(`/departments/${id}`, data),
   deleteDepartment: (id) => request(`/departments/${id}`, { method: 'DELETE' }),
 
   // Folders (Windows Explorer structure)
@@ -79,7 +80,7 @@ export const apiService = {
   parseTemplate: (fileBase64) => post('/forms/templates/parse', { fileBase64 }),
   parseDocx: (fileBase64) => post('/forms/templates/parse-docx', { fileBase64 }),
   parseWord: (fileBase64) => post('/forms/templates/parse-docx', { fileBase64 }),
-  htmlToDocx: (html, title) => post('/forms/templates/html-to-docx', { html, title }),
+  htmlToDocx: (html, title, fontFamily, fontSize) => post('/forms/templates/html-to-docx', { html, title, fontFamily, fontSize }),
   getTemplates: () => request('/forms/templates'),
   createTemplate: (data) => post('/forms/templates', data),
   updateTemplate: (id, data) => put(`/forms/templates/${id}`, data),
@@ -88,7 +89,7 @@ export const apiService = {
   updateTemplateComment: (id, commentId, data) => put(`/forms/templates/${id}/comments/${commentId}`, data),
   moveTemplate: (id, folderId) => put(`/forms/templates/${id}/move`, { folderId }),
   archiveTemplate: (id) => request(`/forms/templates/${id}`, { method: 'DELETE' }),
-  getTemplateFile: (id) => requestBlob(`/forms/templates/${id}/file`),
+  getTemplateFile: (id, opts) => requestBlob(`/forms/templates/${id}/file${opts?.download ? '?download=1' : ''}`),
   renderPrintDocument: (id, data) => requestBlob(`/forms/templates/${id}/render-print-document`, { method: 'POST', body: JSON.stringify(data || {}) }),
   bulkImportTemplates: (data) => post('/forms/templates/bulk-import', data),
   generateAiForm: (data) => post('/ai/generate-form', data),

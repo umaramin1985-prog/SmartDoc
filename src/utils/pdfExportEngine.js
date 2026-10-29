@@ -107,7 +107,7 @@ export function deepCloneFormSheet(source) {
   // 3. Remove all print-hidden elements (buttons, connectors, banners)
   clone.querySelectorAll('.sd-print-hide').forEach(el => el.remove());
 
-  // 4. Force exact A4 dimensions and clean document styling
+  // 4. Force exact A4 dimensions and clean document styling (preserving template fontFamily & fontSize)
   clone.style.width = '794px';
   clone.style.maxWidth = '794px';
   clone.style.boxSizing = 'border-box';
@@ -117,8 +117,10 @@ export function deepCloneFormSheet(source) {
   clone.style.color = '#0f172a';
   clone.style.boxShadow = 'none';
   clone.style.border = 'none';
+  if (source.style.fontFamily) clone.style.fontFamily = source.style.fontFamily;
+  if (source.style.fontSize) clone.style.fontSize = source.style.fontSize;
 
-  // 5. Ensure input fields have crisp borders without active glow
+  // 5. Ensure input fields have crisp borders without active glow, and display '—' when unfilled
   clone.querySelectorAll('.sd-doc-live-field-wrap').forEach(w => {
     w.style.boxShadow = 'none';
     w.style.outline = 'none';
@@ -144,23 +146,29 @@ export function deepCloneFormSheet(source) {
     inp.placeholder = '';
   });
 
-  // Ensure date inputs in clone render as text without browser mm/dd/yyyy prompt
-  clone.querySelectorAll('input[type="date"]').forEach(inp => {
-    const rawVal = inp.value;
+  // Ensure all unfilled inputs, textareas, and selects render '—' instead of placeholders
+  clone.querySelectorAll('input').forEach(inp => {
+    if (inp.type === 'checkbox' || inp.type === 'radio') return;
+    const rawVal = (inp.value || '').trim();
     inp.type = 'text';
     inp.removeAttribute('placeholder');
     inp.placeholder = '';
     if (!rawVal) {
-      inp.value = '';
-      inp.setAttribute('value', '');
+      inp.value = '—';
+      inp.setAttribute('value', '—');
     }
   });
 
-  // Remove placeholders from all textarea and select elements in clone
   clone.querySelectorAll('textarea, select').forEach(el => {
     el.removeAttribute('placeholder');
-    if (el.tagName.toLowerCase() === 'select' && el.options && el.options[0] && el.options[0].value === '') {
-      el.options[0].text = '';
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'textarea') {
+      if (!(el.value || el.textContent || '').trim()) {
+        el.value = '—';
+        el.textContent = '—';
+      }
+    } else if (tag === 'select' && el.options && el.options[0] && el.options[0].value === '') {
+      el.options[0].text = '—';
     }
   });
 

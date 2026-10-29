@@ -92,28 +92,38 @@ const UserFormModal = ({ user, onClose }) => {
   );
 };
 
-const DepartmentFormModal = ({ onClose }) => {
-  const { createDepartment } = useApp();
-  const [form, setForm] = useState({ name: '', code: '', description: '' });
+const DepartmentFormModal = ({ department, onClose }) => {
+  const { createDepartment, updateDepartment } = useApp();
+  const isEdit = !!department;
+  const [form, setForm] = useState(() => isEdit
+    ? { name: department.name || '', code: department.code || '', description: department.description || '' }
+    : { name: '', code: '', description: '' });
   const [saving, setSaving] = useState(false);
   const valid = form.name.trim() && form.code.trim();
   const submit = async (e) => {
     e.preventDefault();
     if (!valid) return;
     setSaving(true);
-    const r = await createDepartment(form);
+    const r = isEdit
+      ? await updateDepartment(department.id, form)
+      : await createDepartment(form);
     setSaving(false);
     if (r) onClose();
   };
   return (
     <Modal
       id="department-form-modal"
-      title="Add department"
+      title={isEdit ? `Edit ${department.name}` : 'Add department'}
+      subtitle={isEdit
+        ? 'Update department name, short code, or description. Renaming a department automatically updates its users, folders, templates, and workflows.'
+        : 'Create a new department drive and approval unit.'}
       onClose={onClose}
       footer={
         <>
           <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
-          <button type="submit" form="dept-form" className="btn btn-primary" disabled={!valid || saving}>{saving ? 'Saving…' : 'Create department'}</button>
+          <button id="btn-save-department" type="submit" form="dept-form" className="btn btn-primary" disabled={!valid || saving}>
+            {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create department'}
+          </button>
         </>
       }
     >
@@ -121,16 +131,16 @@ const DepartmentFormModal = ({ onClose }) => {
         <div className="sd-grid-2">
           <label className="sd-field">
             <span className="sd-label">Name *</span>
-            <input className="sd-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+            <input id="input-dept-name" className="sd-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
           </label>
           <label className="sd-field">
             <span className="sd-label">Short code *</span>
-            <input className="sd-input" value={form.code} maxLength={10} onChange={e => setForm({ ...form, code: e.target.value.toUpperCase() })} placeholder="e.g. HR" />
+            <input id="input-dept-code" className="sd-input" value={form.code} maxLength={10} onChange={e => setForm({ ...form, code: e.target.value.toUpperCase() })} placeholder="e.g. HR" />
           </label>
         </div>
         <label className="sd-field">
           <span className="sd-label">Description</span>
-          <input className="sd-input" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
+          <input id="input-dept-description" className="sd-input" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
         </label>
       </form>
     </Modal>
@@ -145,7 +155,7 @@ export const SmartSettingsAdmin = () => {
   const [tab, setTab] = useState('users');
   const [search, setSearch] = useState('');
   const [editUser, setEditUser] = useState(undefined); // undefined = closed, null = new
-  const [showDept, setShowDept] = useState(false);
+  const [editDept, setEditDept] = useState(undefined); // undefined = closed, null = new, object = edit
   const [confirm, setConfirm] = useState(null); // { title, text, action }
   const [wipeModal, setWipeModal] = useState(null);
   const [wipeInput, setWipeInput] = useState('');
@@ -246,7 +256,7 @@ export const SmartSettingsAdmin = () => {
           tab === 'users' ? (
             <button id="btn-add-user" className="btn btn-primary" onClick={() => setEditUser(null)}><UserPlus size={16} /> Add user</button>
           ) : tab === 'departments' ? (
-            <button id="btn-add-department" className="btn btn-primary" onClick={() => setShowDept(true)}><Plus size={16} /> Add department</button>
+            <button id="btn-add-department" className="btn btn-primary" onClick={() => setEditDept(null)}><Plus size={16} /> Add department</button>
           ) : null
         }
       />
@@ -359,9 +369,24 @@ export const SmartSettingsAdmin = () => {
                     <h3 className="sd-card-title">{d.name}</h3>
                     <span className="sd-badge sd-badge-gray">{d.code}</span>
                   </div>
-                  <button className="sd-icon-btn sd-danger-hover" title="Delete department" onClick={() => setConfirm({
-                    title: 'Delete department?', text: `${d.name} will be removed. Departments with users cannot be deleted.`, action: () => deleteDepartment(d.id)
-                  })}><Trash2 size={15} /></button>
+                  <div className="sd-btn-row">
+                    <button
+                      className="sd-icon-btn"
+                      title="Edit department"
+                      onClick={() => setEditDept(d)}
+                    >
+                      <Pencil size={15} />
+                    </button>
+                    <button
+                      className="sd-icon-btn sd-danger-hover"
+                      title="Delete department"
+                      onClick={() => setConfirm({
+                        title: 'Delete department?', text: `${d.name} will be removed. Departments with users cannot be deleted.`, action: () => deleteDepartment(d.id)
+                      })}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
                 </div>
                 {d.description && <p className="sd-card-text">{d.description}</p>}
                 <div className="sd-meta-row">
@@ -468,7 +493,7 @@ export const SmartSettingsAdmin = () => {
       )}
 
       {editUser !== undefined && <UserFormModal user={editUser} onClose={() => setEditUser(undefined)} />}
-      {showDept && <DepartmentFormModal onClose={() => setShowDept(false)} />}
+      {editDept !== undefined && <DepartmentFormModal department={editDept} onClose={() => setEditDept(undefined)} />}
       {confirm && (
         <Modal
           title={confirm.title}

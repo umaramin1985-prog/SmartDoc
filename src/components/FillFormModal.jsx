@@ -31,7 +31,8 @@ import {
   FileEdit,
   CheckSquare,
   Info,
-  Loader2
+  Loader2,
+  Lock
 } from 'lucide-react';
 import { fieldColumnSpan } from './formLayout';
 
@@ -47,6 +48,16 @@ function bumpPreview(v) {
   return `${maj || '1'}.${(parseInt(min || '0', 10) || 0) + 1}`;
 }
 
+const decodeSlotName = (raw) =>
+  String(raw || '')
+    .replace(/&(amp;)+/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+
 export const FillFormModal = ({
   template,
   submission,
@@ -54,9 +65,16 @@ export const FillFormModal = ({
   onDone,
   initialPrint = false,
   initialDownload = false,
-  isViewOnly = false
+  isViewOnly = false,
+  topBanner = null,
+  customRightRail = null,
+  extraHeaderActions = null,
+  headerMetaOverride = null,
+  headerBadgesOverride = null,
+  onFieldClickInViewOnly = null,
+  highlightedFieldKey = null
 }) => {
-  const { currentUser, submitForm, resubmitForm, openSignatureModal, addToast } = useApp();
+  const { currentUser, users, submitForm, resubmitForm, openSignatureModal, addToast } = useApp();
   const isResubmit = !!submission && !isViewOnly;
   const fields = useMemo(() => template?.fields || [], [template]);
   const hasWorkflow = Array.isArray(template?.workflow) && template.workflow.length > 0;
@@ -404,7 +422,7 @@ export const FillFormModal = ({
         inp.placeholder = '';
         inp.removeAttribute('placeholder');
         if (!currentVal || blank) {
-          inp.value = '';
+          inp.value = '—';
         } else {
           inp.value = formatDate(currentVal) || currentVal;
         }
@@ -440,7 +458,7 @@ export const FillFormModal = ({
       addToast('Preparing PDF', 'Generating high-resolution PDF with authentic document formatting...', 'info');
       const safeTitle = (submission?.title || template?.title || 'Form').replace(/[^a-zA-Z0-9_-]/g, '_');
       const docCode = submission?.uniqueNumber || template?.code || safeTitle;
-      const fileName = `${docCode}_${isViewOnly ? 'submission' : isResubmit ? 'v' + bumpPreview(submission?.version) : 'filled'}.pdf`;
+      const fileName = `${docCode}_${submission ? 'submission' : isViewOnly ? 'template' : isResubmit ? 'v' + bumpPreview(submission?.version) : 'filled'}.pdf`;
       await exportFormSheetToPdf(targetSheet, fileName);
       addToast('PDF Saved', `Successfully downloaded "${fileName}"`, 'success');
     } catch (err) {
@@ -466,7 +484,7 @@ export const FillFormModal = ({
           inp.placeholder = '';
           inp.removeAttribute('placeholder');
           if (!currentVal) {
-            inp.value = '';
+            inp.value = '—';
           } else {
             inp.value = formatDate(currentVal) || currentVal;
           }
@@ -584,7 +602,8 @@ export const FillFormModal = ({
     const placed = new Set();
 
     const buildSigSlotHtml = (slot, rawW) => {
-      const s = String(slot || 'Submitter').trim();
+      const cleanSlot = decodeSlotName(slot || 'Submitter') || 'Submitter';
+      const s = cleanSlot.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
       const normW = (rawW === 'auto' || rawW === 'Auto')
         ? 'auto'
         : ((parseInt(rawW, 10) > 0 && parseInt(rawW, 10) <= 100) ? parseInt(rawW, 10) : null);
@@ -678,10 +697,11 @@ export const FillFormModal = ({
         const isBold = isFieldBold(f);
         const isDirect = f.mode === 'input' || (f.mode !== 'placeholder' && (f.width || f.type === 'textarea'));
         const widthStyle = (isDirect && f.width)
-          ? (f.width === 100 ? 'width: 100%; margin-right: 0;' : `width: calc(${f.width}% - 8px);`)
-          : (isDirect && f.type === 'textarea' ? 'width: 100%; margin-right: 0;' : '');
+          ? (f.width === 100 ? 'width: 100%; max-width: 100%; margin-right: 0;' : `width: calc(${f.width}% - 8px); max-width: calc(${f.width}% - 8px);`)
+          : (isDirect && f.type === 'textarea' ? 'width: 100%; max-width: 100%; margin-right: 0;' : '');
+        const widthAttr = (isDirect && f.width) ? ` data-width="${f.width}"` : '';
         const slotClass = `${isDirect ? 'sd-live-slot-field sd-live-slot-direct' : 'sd-live-slot-field sd-live-slot-inline'} ${isBold ? 'is-bold' : ''}`;
-        return `<span class="${slotClass}" data-field-key="${f.key}" style="${widthStyle}"></span>`;
+        return `<span class="${slotClass}" data-field-key="${f.key}"${widthAttr} style="${widthStyle}"></span>`;
       }
       return match;
     });
@@ -700,13 +720,17 @@ export const FillFormModal = ({
         const isBold = isFieldBold(f);
         const isDirect = f && (f.mode === 'input' || (f.mode !== 'placeholder' && (f.width || f.type === 'textarea')));
         const widthStyle = (isDirect && f?.width)
-          ? (f.width === 100 ? 'width: 100%; margin-right: 0;' : `width: calc(${f.width}% - 8px);`)
-          : (isDirect && f?.type === 'textarea' ? 'width: 100%; margin-right: 0;' : '');
+          ? (f.width === 100 ? 'width: 100%; max-width: 100%; margin-right: 0;' : `width: calc(${f.width}% - 8px); max-width: calc(${f.width}% - 8px);`)
+          : (isDirect && f?.type === 'textarea' ? 'width: 100%; max-width: 100%; margin-right: 0;' : '');
+        const widthAttr = (isDirect && f?.width) ? ` data-width="${f.width}"` : '';
         const slotClass = `${isDirect ? 'sd-live-slot-field sd-live-slot-direct' : 'sd-live-slot-field sd-live-slot-inline'} ${isBold ? 'is-bold' : ''}`;
-        return `<span class="${slotClass}" data-field-key="${f.key}" style="${widthStyle}"></span>`;
+        return `<span class="${slotClass}" data-field-key="${f.key}"${widthAttr} style="${widthStyle}"></span>`;
       }
       return `<span class="sd-live-slot-field sd-live-slot-inline" data-field-key="${key}"></span>`;
     });
+
+    // Normalize non-breaking spaces (&nbsp;) or missing whitespace between adjacent live field slots to a single breakable space
+    html = html.replace(/(<\/span>)(?:&nbsp;|\u00A0|\s)*(<span class="sd-live-slot-field)/gi, '$1 $2');
 
     return { processedHtml: html, placedKeys: placed, hasDocxHtml: true };
   }, [template, submission, currentUser, fieldsMap, isResubmit, isFieldBold]);
@@ -729,9 +753,12 @@ export const FillFormModal = ({
 
     // Signatures
     const sigNodes = container.querySelectorAll('.sd-live-slot-sig');
+    let deptIndex = 0;
     sigNodes.forEach((node, idx) => {
-      const slot = (node.getAttribute('data-sig-slot') || 'Submitter').trim();
-      slots.push({ id: `sig-portal-${slot}-${idx}`, type: 'sig', slot, node });
+      const slot = decodeSlotName(node.getAttribute('data-sig-slot') || 'Submitter') || 'Submitter';
+      const isSub = ['submitter', 'applicant', 'originator'].includes(slot.toLowerCase());
+      const currentDeptIndex = isSub ? -1 : deptIndex++;
+      slots.push({ id: `sig-portal-${slot}-${idx}`, type: 'sig', slot, deptIndex: currentDeptIndex, node });
     });
 
     setMountedSlots(slots);
@@ -745,8 +772,25 @@ export const FillFormModal = ({
 
   // Check if Submitter signature block is in the document
   const hasSubmitterSigSlot = useMemo(() => {
-    return mountedSlots.some(s => s.type === 'sig' && ['submitter', 'applicant', 'originator'].includes(String(s.slot || '').toLowerCase()));
+    return mountedSlots.some(s => s.type === 'sig' && ['submitter', 'applicant', 'originator'].includes(decodeSlotName(s.slot).toLowerCase()));
   }, [mountedSlots]);
+
+  // Any workflow approval steps that do not have an explicit signature slot placed in the document HTML
+  const unplacedWorkflowSteps = useMemo(() => {
+    const activeWf = submission?.workflow?.length ? submission.workflow : (template?.workflow || []);
+    if (!activeWf.length) return [];
+    const placedDeptSlots = mountedSlots
+      .filter(s => s.type === 'sig' && !['submitter', 'applicant', 'originator'].includes(decodeSlotName(s.slot).toLowerCase()))
+      .map(s => decodeSlotName(s.slot).toLowerCase());
+    return activeWf.filter((st, idx) => {
+      const deptLower = decodeSlotName(st.department || '').toLowerCase();
+      if (!deptLower) return false;
+      const matchedByName = placedDeptSlots.some(ps => ps === deptLower || ps.includes(deptLower) || deptLower.includes(ps));
+      if (matchedByName) return false;
+      if (idx < placedDeptSlots.length) return false;
+      return true;
+    });
+  }, [submission, template, mountedSlots]);
 
   // Submission handler
   const handleSubmit = async (e) => {
@@ -817,19 +861,20 @@ export const FillFormModal = ({
     const val = isPrintingBlank ? '' : (rawVal ?? '');
     const hasVal = String(val).trim().length > 0;
     const isBold = isFieldBold(f);
-    const isActive = !isViewOnly && !isPrinting && activeRailField === f.key;
+    const isActive = !isPrinting && (isViewOnly ? highlightedFieldKey === f.key : activeRailField === f.key);
+    const isDashMode = isViewOnly || isPrinting || isPrintingBlank;
 
     const commonProps = {
       id: elemId,
       'data-field-key': f.key,
       className: `sd-doc-live-input ${isInvalid ? 'is-invalid' : ''} ${isBold ? 'is-bold' : ''} ${isActive ? 'is-active-target' : ''}`,
       style: isBold ? { fontWeight: '700' } : undefined,
-      value: isPrintingBlank ? '' : (values[f.key] ?? ''),
+      value: isPrintingBlank ? '—' : (hasVal ? (values[f.key] ?? '') : (isDashMode ? '—' : '')),
       disabled: isViewOnly,
       readOnly: isViewOnly,
       onChange: (e) => !isViewOnly && setValues(prev => ({ ...prev, [f.key]: e.target.value })),
       onFocus: () => !isViewOnly && handleFocusField(f.key),
-      placeholder: (isPrinting || isPrintingBlank || isViewOnly) ? '' : (f.placeholder || (f.label ? `Enter ${f.label}…` : ''))
+      placeholder: isDashMode ? '—' : (f.placeholder || (f.label ? `Enter ${f.label}…` : ''))
     };
 
     if (f.type === 'textarea') {
@@ -837,38 +882,24 @@ export const FillFormModal = ({
         <>
           <textarea rows={3} {...commonProps} className={`sd-doc-live-input sd-doc-live-textarea ${isInvalid ? 'is-invalid' : ''} ${isBold ? 'is-bold' : ''} ${isActive ? 'is-active-target' : ''}`} />
           <div className="sd-print-value sd-print-value-textarea">
-            {hasVal ? (
-              <div className="sd-print-text-block">{val}</div>
-            ) : (
-              <div className="sd-print-blank-lines">
-                <span className="sd-print-blank-line" />
-                <span className="sd-print-blank-line" />
-                <span className="sd-print-blank-line" />
-              </div>
-            )}
+            <div className="sd-print-text-block">{hasVal ? val : '—'}</div>
           </div>
         </>
       );
     }
     if (f.type === 'date') {
-      const isDateEmpty = !hasVal || isPrintingBlank;
-      const isPrintOrView = isPrinting || isPrintingBlank || isViewOnly;
-      const inputType = isPrintOrView ? 'text' : 'date';
-      const formattedDateVal = val ? (formatDate(val) || val) : '';
+      const inputType = isDashMode ? 'text' : 'date';
+      const formattedDateVal = hasVal ? (formatDate(val) || val) : (isDashMode ? '—' : '');
       return (
         <>
           <input
             type={inputType}
             {...commonProps}
-            placeholder={isPrintOrView ? '' : (f.placeholder || 'YYYY-MM-DD')}
-            value={isPrintingBlank ? '' : (isPrintOrView ? formattedDateVal : (val ?? ''))}
+            placeholder={isDashMode ? '—' : (f.placeholder || 'YYYY-MM-DD')}
+            value={isPrintingBlank ? '—' : (isDashMode ? formattedDateVal : (val ?? ''))}
           />
           <div className="sd-print-value sd-print-value-input">
-            {hasVal ? (
-              <span className="sd-print-text">{formatDate(val) || val}</span>
-            ) : (
-              <span className="sd-print-blank-line" />
-            )}
+            <span className="sd-print-text">{hasVal ? (formatDate(val) || val) : '—'}</span>
           </div>
         </>
       );
@@ -876,13 +907,13 @@ export const FillFormModal = ({
     if (f.type === 'number') {
       return (
         <>
-          <input type="number" step="any" {...commonProps} />
+          <input
+            type={isDashMode && !hasVal ? 'text' : 'number'}
+            step={isDashMode && !hasVal ? undefined : 'any'}
+            {...commonProps}
+          />
           <div className="sd-print-value sd-print-value-input">
-            {hasVal ? (
-              <span className="sd-print-text">{val}</span>
-            ) : (
-              <span className="sd-print-blank-line" />
-            )}
+            <span className="sd-print-text">{hasVal ? val : '—'}</span>
           </div>
         </>
       );
@@ -893,23 +924,14 @@ export const FillFormModal = ({
         : (typeof f.options === 'string' ? f.options.split(',').map(s => s.trim()).filter(Boolean) : []);
       return (
         <>
-          <select {...commonProps}>
-            <option value="">{isPrinting ? '' : `-- Select ${f.label || 'option'} --`}</option>
+          <select {...commonProps} value={isPrintingBlank ? '' : (values[f.key] ?? '')}>
+            <option value="">{isDashMode ? '—' : `-- Select ${f.label || 'option'} --`}</option>
             {opts.map((opt, i) => (
               <option key={i} value={opt}>{opt}</option>
             ))}
           </select>
           <div className="sd-print-value sd-print-value-select">
-            {hasVal ? (
-              <span className="sd-print-text">{val}</span>
-            ) : (
-              <div className="sd-print-blank-select">
-                <span className="sd-print-blank-line" />
-                {opts.length > 0 && (
-                  <span className="sd-print-options-hint">[{opts.join(' / ')}]</span>
-                )}
-              </div>
-            )}
+            <span className="sd-print-text">{hasVal ? val : '—'}</span>
           </div>
         </>
       );
@@ -943,11 +965,7 @@ export const FillFormModal = ({
       <>
         <input type="text" {...commonProps} />
         <div className="sd-print-value sd-print-value-input">
-          {hasVal ? (
-            <span className="sd-print-text">{val}</span>
-          ) : (
-            <span className="sd-print-blank-line" />
-          )}
+          <span className="sd-print-text">{hasVal ? val : '—'}</span>
         </div>
       </>
     );
@@ -961,27 +979,25 @@ export const FillFormModal = ({
     const isInvalid = !isViewOnly && touched && f.required && !hasVal;
     const elemId = `live-placeholder-${f.key.replace(/\W+/g, '-').toLowerCase()}`;
     const isBold = isFieldBold(f);
-
-    // Clean print view for blank paper template
-    if (isPrintingBlank) {
-      return (
-        <span className="sd-print-placeholder-blank" title={f.label}>
-          <span className="sd-print-placeholder-line" style={{ display: 'inline-block', minWidth: '130px', borderBottom: '1px solid #000' }}></span>
-          <span className="sd-print-placeholder-sub" style={{ fontSize: '7.5pt', color: '#555', display: 'block' }}>({f.label || f.key}{f.required ? ' *' : ''})</span>
-        </span>
-      );
-    }
+    const isDashMode = isViewOnly || isPrinting || isPrintingBlank;
 
     return (
       <span className={`sd-doc-live-placeholder-wrapper ${isBold ? 'is-bold' : ''}`}>
         <span
           role="button"
-          tabIndex={isViewOnly ? -1 : 0}
+          tabIndex={isViewOnly && !onFieldClickInViewOnly ? -1 : 0}
           id={elemId}
-          className={`sd-doc-live-placeholder ${hasVal ? 'is-filled' : 'is-empty'} ${isInvalid ? 'is-invalid' : ''} ${f.required ? 'is-required' : ''} ${!isViewOnly && !isPrinting && activeRailField === f.key ? 'is-active-target' : ''} ${isBold ? 'is-bold' : ''}`}
+          className={`sd-doc-live-placeholder ${hasVal ? 'is-filled' : 'is-empty'} ${isInvalid ? 'is-invalid' : ''} ${f.required ? 'is-required' : ''} ${!isPrinting && (isViewOnly ? highlightedFieldKey === f.key : activeRailField === f.key) ? 'is-active-target' : ''} ${isBold ? 'is-bold' : ''}`}
           style={isBold ? { fontWeight: '700' } : undefined}
           onClick={(e) => {
-            if (isViewOnly) return;
+            if (isViewOnly) {
+              if (onFieldClickInViewOnly) {
+                e.preventDefault();
+                e.stopPropagation();
+                onFieldClickInViewOnly(f);
+              }
+              return;
+            }
             e.preventDefault();
             e.stopPropagation();
             handleFocusField(f.key);
@@ -1009,8 +1025,8 @@ export const FillFormModal = ({
         >
           {hasVal ? (
             <span className={`sd-ph-filled-value ${isBold ? 'is-bold' : ''}`} style={isBold ? { fontWeight: '700' } : undefined}>{val}</span>
-          ) : isPrinting ? (
-            <span className={`sd-ph-empty-print-dash ${isBold ? 'is-bold' : ''}`} style={isBold ? { fontWeight: '700' } : undefined}>—</span>
+          ) : isDashMode ? (
+            <span className={`sd-ph-empty-print-dash ${isBold ? 'is-bold' : ''}`} style={{ display: 'inline', ...(isBold ? { fontWeight: '700' } : {}) }}>—</span>
           ) : (
             <>
               <span className={`sd-ph-tag-token ${isBold ? 'is-bold' : ''}`}>
@@ -1190,22 +1206,38 @@ export const FillFormModal = ({
 
     const isBlock = f.type === 'textarea' || f.width === 100;
     const sanitizedKey = String(f.key).replace(/\W+/g, '-').toLowerCase();
-    const isActive = !isViewOnly && !isPrinting && activeRailField === f.key;
+    const isActive = !isPrinting && (isViewOnly ? highlightedFieldKey === f.key : activeRailField === f.key);
 
     return (
       <span
         id={`live-wrap-${sanitizedKey}`}
         data-field-key={f.key}
-        className={`sd-doc-live-field-wrap ${isBlock ? 'is-block' : ''} ${isActive ? 'is-active-target' : ''}`}
-        onClick={() => handleFocusField(f.key)}
+        className={`sd-doc-live-field-wrap ${isBlock ? 'is-block' : ''} ${isActive ? 'is-active-target' : ''} ${isViewOnly && submission ? 'is-locked-field' : ''}`}
+        style={isViewOnly && onFieldClickInViewOnly ? { cursor: 'pointer' } : undefined}
+        onClick={() => {
+          if (isViewOnly) {
+            onFieldClickInViewOnly?.(f);
+            return;
+          }
+          handleFocusField(f.key);
+        }}
       >
         <span className="sd-doc-live-field-label" title={f.label || f.key}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.label || f.key}</span>
           {f.required && <span className="sd-required"> *</span>}
+          {isViewOnly && submission && (
+            <Lock
+              size={10}
+              className="sd-print-hide"
+              style={{ marginLeft: '5px', opacity: 0.65, flexShrink: 0 }}
+              title="Field locked"
+            />
+          )}
         </span>
         {f.description && (
-          <span className="sd-doc-live-field-desc">
-            <Info size={11} className="sd-desc-icon-inline" /> {f.description}
+          <span className="sd-doc-live-field-desc" title={f.description}>
+            <Info size={11} className="sd-desc-icon-inline" />
+            <span className="sd-doc-live-field-desc-text">{f.description}</span>
           </span>
         )}
         {renderInputControl(f, key)}
@@ -1214,13 +1246,16 @@ export const FillFormModal = ({
   };
 
   // Render on-form signature slot: strictly show only signature, name and department
-  const renderSignatureSlot = (slot) => {
-    const isSubmitter = ['submitter', 'applicant', 'originator'].includes(String(slot || '').toLowerCase());
+  const renderSignatureSlot = (rawSlot, deptIndex = -1) => {
+    const slot = decodeSlotName(rawSlot || 'Submitter') || 'Submitter';
+    const slotLower = slot.toLowerCase();
+    const isSubmitter = ['submitter', 'applicant', 'originator'].includes(slotLower);
 
     if (isSubmitter) {
       const submitterSigImg = submission?.signature ||
         submission?.submitterSignature?.signatureImage ||
         submission?.signatureImage ||
+        (submission?.submittedById ? (users || []).find(u => u.id === submission.submittedById)?.signatureImage : null) ||
         (isViewOnly ? null : currentUser?.signatureImage);
       const submitterName = submission?.submittedByName || currentUser?.name || 'Submitter';
       const submitterDept = submission?.department ||
@@ -1228,7 +1263,7 @@ export const FillFormModal = ({
         currentUser?.department ||
         template?.department ||
         '';
-      const isSigned = isViewOnly ? !!submitterSigImg : (hasSignature && !isPrintingBlank);
+      const isSigned = isViewOnly ? !!(submitterSigImg || submission?.submittedByName) : (hasSignature && !isPrintingBlank);
 
       if (isSigned) {
         return (
@@ -1246,6 +1281,21 @@ export const FillFormModal = ({
             {submitterDept && (
               <div className="sd-doc-signature-dept">{submitterDept}</div>
             )}
+          </div>
+        );
+      }
+
+      if (isViewOnly) {
+        return (
+          <div className="sd-doc-signature-block is-department is-pending">
+            <div className="sd-doc-signature-pending-notice sd-print-hide">
+              <PenLine size={12} /> Applicant / Submitter Signature (Signed on Submission)
+            </div>
+            <div className="sd-print-blank-sig-block">
+              <span className="sd-print-line" />
+              <div className="sd-doc-signature-name">{submission ? submitterName : 'Applicant / Submitter'}</div>
+              {submitterDept && <div className="sd-doc-signature-dept">{submitterDept}</div>}
+            </div>
           </div>
         );
       }
@@ -1269,19 +1319,30 @@ export const FillFormModal = ({
       );
     }
 
-    const matchingStep = (submission?.workflow || []).find(st =>
-      st.department && (
-        st.department.toLowerCase() === String(slot || '').toLowerCase() ||
-        String(slot || '').toLowerCase().includes(st.department.toLowerCase())
-      )
-    );
+    const wfList = submission?.workflow || [];
+    let matchingStep = wfList.find(st => {
+      const deptClean = decodeSlotName(st?.department || '').toLowerCase();
+      if (!deptClean) return false;
+      return deptClean === slotLower || slotLower.includes(deptClean) || deptClean.includes(slotLower);
+    });
+
+    if (!matchingStep && deptIndex >= 0 && wfList[deptIndex]) {
+      matchingStep = wfList[deptIndex];
+    } else if (!matchingStep && wfList.length === 1) {
+      matchingStep = wfList[0];
+    }
 
     const isStepApproved = matchingStep?.status === 'APPROVED';
 
     if (matchingStep && isStepApproved) {
-      const approverSig = matchingStep.signature || matchingStep.signatureImage;
+      const approverSig =
+        matchingStep.signature ||
+        matchingStep.signatureImage ||
+        (matchingStep.actedById && submission?.submittedById === matchingStep.actedById ? submission?.signature : null) ||
+        (matchingStep.actedById ? (users || []).find(u => u.id === matchingStep.actedById)?.signatureImage : null) ||
+        (currentUser && (matchingStep.actedById === currentUser.id || matchingStep.actedByName === currentUser.name) ? currentUser.signatureImage : null);
       const approverName = matchingStep.actedByName || `${slot} Approver`;
-      const approverDept = matchingStep.department || slot;
+      const approverDept = decodeSlotName(matchingStep.department || slot);
 
       return (
         <div className="sd-doc-signature-block is-department is-approved">
@@ -1295,20 +1356,60 @@ export const FillFormModal = ({
             <div className="sd-doc-signature-placeholder-ink">{approverName}</div>
           )}
           <div className="sd-doc-signature-name">{approverName}</div>
-          <div className="sd-doc-signature-dept">{approverDept}</div>
+          <div className="sd-doc-signature-dept">
+            {approverDept}
+            <span style={{ color: '#059669', fontWeight: 600, marginLeft: '6px' }}>
+              · ✓ Approved{matchingStep.actedAt ? ` (${formatDate(matchingStep.actedAt)})` : ''}
+            </span>
+          </div>
         </div>
       );
     }
 
+    if (matchingStep && matchingStep.status === 'REJECTED') {
+      const rejectorName = matchingStep.actedByName || `${slot} Reviewer`;
+      const rejectorDept = decodeSlotName(matchingStep.department || slot);
+      return (
+        <div className="sd-doc-signature-block is-department is-pending">
+          <div className="sd-doc-signature-pending-notice sd-print-hide" style={{ color: '#dc2626' }}>
+            <X size={12} /> Rejected by {rejectorName} ({rejectorDept})
+          </div>
+          <div className="sd-print-blank-sig-block">
+            <span className="sd-print-line" />
+            <div className="sd-doc-signature-name">{rejectorName}</div>
+            <div className="sd-doc-signature-dept">{rejectorDept} · Rejected</div>
+          </div>
+        </div>
+      );
+    }
+
+    if (matchingStep && matchingStep.status === 'OBJECTION') {
+      const reviewerName = matchingStep.actedByName || `${slot} Reviewer`;
+      const reviewerDept = decodeSlotName(matchingStep.department || slot);
+      return (
+        <div className="sd-doc-signature-block is-department is-pending">
+          <div className="sd-doc-signature-pending-notice sd-print-hide" style={{ color: '#d97706' }}>
+            <AlertTriangle size={12} /> Changes Requested by {reviewerName} ({reviewerDept})
+          </div>
+          <div className="sd-print-blank-sig-block">
+            <span className="sd-print-line" />
+            <div className="sd-doc-signature-name">{reviewerName}</div>
+            <div className="sd-doc-signature-dept">{reviewerDept} · Changes Requested</div>
+          </div>
+        </div>
+      );
+    }
+
+    const displaySlot = decodeSlotName(matchingStep?.department || slot);
     return (
       <div className="sd-doc-signature-block is-department is-pending">
         <div className="sd-doc-signature-pending-notice sd-print-hide">
-          <Clock size={12} /> Pending {slot} Department Approval
+          <Clock size={12} /> Pending {displaySlot} Department Approval
         </div>
         <div className="sd-print-blank-sig-block">
           <span className="sd-print-line" />
-          <div className="sd-doc-signature-name">{slot} Approver</div>
-          <div className="sd-doc-signature-dept">{slot}</div>
+          <div className="sd-doc-signature-name">{displaySlot} Approver</div>
+          <div className="sd-doc-signature-dept">{displaySlot}</div>
         </div>
       </div>
     );
@@ -1337,12 +1438,17 @@ export const FillFormModal = ({
             <div className="sd-form-filler-title-row">
               <span className="sd-form-filler-title">{template.title}</span>
               <span className="sd-badge sd-badge-accent">{template.department}</span>
-              <span className="sd-badge sd-badge-gray">v{isResubmit ? bumpPreview(submission.version) : (template.version || '1.0')}</span>
+              <span className="sd-badge sd-badge-gray">v{isResubmit ? bumpPreview(submission.version) : (submission?.version || template.version || '1.0')}</span>
+              {headerBadgesOverride}
             </div>
             <div className="sd-form-filler-meta">
-              <span>{template.code || template.fileName || 'Form Document'}</span>
-              <span>·</span>
-              <span>Fill out fields directly on the form and submit</span>
+              {headerMetaOverride || (
+                <>
+                  <span>{template.code || template.fileName || 'Form Document'}</span>
+                  <span>·</span>
+                  <span>{isViewOnly ? 'Read-only form preview' : 'Fill out fields directly on the form and submit'}</span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -1399,6 +1505,8 @@ export const FillFormModal = ({
             )}
           </div>
 
+          {extraHeaderActions}
+
           {isViewOnly ? (
             <button
               id="btn-close-view-form"
@@ -1441,9 +1549,10 @@ export const FillFormModal = ({
       </header>
 
       {/* Workspace Area: Document Canvas on Left/Center, Interactive Form Rail on Right */}
-      <div className={`sd-form-filler-workspace ${isViewOnly ? 'is-view-only' : ''}`} ref={workspaceRef}>
+      <div className={`sd-form-filler-workspace ${isViewOnly && !customRightRail ? 'is-view-only' : ''}`} ref={workspaceRef}>
         {/* Main Canvas Scroll Area */}
-        <main className={`sd-form-filler-desk ${isViewOnly ? 'is-view-only' : ''}`} ref={deskRef}>
+        <main className={`sd-form-filler-desk ${isViewOnly && !customRightRail ? 'is-view-only' : ''}`} ref={deskRef}>
+        {topBanner && <div className="sd-print-hide" style={{ width: '820px', maxWidth: '100%', marginBottom: '16px' }}>{topBanner}</div>}
         {/* Objection Notification Banner */}
         {isResubmit && submission?.objectionNotes && (
           <div className="sd-form-filler-objection-banner">
@@ -1545,7 +1654,7 @@ export const FillFormModal = ({
               return createPortal(renderFieldInput(s.field, s.key), s.node);
             }
             if (s.type === 'sig') {
-              return createPortal(renderSignatureSlot(s.slot), s.node);
+              return createPortal(renderSignatureSlot(s.slot, s.deptIndex), s.node);
             }
             return null;
           })}
@@ -1566,10 +1675,15 @@ export const FillFormModal = ({
             </div>
           )}
 
-          {/* If the Word document didn't have an explicit submitter signature slot, append it at document bottom */}
-          {(!hasSubmitterSigSlot || !hasDocxHtml) && (
-            <div style={{ marginTop: '36px', paddingTop: '20px', borderTop: '1px solid #e2e8f0' }}>
-              {renderSignatureSlot('Submitter')}
+          {/* If the Word document didn't have an explicit submitter or department signature slot, append them at document bottom */}
+          {(!hasSubmitterSigSlot || !hasDocxHtml || unplacedWorkflowSteps.length > 0) && (
+            <div style={{ marginTop: '36px', paddingTop: '20px', borderTop: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {(!hasSubmitterSigSlot || !hasDocxHtml) && renderSignatureSlot('Submitter')}
+              {unplacedWorkflowSteps.map((st, idx) => (
+                <div key={`unplaced-sig-${st.department || idx}`}>
+                  {renderSignatureSlot(st.department, idx)}
+                </div>
+              ))}
             </div>
           )}
 
@@ -1580,17 +1694,48 @@ export const FillFormModal = ({
                 Sequential Department Approval Chain
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
-                <span className="sd-badge sd-badge-accent">
-                  <User size={11} /> 1. You ({currentUser.name})
+                <span
+                  className={submission ? 'sd-badge sd-badge-success' : 'sd-badge sd-badge-accent'}
+                  style={submission ? { background: 'rgba(16, 185, 129, 0.14)', color: '#059669', borderColor: 'rgba(16, 185, 129, 0.35)' } : undefined}
+                >
+                  {submission ? <CheckCircle2 size={11} /> : <User size={11} />}
+                  {' '}1. {submission ? `${submission.submittedByName || 'Submitter'} (Submitted)` : `You (${currentUser.name})`}
                 </span>
-                {(template.workflow || []).map((w, idx) => (
-                  <React.Fragment key={idx}>
-                    <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>→</span>
-                    <span className="sd-badge sd-badge-gray">
-                      <ShieldCheck size={11} /> {idx + 2}. {w.department}
-                    </span>
-                  </React.Fragment>
-                ))}
+                {(submission?.workflow?.length ? submission.workflow : (template.workflow || [])).map((w, idx) => {
+                  const stStatus = w.status || 'WAITING';
+                  const isApproved = stStatus === 'APPROVED';
+                  const isObjection = stStatus === 'OBJECTION';
+                  const isRejected = stStatus === 'REJECTED';
+                  const isPending = stStatus === 'PENDING' && submission?.status === 'IN_REVIEW';
+                  const deptLabel = decodeSlotName(w.department || '');
+                  return (
+                    <React.Fragment key={idx}>
+                      <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>→</span>
+                      <span
+                        className={`sd-badge ${
+                          isApproved ? 'sd-badge-success' :
+                          isObjection ? 'sd-badge-warn' :
+                          isRejected ? 'sd-badge-danger' :
+                          isPending ? 'sd-badge-accent' :
+                          'sd-badge-gray'
+                        }`}
+                        style={
+                          isApproved
+                            ? { background: 'rgba(16, 185, 129, 0.14)', color: '#059669', borderColor: 'rgba(16, 185, 129, 0.35)' }
+                            : isObjection
+                            ? { background: 'rgba(245, 158, 11, 0.14)', color: '#d97706', borderColor: 'rgba(245, 158, 11, 0.35)' }
+                            : isRejected
+                            ? { background: 'rgba(239, 68, 68, 0.14)', color: '#dc2626', borderColor: 'rgba(239, 68, 68, 0.35)' }
+                            : undefined
+                        }
+                      >
+                        {isApproved ? <CheckCircle2 size={11} /> : <ShieldCheck size={11} />}
+                        {' '}{idx + 2}. {deptLabel}
+                        {isApproved ? ` ✓${w.actedByName ? ` (${w.actedByName})` : ''}` : isObjection ? ' (Objection)' : isRejected ? ' (Rejected)' : isPending ? ' (Awaiting Decision)' : ''}
+                      </span>
+                    </React.Fragment>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1603,7 +1748,10 @@ export const FillFormModal = ({
         </div>
       </main>
 
-      {/* Right-Side Interactive Form Rail */}
+      {/* Right-Side Custom Review Rail (when viewing/reviewing a submission) */}
+      {isViewOnly && customRightRail}
+
+      {/* Right-Side Interactive Form Rail (when filling or modifying a form) */}
       {!isViewOnly && fields.length > 0 && (
         <aside className="sd-form-filler-rail sd-print-hide" aria-label="Form Fields Sidebar">
           <div className="sd-rail-header">

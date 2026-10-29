@@ -14,10 +14,10 @@
 1. `dashboard` → `<SmartDashboard />` ("Smart Cockpit": `100vh` zero-scroll 2×3 Bento Grid, interactive scope switcher, time window filters, 6 smart metric cards, interactive SVG velocity trend & horizontal status donut charts, department workload bars, template leaderboard, priority radar, live searchable feed + `<DashboardCharts />`)
 2. `forms` → `<FormsHub />` ("Forms & Templates": Windows Explorer + `<SmartWordStudio />`, `<AiFormGeneratorModal />`, `<TemplateUploadModal />`, `<BulkImportModal />`, `<FillFormModal />`, `<TemplatePermissionsModal />`, `<VersionHistoryModal />`)
 3. `reviews` → `<ReviewsHub />` (+ `<ReviewChangesModal />`, `<SendForReviewModal />`)
-4. `approvals` → `<FormApprovals />` ("Submissions & Approvals" + `<SubmissionDetailModal />`)
+4. `approvals` → `<FormApprovals />` ("Submissions & Approvals" + `<SubmissionDetailModal />` mounting the actual filled `<FillFormModal />` sheet with locked fields, Reviewer Decision & Notes Rail, Submitter Read-Only mode, and Dual Filer/Reviewer role toggle)
 5. `dept-messaging` → `<DepartmentMessaging />`
 6. `activity` → `<ActivityHub />` ("Activity Log": role-scoped audit trail, database pagination, search & filters)
-7. `settings` → `<SmartSettingsAdmin />` (superadmin only: users, departments, and System Reset)
+7. `settings` → `<SmartSettingsAdmin />` (superadmin only: users, departments [add/edit/delete], and System Reset)
 
 Sidebar utilities: `<NotificationBell />` in brand header; Light/Dark Mode toggle, 5-Accent Color Swatches, and Collapsible Sidebar (`Ctrl+B` / `Cmd+B`) in sidebar footer.
 Global modals: `ProfileAndSignatureModal` (unified Digital Signature, PKI X.509 Certificate, Profile Photo + App Theme), `DocumentPreviewModal`, `ToastContainer`, `TemplatePermissionsModal`, `VersionHistoryModal`.
@@ -29,7 +29,7 @@ Global layout: All pages (except the full-screen `Word Form Studio` overlay) enf
 
 All cross-module state and mutations live in `AppContext.jsx` — do not duplicate them locally:
 - Data: `users`, `departments`, `folders`, `formTemplates`, `formSubmissions`, `departmentMessages`, `myApprovalQueue`, `mySubmissions`, `templateReviews`, `reviewsNeedingMe`, `notifications`, `unreadNotificationsCount`, `activityLogs`, `activityLogsMeta`, `theme`, `accentColor`.
-- Actions: `canManageDepartment(dept)`, `createFolder`, `updateFolder`, `deleteFolder`, `createTemplate`, `bulkImportTemplates`, `updateTemplate`, `updateTemplatePermissions`, `addTemplateComment`, `updateTemplateComment`, `moveTemplate`, `archiveTemplate`, `submitForm`, `resubmitForm`, `workflowAction(id, action, notes)`, `addSubmissionComment`, `updateSubmissionComment`, `sendTemplateForReview`, `submitReviewChanges`, `saveReviewDecisions`, `finalizeReview`, `cancelReview`, `saveSignature`, `saveAvatar`, `getPkiCertificate`, `generatePkiCertificate`, `verifySubmissionSignatures`, `openProfileModal`, `closeProfileModal`, `markNotificationRead`, `markAllNotificationsRead`, `wipeAllData`, `wipeFormsOnly`, `setTheme`, `toggleTheme`, `setAccentColor`, user/department CRUD, messaging.
+- Actions: `canManageDepartment(dept)`, `createFolder`, `updateFolder`, `deleteFolder`, `createTemplate`, `bulkImportTemplates`, `updateTemplate`, `updateTemplatePermissions`, `addTemplateComment`, `updateTemplateComment`, `moveTemplate`, `archiveTemplate`, `submitForm`, `resubmitForm`, `workflowAction(id, action, notes)`, `addSubmissionComment`, `updateSubmissionComment`, `sendTemplateForReview`, `submitReviewChanges`, `saveReviewDecisions`, `finalizeReview`, `cancelReview`, `saveSignature`, `saveAvatar`, `getPkiCertificate`, `generatePkiCertificate`, `verifySubmissionSignatures`, `openProfileModal`, `closeProfileModal`, `markNotificationRead`, `markAllNotificationsRead`, `wipeAllData`, `wipeFormsOnly`, `setTheme`, `toggleTheme`, `setAccentColor`, `createDepartment`, `updateDepartment`, `deleteDepartment`, user CRUD, messaging.
 - Use `addToast(title, message, type)` for all alerts. Audit logging is done server-side.
 
 ---

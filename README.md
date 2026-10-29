@@ -53,19 +53,24 @@
     - **System Tags**: `{{Form ID}}`, `{{Submitted By}}`, `{{Submitted Date}}`, `{{Department}}`, and `{{Version}}`.
     - **Word-Style Tables**: 10×8 hover grid picker, plus contextual **Table Tools** ribbon tab (Insert Row/Col Above/Below/Left/Right, Delete Row/Col/Table, Merge Cells, Split Cell, Shading, Alignment, Borders, Column resize).
     - **Document Layout & Links**: Horizontal dividers, page breaks, and Insert Link button (`#btn-studio-insert-link-tab`).
-  - **Page Layout Tab**: Margins (Normal, Narrow, Wide), Page sizes (A4, Letter), and Orientation (Portrait, Landscape).
+  - **Drag-and-Drop Form Controls & Ribbon Palette**:
+    - Drag and reorder any existing form field pill (`.sd-doc-field-pill`), signature block (`.sd-doc-sig-block`), system tag (`.sd-doc-system-tag`), or image wrapper (`.sd-doc-image-wrap`) anywhere on the canvas — onto the same horizontal row before/after another control, onto a different line, or inside/outside table cells — with a live visual drop caret indicator (`.sd-drop-caret-indicator`).
+    - Drag form control buttons directly from the **Home** and **Insert Elements** ribbon tabs onto the document canvas at any target drop location.
+  - **Page Layout Tab & MS Word-Style Page Zoom (`50%`–`200%`)**: Margins (Normal, Narrow, Wide), Page sizes (A4, Letter), Orientation (Portrait, Landscape), and interactive **Page Zoom** controls (`50%` to `200%` via header stepper, bottom status bar slider, and `75%` / `100%` / `125%` / `150%` preset pills).
   - **Workflow & Approvals Tab**: Target department, destination folder, target audience (All Users vs Department Only), decision deadline in days, and ordered department approval chains (auto-synced with department signature slots).
 - **Authentic Microsoft Word Print Engine**: Dedicated print pipeline (`printWordDocument` and `POST /api/forms/render-print-document`) that renders genuine Word documents (`.docx`) for printing with authentic Word margins, headers, tables, and page layout rather than basic browser HTML print.
 - **Save as Draft Option**: Dedicated `[ Save Draft ]` action allows saving work directly into folders without configuring an approval chain until ready to publish.
-- **In-Document Interactive Widgets**: Clickable field pills (`.sd-doc-field-pill`), signature blocks (`.sd-doc-sig-block`), and system tags open inline customization popovers directly inside the document canvas for:
+- **In-Document Interactive Widgets & Universal Element Removal**: Clickable field pills (`.sd-doc-field-pill`), signature blocks (`.sd-doc-sig-block`), and system tags open customization modals directly inside the document canvas for:
   - **Field Format**: Switch between `🏷️ In-Text Placeholder (Dialog)` and `📝 Direct Input Box`.
   - **Text Weight (Template Level)**: Switch between **Normal Text** (standard document body weight) and **Bold (700)** (heavier emphasis for filled values like names or amounts) saved into the template schema (`fields[].bold`).
-  - **Field Sizing & Signature Block Widths**: Setting labels, mandatory toggles, placeholders, dropdown options, and custom widths (`Auto`, `25%`, `33%`, `50%`, `66%`, `75%`, `100%`) for both form fields and signature blocks (supporting side-by-side inline `50%` signatures). Each element features a quick-remove (×) button.
+  - **Field Sizing, Multi-Column Row Parity & Signature Block Widths**: Setting labels, mandatory toggles, placeholders, dropdown options, and custom widths (`Auto`, `25%`, `33%`, `50%`, `66%`, `75%`, `100%`) for both form fields and signature blocks. Adjacent fractional-width fields (`25%`, `33%`, `50%`) automatically align side-by-side on the same horizontal row across the Studio canvas, Live Preview, and Fill Form sheet (`normalizeFieldRowLayout`, `.sd-field-row`).
+  - **Universal Block & Control Removal**: Every element in the form can be removed with 1 click — pills, signatures, tags, and images have `×` remove buttons, while **Tables** and **Horizontal Lines (`<hr>`)** display floating `× Remove Table` / `× Remove Line` hover popovers, ribbon/status-bar delete buttons, and `Delete`/`Backspace` keyboard support.
   - **Field Guidance & Description**: Add rich multi-line instructions and filling guidance stored on the field schema.
   - **Staging & Clean Cancellation**: Inserting a placeholder stages the field and opens the customizer; canceling or closing the dialog cleanly removes the draft field from the document canvas without leaving orphan tags.
+- **Strict Manual-Mode Parity**: Both Word Upload (`server/docxEngine.js`) and AI Form Generation (`server/aiFormEngine.js`) strictly produce clean Manual-Mode HTML (`<p>`, `<p><br/></p>` line breaks, `<h1>`, `<h3>`, `<table>`, `hr`) without injecting custom padding, inline margins, or non-manual attributes.
 - **Backdrop Outside-Click Protection**: All dialogs, popovers, and modals in Word Form Studio and across the app feature outside-click protection so accidental clicks on the dark backdrop never discard unsaved changes.
-- **Live Form Preview**: Header toggle (Edit / Side by side / Preview) renders the document as end-users will experience it with live interactive form fields and approval steps.
-- **Full `.docx` & `.doc` Roundtrip**: Import existing `.docx` and legacy `.doc` (Word 97-2004) files, edit directly in the studio, or start with a clean blank canvas; compile and export valid `.docx` files via `html-to-docx`.
+- **Live Form Preview & Download Parity**: Header toggle (Edit / Side by side / Preview), template Preview (`DocumentPreviewModal.jsx`), and exported `.docx` / `.pdf` files render the exact Filling Form layout (same fonts, multi-column rows, labels, field instructions, input boxes, and signature cards) — the only difference is that unfilled fields and in-text placeholders display a clean dash (`—`) instead of placeholder text or raw `{{tags}}`.
+- **Full `.docx` & `.doc` Roundtrip with OpenXML/OPC Repair Engine**: Import existing `.docx` and legacy `.doc` (Word 97-2004) files, edit directly in the studio, or start with a clean blank canvas; compile and export 100% Microsoft Word desktop-compliant `.docx` files via `compileHtmlToValidDocx`, `repairDocxBuffer`, and `renderTemplateAsWordDocx` (`server/docxEngine.js`).
 
 ### 3. Cross-Department Pre-Publication Review & Diff/Merge Workflow (`ReviewsHub.jsx`)
 - **Collaborative Template Review Before Publishing**:
@@ -136,19 +141,22 @@
 - **Real-Time Tamper Detection & Verification**: Anyone inspecting a submission can click **Verify Digital Signatures** in `SubmissionDetailModal.jsx` to test the stored signatures against the current document content and public certificates. Any post-signing tampering or database manipulation immediately trips a high-visibility warning.
 - **Certificate Management**: Users can inspect their X.509 certificate subject, issuer, serial number, and SHA-256 fingerprint, download their public `.crt` certificate, or renew their keys directly in the **PKI Certificate** tab of `ProfileAndSignatureModal.jsx`.
 
-### 7. Multi-Stage Department Approval Engine (`FormApprovals.jsx`)
+### 7. Multi-Stage Department Approval Engine (`FormApprovals.jsx`, `SubmissionDetailModal.jsx`)
 - **Dedicated Operational Queues**:
   - **My Queue**: Submissions currently waiting at the user's department approval step.
   - **My Submissions**: Real-time tracking of forms submitted by the user.
   - **Department Forms**: Department-wide submission directory for admins.
-- **Submission Detail Modal (`SubmissionDetailModal.jsx`)**:
-  - Submitted values and metadata.
-  - Live visual workflow track showing approval progress across each department.
-  - Complete chronological audit history and in-form comments.
-  - **Unified Form Sheet Preview, PDF Save & Print**: Features dedicated "Preview Form Sheet", "Save as PDF", and "Print" actions that mount the authentic `<FillFormModal isViewOnly={true} />` canvas, guaranteeing exact visual fidelity for submitted forms.
+- **On-Form Locked Submission Viewer & Reviewer Workspace (`SubmissionDetailModal.jsx` + `FillFormModal.jsx`)**:
+  - **Authentic Filled Form Sheet with Locked Fields**: Opening any submission displays the exact A4 Word form sheet the submitter filled (`FillFormModal`) with all actual inputs, dropdowns, checkboxes, and stamped signatures in a locked state (`disabled` / `readOnly`).
+  - **Reviewer Decision & Notes Rail**: When opened by an authorized reviewer (Department Admin of the current step or Superadmin), a dedicated right-side **Reviewer Decision & Notes Rail** provides:
+    - **Approve & Sign**, **Raise Objection**, and **Reject** workflow actions with decision notes/reasons.
+    - **Comments, Change Requests, Objections & General Notes**: Add categorized in-form feedback (`General Note`, `Change Request`, `Objection`, `Suggestion`), optionally trigger an official workflow objection in one click, and resolve comments (`✓ Accept` / `✕ Reject`).
+    - **PKI Cryptographic Integrity Seal** verification and chronological **Workflow History**.
+  - **Submitter Read-Only View**: When the submitter opens their own form while it is under review (or after final approval/rejection) and no objection is pending, it opens in a clean **Read-Only** form view. If an objection (`OBJECTION_RAISED`) is raised, the submitter can click **Unlock & Modify Form** to edit the fields directly on the sheet and resubmit.
+  - **Dual Role (Filer + Reviewer)**: When a user is both the filer (`isOriginator`) and an authorized reviewer (`canAct`) for the current step, the form defaults to **Reviewer Mode** (so they have full review, comment, approve, object, and reject controls alongside the locked form sheet) and displays a **Dual Role: Filer & Reviewer** badge with a 1-click toggle (`View as Submitter (Read-Only)` ↔ `Switch to Reviewer Mode`) in both the top banner and header bar.
 - **Three Core Operational Actions**:
   - **Approve**: Department admin stamps their saved signature and moves the form to the next department in the chain (or completes the workflow if at final step).
-  - **Raise Objection**: Department admin provides mandatory objection notes, changing status to `OBJECTION_RAISED`. The submitter can modify answers, bumping the document version (e.g., 1.0 → 1.1) and restarting approval from Step 1.
+  - **Raise Objection**: Department admin provides mandatory objection notes, changing status to `OBJECTION_RAISED`. The submitter can unlock and modify answers on the form sheet, bumping the document version (e.g., 1.0 → 1.1) and restarting approval from Step 1.
   - **Reject**: Final termination with mandatory rejection reason.
 
 ### 8. Document Preview & Signature Stamping (`DocumentPreviewModal.jsx`)
@@ -206,7 +214,7 @@
 
 ### 16. System Administration & Security (`SmartSettingsAdmin.jsx`)
 - **User Lifecycle Management**: Superadmin can create users, edit details, toggle active/inactive status, and delete accounts (minimum password length: 6 characters).
-- **Department Administration**: Superadmin can create departments and delete unused departments (deletion is protected if users are currently assigned).
+- **Department Administration (Create, Edit with Cascade Rename & Delete)**: Superadmin can create departments, **edit department name, code, and description** (automatically cascading department name changes across all assigned users, folders, form templates, permissions, approval workflows, submissions, reviews, messages, and audit logs), and delete unused departments (deletion is protected if users are currently assigned).
 - **System Reset & Data Purge (Danger Zone)**:
   - **Option 1: Wipe Out Every Data (Factory Reset)**: Completely purges all templates, folders, submissions, reviews, messages, notifications, and non-superadmin accounts, restoring default enterprise departments and preserving the Superadmin.
   - **Option 2: Wipe Only Forms**: Purges all form templates, folders, submissions, reviews, and form alerts while strictly preserving all user accounts, roles, signatures, departments, and chat messages.
@@ -220,10 +228,10 @@
 - **Search, Filtering & CSV Export**: Real-time debounced keyword search, category pills, and complete CSV ledger export.
 - **Cryptographic Fingerprinting**: Every event is recorded with a verified SHA-256 integrity hash.
 
-### 18. Theme System, `100vh` Zero-Scroll Viewport & Version Tracking (`v1.3.0`)
+### 18. Theme System, `100vh` Zero-Scroll Viewport & Version Tracking (`v1.4.0`)
 - **Dark Mode & Light Mode + 5 Accent Themes**: Switch instantly between **Pure Black Dark Mode** (`#000000`) and **High-Contrast Light Mode** (`#f8fafc` / `#ffffff`), paired with 5 accent themes (**Electric Lime / Green**, **Crimson Red**, **Sunset Orange**, **Royal Purple**, **Ocean Blue**) from the Login top bar, Sidebar footer, or Profile & Signature modal (`App Theme` tab).
-- **`100vh` Zero-Scroll Viewport & Pinned Footer**: Every page across the application (except the full-screen `Word Form Studio` overlay) is locked to `100vh` with zero page-level vertical scrolling and `<AppFooter />` (`Powered by prynivo.com • v1.3.0`) permanently visible at the bottom.
-- **Live Footer Version Badge & Automated Cache Clearing ("Ctrl + F5")**: The footer (`AppFooter.jsx`) displays the real-time application version (`v1.3.0`) with a pulsing status dot and manual cache-clear action. Automatically purges `CacheStorage` and service workers with cache-busting reload whenever a new build version is detected.
+- **`100vh` Zero-Scroll Viewport & Pinned Footer**: Every page across the application (except the full-screen `Word Form Studio` overlay) is locked to `100vh` with zero page-level vertical scrolling and `<AppFooter />` (`Powered by prynivo.com • v1.4.0`) permanently visible at the bottom.
+- **Live Footer Version Badge & Automated Cache Clearing ("Ctrl + F5")**: The footer (`AppFooter.jsx`) displays the real-time application version (`v1.4.0`) with a pulsing status dot and manual cache-clear action. Automatically purges `CacheStorage` and service workers with cache-busting reload whenever a new build version is detected.
 - **Universal Backdrop Click Immunity**: All dialogs, popovers, and modals (folder CRUD, field customizers, single-field dialogs, missing fields alerts, commit modals) feature backdrop outside-click protection to safeguard against accidental data loss.
 
 ### 19. Native Disk / Object Storage Engine (`server/storageEngine.js`)

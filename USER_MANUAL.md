@@ -30,7 +30,7 @@ SmartDoc is an enterprise **Word-template forms & department approval workflow**
 - The first account is the **super admin**, created automatically from the `.env` file (`SUPER_ADMIN_USERNAME` / `SUPER_ADMIN_PASSWORD`).
 - Use **Collapse sidebar** (or `Ctrl+B` / `Cmd+B`) at the bottom of the sidebar to toggle between full width (248px) and compact rail mode (72px).
 - **Dark & Light Mode + 5 Accent Color Themes**: SmartDoc supports both **Pure Black Dark Mode** (`#000000`) and **High-Contrast Light Mode** (`#f8fafc` / `#ffffff`), along with 5 selectable accent themes (**Electric Lime / Green**, **Crimson Red**, **Sunset Orange**, **Royal Purple**, and **Ocean Blue**). You can switch themes anytime from the Login top bar, the Sidebar footer bar, or the **App Theme** tab in **Profile & Signature**.
-- **`100vh` Zero-Scroll Viewport & Pinned Footer**: Every page (except the full-screen **Word Form Studio** editor) is locked to the screen height with zero page-level vertical scrolling and the application footer (`Powered by prynivo.com • v1.3.0`) permanently visible at the bottom.
+- **`100vh` Zero-Scroll Viewport & Pinned Footer**: Every page (except the full-screen **Word Form Studio** editor) is locked to the screen height with zero page-level vertical scrolling and the application footer (`Powered by prynivo.com • v1.4.0`) permanently visible at the bottom.
 
 ---
 
@@ -307,13 +307,14 @@ Admins can upload multiple files at once using the **Bulk Import** tool:
    - Click **Remove Duplicates** to clean up the queue in one click.
 5. Click **Import Documents as Drafts**: Files are ingested instantly and staged as unpublished drafts, ready for subsequent review and publication.
 
-## 5.12 Universal Document Download & Client-Side "Save as PDF"
-SmartDoc allows users to download any document or template across the system, with high-fidelity client-side PDF generation:
+## 5.12 Universal Document Download, Preview Parity & Client-Side "Save as PDF"
+SmartDoc allows users to preview and download any document or template across the system with exact 1:1 Filling Form parity:
+- **Exact Filling Form Visual Parity (`—` for Unfilled Fields)**: Previewing any template (`DocumentPreviewModal.jsx`) or downloading it as `.pdf` or `.docx` renders the exact same typography, fonts, multi-column rows, labels, field guidance, input boxes, and signature cards as the **Fill Form** screen — the only difference is that unfilled input boxes and in-text placeholders display a clean dash (`—`) instead of placeholder hints or raw `{{tags}}`.
 - **Direct Download for PDFs & Images**: Clicking the **Download** button on any static PDF or image document instantly downloads the original file without additional prompts.
 - **Dual Formats for Word Documents (.docx & .doc)**: Clicking the **Download** button on any Word document opens the **Download Document** dialog, providing two options:
-  1. **Download Microsoft Word (.docx)**: Downloads the original `.docx` file for offline editing in Microsoft Word, LibreOffice, or re-uploading to SmartDoc.
-  2. **Save as PDF (.pdf)**: Automatically converts the Word document into an authentic, print-ready, high-resolution A4 `.pdf` file directly inside the browser using SmartDoc's upgraded 3.5× (~336 DPI) lossless client-side PDF export engine. Features live status updates during multi-page rendering with zero blurriness or compression noise.
-- **In-Preview Downloads (`DocumentPreviewModal.jsx`)**: When viewing any document in the preview modal, dedicated footer buttons provide 1-click access to **Save as PDF** (`#btn-download-pdf`) and **Download .docx** (`#btn-download-doc`).
+  1. **Download Microsoft Word (.docx)**: Downloads a 100% Microsoft Word desktop-compliant `.docx` file (validated and repaired by SmartDoc's OpenXML/OPC engine `renderTemplateAsWordDocx` & `repairDocxBuffer`) matching the Filling Form layout with `—` in unfilled fields.
+  2. **Save as PDF (.pdf)**: Automatically converts the form sheet into an authentic, print-ready, high-resolution A4 `.pdf` file directly inside the browser using SmartDoc's upgraded 3.5× (~336 DPI) lossless client-side PDF export engine (`exportFormSheetToPdf`).
+- **In-Preview Downloads (`DocumentPreviewModal.jsx`)**: When viewing any document in the preview modal, dedicated header/footer buttons provide 1-click access to **Download PDF**, **Download .docx**, and **Print Form**.
 - **Vector PDF Alternative via Native Print**: Clicking **Print** in the preview modal or submission view triggers the browser's native print engine. Selecting "Save as PDF" in the print destination creates 100% vector, selectable text with infinite zoom clarity.
 
 ---
@@ -332,8 +333,11 @@ A Microsoft Word-style editor on an authentic A4 sheet canvas. **It opens blank 
 | **Page Layout** | Margins (Normal / Narrow / Wide), page size (A4 / Letter), orientation |
 | **Workflow & Approvals** | Department, destination folder, audience, decision deadline (days), approval steps |
 
-## 6.2 Form elements, In-Text Placeholders & field widths
-Place the cursor where you want the element, then click it in **Insert Elements**:
+## 6.2 Form elements, Drag & Drop, In-Text Placeholders & field widths
+Place the cursor where you want the element and click it in **Insert Elements**, or **drag and drop** any form control button directly from the Ribbon onto the document sheet:
+- **Drag-and-Drop Form Controls**:
+  - **Drag from Ribbon**: Drag any form control button in the **Home** or **Insert Elements** tabs (`Placeholder`, `Name / Text`, `Date Placeholder`, `Amount / Number`, `Governing Law`, `Text Box`, `Long Text`, `Date Picker`, `Number`, `Dropdown`, `Checkbox`, `Submitter Signature`, `Horizontal Rule`) and drop it at any target spot on the page.
+  - **Reorder Existing Controls on the Page**: Click and drag any existing form pill (`.sd-doc-field-pill`), signature block (`.sd-doc-sig-block`), system tag (`.sd-doc-system-tag`), or image (`.sd-doc-image-wrap`) to move it onto the same horizontal row beside another control, onto a different line, or inside/outside a table cell. A live indigo drop caret indicator (`.sd-drop-caret-indicator`) highlights the exact landing spot.
 - **Field types**: Short Text, Long Text, Date, Number, Dropdown, Checkbox.
 - **In-Text Placeholders (Legal & Contracts)**: Placeholders designed for flowing contracts, agreements, NDAs, and legal instruments where values like party names, execution dates, payment sums, and governing jurisdictions sit directly within paragraph prose. **In-Text tags strictly use text input type**:
   - **Party / Name** (`placeholder`, text)
@@ -346,7 +350,7 @@ Place the cursor where you want the element, then click it in **Insert Elements*
 - **Field Customization Options**: Click any inserted field pill inside the document canvas to adjust:
   - **Display Mode**: Switch between `🏷️ In-Text Tag` (flows inline within document sentences) and `📝 Input Box` (renders an on-page form control).
     - **In-Text Tag Text-Only Enforcement**: In-Text tags strictly support text input type (`Short Text`). When In-Text Tag is selected, the Input Type selector is automatically locked to Short Text, and non-text controls (dropdown options, date pickers, numbers, checkboxes) are disabled to guarantee seamless inline typography.
-    - **Input Box Controls**: Selecting Input Box unlocks all input types (Short Text, Long Text, Date Picker, Number, Dropdown Select, Checkbox) and on-form grid row widths (Auto, 25%, 33%, 50%, 66%, 75%, 100%).
+    - **Input Box Controls & Side-by-Side Row Widths**: Selecting Input Box unlocks all input types (Short Text, Long Text, Date Picker, Number, Dropdown Select, Checkbox) and on-form grid row widths (`Auto`, `25%`, `33%`, `50%`, `66%`, `75%`, `100%`). Placing multiple fractional-width fields (e.g. four `25%` fields, three `33%` fields, or two `50%` fields) on the same line renders them side-by-side on a single aligned row in both the Studio editor, Live Preview, and Fill Form sheet.
   - **Text Weight (for In-Text Placeholders)**: Switch between **Normal Text** (standard document body weight) and **Bold (700)** (heavier typographic emphasis for filled values like names, sums, or key contractual dates).
   - **Field Description & Guidance**: Add multi-line instructions and contextual guidance shown to users when filling this field in the right rail cards, single-field dialog, and tooltips.
   - Label (name) & placeholder prompt hint.
@@ -355,18 +359,21 @@ Place the cursor where you want the element, then click it in **Insert Elements*
     - View live option badges with one-click **×** deletion.
     - Type or paste options as comma-separated values (e.g. `California, Delaware, New York, Texas`).
     - SmartDoc automatically pre-fills sensible default choices (`Option 1`, `Option 2`) when first switching to a dropdown.
-  - Quick remove (×) button.
+  - **Universal Element Removal (Fields, Tables, Horizontal Lines, Images)**:
+    - Every field pill, signature block, system tag, and image includes a quick-remove (**×**) button.
+    - Hovering over any **Table** or **Horizontal Line (`<hr>`)** (or clicking a line/table cell) displays a floating **× Remove Table** / **× Remove Line** popover, alongside quick-delete buttons in the **Home** and **Insert Elements** ribbons, the bottom status bar, and `Backspace` / `Delete` keyboard support.
 - **Backdrop Outside-Click Protection**: All field customizers, dialogs, and popovers feature outside-click protection so accidental clicks on the dark background never dismiss your work unexpectedly.
 - **Coexistence**: Direct input controls and in-text placeholders can freely coexist on the exact same document sheet.
 
 ## 6.3 Signatures & system tags
-- **Submitter signature**: stamped with the submitter's saved signature.
+- **Submitter signature**: stamped with the submitter's saved signature when a user fills and signs the form.
 - **Department signature**: one slot per approving department. Slots are kept in sync with the approval steps.
-- **Signature Block Widths & Side-by-Side Layout**: Click any signature block on the canvas (or use its inline quick-width pills `Auto`, `25%`, `33%`, `50%`, `75%`, `100%`) to customize its horizontal width. Setting two adjacent signatures to `50%` places them side-by-side on the same horizontal row in the editor, live preview, Fill Form sheet, and PDF/Print output.
+- **Signature Block Widths**: Signature blocks sit on their own dedicated line at `100%` width by default and can be resized or removed via the signature customizer or quick-remove (**×**) button.
 - **System tags** are auto-filled on the final document: Form ID, Submitted By, Submitted Date, Department, Version.
 
-## 6.4 Live Preview
-Use the header view toggle (**Edit / Side by side / Preview**) to view the form exactly as end users will see it with interactive inputs and the approval chain, without having to save first.
+## 6.4 Live Preview & MS Word-Style Page Zoom (`50%`–`200%`)
+- **Live Preview**: Use the header view toggle (**Edit / Side by side / Preview**) to view the form exactly as end users will see it with interactive inputs, multi-column field rows, and the approval chain, without having to save first. In Studio Preview mode, signature slots display a clean neutral placeholder (`Sign on Submit / Approval`) rather than stamping the template author's personal signature.
+- **MS Word-Style Page Zoom (`50%`–`200%`)**: Adjust page sheet zoom from **50% to 200%** using the zoom stepper in the top header bar or the interactive zoom slider and preset buttons (`75%`, `100%`, `125%`, `150%`) in the bottom status bar. Click the percentage readout at any time to reset to `100%`.
 
 ## 6.5 In-Form Margin Comments & Objections
 - Docked side panel accessible via the **Comments** toggle button in the header.
@@ -566,14 +573,15 @@ Upon submission:
 
 ## 8.1 After an objection
 If an approver raises an objection:
-1. Open **Approvals → My Submissions**.
-2. Open the submission and read the objection notes and in-form comments.
-3. Edit your answers and **Resubmit**.
-4. The version increases (1.0 → 1.1) and approval **restarts from step 1**.
+1. Open **Approvals → My Submissions** and click the submission.
+2. The actual filled form sheet opens with the reviewer's objection banner and notes at the top.
+3. Click **Unlock & Modify Form** in the banner (or top header) to unlock the form fields directly on the sheet.
+4. Edit your answers, enter a brief change summary, and click **Sign & Resubmit**.
+5. The version increases (1.0 → 1.1) and approval **restarts from step 1**.
 
 ## 8.2 In-Form Comments & Submission Timeline
-- **Comments Rail**: Both submitters and approvers can view or add contextual comments directly within `SubmissionDetailModal.jsx`.
-- **Git Version History**: Click the commit history icon in submission details to view every iteration, author, and timestamp across objections and resubmissions.
+- **Reviewer Decision & Notes Rail**: Reviewers can add categorized comments (`General Note`, `Change Request`, `Objection`, `Suggestion`) directly in the right-side rail while inspecting the locked form sheet, and submitters can view all reviewer notes and comments on the form.
+- **Git Version History**: Click the **Version History** button in the top header bar of the submission viewer to inspect every iteration, commit hash, author, and timestamp across objections and resubmissions.
 
 ## 8.3 Exact 1:1 Visual Fidelity "Print As-Is" & PDF Download
 When filling out or reviewing forms in `FillFormModal.jsx`:
@@ -605,14 +613,27 @@ The **Approvals** page has three tabs:
 - **My Submissions**: forms you submitted.
 - **Department**: all forms involving your department.
 
-Open a submission in **Submission Detail Modal (`SubmissionDetailModal.jsx`)** to see:
-- Submitted values and metadata.
-- The **workflow track** showing each department's step status.
-- Full chronological history and in-form comments.
-- **Preview Form Sheet** (`#btn-preview-submission-doc`): Seamlessly opens the completed submission in the authentic form filler sheet (`isViewOnly` mode), displaying the exact visual layout, input boxes, and PKI signatures.
-- **Save as PDF** (`#btn-download-submission-pdf`): Exports the authentic form sheet directly to an ultra-HD PDF with zero layout degradation or flattened controls.
-- **Print** (`#btn-print-submission-word`): Launches the native print engine for the authentic form sheet with full isolation and clean unhighlighted borders.
-- **Download .docx**: Download the filled submission document with all stamped signatures and PKI digital seals in native Microsoft Word format (`.docx`).
+### On-Form Locked Submission Viewer (`SubmissionDetailModal.jsx` + `FillFormModal.jsx`)
+Clicking any submission opens the **actual filled A4 Form Sheet** (with the submitter's entered values, dropdowns, checkboxes, and stamped signatures locked in place) instead of a separate text summary popup:
+- **For Reviewers (Department Admin of the active step, or Super Admin)**:
+  - **Left / Center Workspace**: The exact A4 form sheet filled by the submitter with all form controls locked (`disabled` / `readOnly`) so answers cannot be altered by reviewers.
+  - **Right-Side Reviewer Decision & Notes Rail**:
+    - **Make Your Decision**: Enter optional approval notes or a mandatory objection/rejection reason and click **Approve & Sign**, **Raise Objection**, or **Reject**.
+    - **Comments, Change Requests & Notes**: Post categorized feedback (`General Note`, `Change Request`, `Objection`, `Suggestion`) directly onto the form, optionally check *"Also trigger official workflow objection"* to pause approval and return the form to the submitter in one click, or resolve existing comments (`✓ Accept` / `✕ Reject`).
+    - **PKI Cryptographic Integrity Seal**: Verify RSA-2048 X.509 digital signatures in real time.
+    - **Workflow History**: Inspect the chronological audit trail of all steps.
+- **For Submitters (Filer Only)**:
+  - While the form is `IN_REVIEW` with no objections (or after it is `APPROVED` / `REJECTED`), the submitter views the form in a clean **Read-Only** mode (no edit controls and no reviewer action rail).
+  - If a reviewer raises an objection (`OBJECTION_RAISED`) or posts a Change Request/Objection comment, the reviewer's feedback is displayed and the submitter can click **Unlock & Modify Form** to edit the fields directly on the sheet and resubmit.
+- **When a User is BOTH the Filer AND the Reviewer (Dual Role)**:
+  - If a Department Admin submits a form routed to their own department (or when a Super Admin submits and reviews a form), SmartDoc detects that you hold **both** roles (`isOriginator && canAct`).
+  - The form automatically opens in **Reviewer Mode** (even when clicked from **My Submissions**) so you immediately have the **Reviewer Decision & Notes Rail** on the right alongside the locked form sheet.
+  - A **Dual Role: Filer & Reviewer** badge and a 1-click toggle button (**View as Submitter (Read-Only)** ↔ **Switch to Reviewer Mode**) appear in both the top banner and header bar so you can switch between the Reviewer workspace and the pure Read-Only Submitter view at any time.
+- **Header Export & History Actions**:
+  - **Download PDF** (`#btn-download-live-form-pdf`): Exports the filled form sheet directly to a 3.5× ultra-HD PDF.
+  - **Download .docx** (`#btn-download-submission-docx`): Downloads the filled submission with stamped signatures and PKI seals as a Microsoft Word `.docx` document.
+  - **Print Form**: Launches the native print engine for the filled form sheet.
+  - **Version History**: Opens the Git-like commit timeline for the submission.
 
 ## 9.1 Actions (department admin of the current step, or super admin)
 | Action | Notes required | Result |
@@ -679,8 +700,11 @@ Every event is stamped with a cryptographic SHA-256 hash generated from its immu
 - **Edit**, **activate / deactivate**, or **delete** users.
 
 ## Departments
-- **Add** a department by name.
-- **Delete** is blocked while users are still assigned to it.
+- **Add** a department by entering its Name, Code (e.g. `HR`, `FIN`, `IT`), and Description.
+- **Edit** a department by clicking the **Edit (pencil)** icon on any department card:
+  - Update the department's **Name**, **Code**, or **Description**.
+  - Renaming a department **automatically cascades** across the entire system in a single transaction — updating all assigned users, Explorer folders, form templates, allowed department permission lists, approval workflow steps, signature slots, active/historical submissions, pre-publication reviews, team messages, and audit logs.
+- **Delete** is blocked while users are still assigned to the department.
 
 ## System Reset & Data Purge (Super Admin)
 Accessible via the **System Reset** tab in Settings:
@@ -763,7 +787,7 @@ Click your profile/avatar in the sidebar footer → **Profile & Signature** → 
 All dialogs and modals in SmartDoc have backdrop outside-click protection enabled. This protects you from accidentally losing unsaved form fields, document edits, commit notes, or folder names if you click outside the modal window. To close any dialog intentionally, click the explicit **Cancel** or **Close (×)** buttons, or press the **Escape** key.
 
 **What does the version number in the footer do?**
-The footer displays the live application version (e.g. `v1.3.0`) with a status indicator. When a new version is deployed to production, SmartDoc automatically detects the update, purges stale browser caches, and performs a hard reload. You can also click the version pill at any time to trigger an immediate cache-clearing hard reload (`Ctrl + F5` equivalent).
+The footer displays the live application version (e.g. `v1.4.0`) with a status indicator. When a new version is deployed to production, SmartDoc automatically detects the update, purges stale browser caches, and performs a hard reload. You can also click the version pill at any time to trigger an immediate cache-clearing hard reload (`Ctrl + F5` equivalent).
 
 ---
 

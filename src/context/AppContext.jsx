@@ -480,6 +480,24 @@ export const AppProvider = ({ children }) => {
     if (r) await refreshDepartments();
     return r;
   };
+  const updateDepartment = async (id, data) => {
+    const r = await run(() => apiService.updateDepartment(id, data), 'Department updated', data.name);
+    if (r) {
+      await Promise.all([
+        refreshDepartments(),
+        refreshUsers(),
+        refreshFolders(),
+        refreshTemplates(),
+        refreshSubmissions(),
+        refreshReviews()
+      ]);
+      try {
+        const me = await apiService.me();
+        if (me) setCurrentUser(me);
+      } catch (_) {}
+    }
+    return r;
+  };
   const deleteDepartment = async (id) => {
     const r = await run(() => apiService.deleteDepartment(id), 'Department deleted');
     if (r) await refreshDepartments();
@@ -801,7 +819,7 @@ export const AppProvider = ({ children }) => {
     documentPreview,
     openDocumentPreview: (p) => setDocumentPreview(p),
     closeDocumentPreview: () => setDocumentPreview(null),
-    createUser, updateUser, toggleUserStatus, deleteUser, createDepartment, deleteDepartment,
+    createUser, updateUser, toggleUserStatus, deleteUser, createDepartment, updateDepartment, deleteDepartment,
     canManageDepartment, createFolder, updateFolder, deleteFolder,
     createTemplate, bulkImportTemplates, refreshTemplates, refreshFolders,
     updateTemplate, updateTemplatePermissions, addTemplateComment, updateTemplateComment,

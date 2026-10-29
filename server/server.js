@@ -6,7 +6,16 @@ import dotenv from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { initPostgresDatabase, query, wipeAllData, wipeFormsOnly } from './pgDb.js';
-import { parseTemplate, parseWordDocument, convertDocTextToHtml, renderFilledDocument, SYSTEM_TAGS } from './docxEngine.js';
+import {
+  parseTemplate,
+  parseWordDocument,
+  convertDocTextToHtml,
+  renderFilledDocument,
+  repairDocxBuffer,
+  compileHtmlToValidDocx,
+  renderTemplateAsWordDocx,
+  SYSTEM_TAGS
+} from './docxEngine.js';
 import { generateUserCertificate, parseCertificateInfo, signPayload, verifySignatureBundle } from './pkiEngine.js';
 import mammoth from 'mammoth';
 import htmlToDocx from 'html-to-docx';
@@ -38,7 +47,7 @@ app.use(express.json({ limit: '50mb' }));
 // ============================================================
 // Application Version & Cache Invalidation
 // ============================================================
-let appVersion = '1.3.0';
+let appVersion = '1.4.0';
 try {
   const pkgData = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
   if (pkgData && pkgData.version) appVersion = pkgData.version;
@@ -129,10 +138,21 @@ async function audit(action, actor, resource, department) {
 
 const mapDepartment = (d) => ({ id: d.id, name: d.name, code: d.code, description: d.description, status: d.status, createdAt: d.created_at });
 
+function cleanDoubleEncodedAmp(str) {
+  if (!str || typeof str !== 'string') return str;
+  return str.replace(/&(amp;){2,}/gi, '&amp;');
+}
+
+function decodeHtmlAmp(str) {
+  if (!str || typeof str !== 'string') return str;
+  return str.replace(/&(amp;)+/gi, '&');
+}
+
 function mapTemplate(t) {
   const fileType = t.file_type || 'docx';
   const cleanBase64 = String(t.docx_base64 || '').replace(/^data:[^;]+;base64,/, '');
   const fileSize = t.file_size ? parseInt(t.file_size, 10) : (cleanBase64 ? Buffer.byteLength(cleanBase64, 'base64') : 0);
+  const rawSigSlots = parseJson(t.signature_slots, []);
   return {
     id: t.id,
     code: t.unique_code,
@@ -154,14 +174,14 @@ function mapTemplate(t) {
     versionHistory: parseJson(t.version_history, []),
     comments: parseJson(t.comments, []),
     fields: parseJson(t.fields, []),
-    signatureSlots: parseJson(t.signature_slots, []),
+    signatureSlots: Array.isArray(rawSigSlots) ? rawSigSlots.map(s => decodeHtmlAmp(String(s || ''))) : [],
     systemTags: parseJson(t.system_tags, []),
     workflow: parseJson(t.workflow, []),
     defaultExpiryDays: t.default_expiry_days || 14,
     createdBy: t.created_by,
     createdAt: t.created_at,
     updatedAt: t.updated_at,
-    htmlContent: t.html_content || null,
+    htmlContent: t.html_content ? cleanDoubleEncodedAmp(t.html_content) : null,
     fontFamily: t.font_family || null,
     fontSize: t.font_size || null,
     status: t.status || 'ACTIVE',
@@ -172,9 +192,11 @@ function mapTemplate(t) {
 function mapSubmission(s) {
   let status = s.status;
   if (status === 'IN_REVIEW' && s.expiry_date && s.expiry_date < todayStr()) status = 'EXPIRED';
-  const workflow = parseJson(s.workflow, []).map(({ signature, ...step }) => ({
+  const workflow = parseJson(s.workflow, []).map((step) => ({
     ...step,
-    signed: !!signature,
+    signature: step.signature || null,
+    signatureImage: step.signature || null,
+    signed: !!step.signature,
     hasPkiSignature: !!step.pkiSignature
   }));
   const pkiSig = parseJson(s.pki_signature, null);
@@ -350,7 +372,7 @@ app.get('/api/users', async (req, res) => {
     const actor = await requireActor(req, res);
     if (!actor) return;
     const r = await query('SELECT * FROM users ORDER BY name ASC');
-    res.json(r.rows.map(u => sanitizeUser(u)));
+    res.json(r.rows.map(u => sanitizeUser(u, { includeSignature: true })));
   } catch (err) {
     console.error('[GET users]', err);
     res.status(500).json({ error: 'Failed to load users' });
@@ -649,6 +671,125 @@ app.post('/api/departments', async (req, res) => {
   }
 });
 
+app.put('/api/departments/:id', async (req, res) => {
+  try {
+    const actor = await requireActor(req, res);
+    if (!actor) return;
+    if (!isSuper(actor)) return res.status(403).json({ error: 'Only the Super Administrator can edit departments' });
+
+    const d = await query('SELECT * FROM departments WHERE id = $1', [req.params.id]);
+    if (d.rowCount === 0) return res.status(404).json({ error: 'Department not found' });
+    const dept = d.rows[0];
+
+    const name = String(req.body.name ?? dept.name).trim();
+    const code = String(req.body.code ?? dept.code).trim().toUpperCase();
+    const description = req.body.description !== undefined ? String(req.body.description || '').trim() : (dept.description || '');
+    if (!name || !code) return res.status(400).json({ error: 'Department name and code are required' });
+
+    const duplicate = await query(
+      'SELECT id FROM departments WHERE id != $1 AND (UPPER(code) = $2 OR LOWER(name) = LOWER($3))',
+      [dept.id, code, name]
+    );
+    if (duplicate.rowCount > 0) {
+      return res.status(409).json({ error: 'Another department with this name or code already exists' });
+    }
+
+    const oldName = dept.name;
+    const oldCode = dept.code;
+
+    await query(
+      `UPDATE departments SET name = $1, code = $2, description = $3 WHERE id = $4`,
+      [name, code, description, dept.id]
+    );
+
+    // Cascade department rename / code update across all referencing records
+    if (oldName !== name || oldCode !== code) {
+      await query(
+        `UPDATE users SET department = $1, ad_group = $2 WHERE department = $3`,
+        [name, `AD_${code}`, oldName]
+      );
+    }
+
+    if (oldName !== name) {
+      await query(`UPDATE folders SET department = $1, updated_at = NOW() WHERE department = $2`, [name, oldName]);
+      await query(`UPDATE form_templates SET department = $1, updated_at = NOW() WHERE department = $2`, [name, oldName]);
+      await query(`UPDATE form_submissions SET department = $1, updated_at = NOW() WHERE department = $2`, [name, oldName]);
+      await query(`UPDATE department_messages SET department = $1 WHERE department = $2`, [name, oldName]);
+      await query(`UPDATE template_reviews SET department = $1, updated_at = NOW() WHERE department = $2`, [name, oldName]);
+      await query(`UPDATE template_review_reviewers SET department = $1 WHERE department = $2`, [name, oldName]);
+      await query(`UPDATE audit_logs SET department = $1 WHERE department = $2`, [name, oldName]);
+
+      // Update JSONB workflow steps and allowed_departments in form_templates
+      const tmpls = await query(`SELECT id, workflow, allowed_departments, signature_slots FROM form_templates`);
+      for (const row of tmpls.rows) {
+        const wf = parseJson(row.workflow, []);
+        const allowedDepts = parseJson(row.allowed_departments, []);
+        const sigSlots = parseJson(row.signature_slots, []);
+        let changed = false;
+
+        const nextWf = wf.map(step => {
+          if (step && step.department === oldName) {
+            changed = true;
+            return { ...step, department: name };
+          }
+          return step;
+        });
+        const nextAllowed = allowedDepts.map(dn => {
+          if (dn === oldName) {
+            changed = true;
+            return name;
+          }
+          return dn;
+        });
+        const nextSigSlots = sigSlots.map(sl => {
+          if (sl === oldName) {
+            changed = true;
+            return name;
+          }
+          return sl;
+        });
+
+        if (changed) {
+          await query(
+            `UPDATE form_templates SET workflow = $1::jsonb, allowed_departments = $2::jsonb, signature_slots = $3::jsonb WHERE id = $4`,
+            [JSON.stringify(nextWf), JSON.stringify(nextAllowed), JSON.stringify(nextSigSlots), row.id]
+          );
+        }
+      }
+
+      // Update JSONB workflow steps in form_submissions
+      const subs = await query(`SELECT id, workflow FROM form_submissions`);
+      for (const row of subs.rows) {
+        const wf = parseJson(row.workflow, []);
+        let changed = false;
+        const nextWf = wf.map(step => {
+          if (step && step.department === oldName) {
+            changed = true;
+            return { ...step, department: name };
+          }
+          return step;
+        });
+        if (changed) {
+          await query(`UPDATE form_submissions SET workflow = $1::jsonb WHERE id = $2`, [JSON.stringify(nextWf), row.id]);
+        }
+      }
+    }
+
+    await audit(
+      'DEPARTMENT_UPDATED',
+      actor.username,
+      oldName !== name ? `${oldName} → ${name} (${code})` : `${name} (${code})`,
+      name
+    );
+
+    const updated = await query('SELECT * FROM departments WHERE id = $1', [dept.id]);
+    res.json(mapDepartment(updated.rows[0]));
+  } catch (err) {
+    console.error('[PUT departments]', err);
+    res.status(500).json({ error: 'Failed to update department' });
+  }
+});
+
 app.delete('/api/departments/:id', async (req, res) => {
   try {
     const actor = await requireActor(req, res);
@@ -858,14 +999,13 @@ app.post('/api/forms/templates/html-to-docx', async (req, res) => {
   try {
     const actor = await requireActor(req, res);
     if (!actor) return;
-    const { html, title } = req.body;
+    const { html, title, fontFamily, fontSize } = req.body;
     if (!html) return res.status(400).json({ error: 'HTML content required' });
 
-    const docxBuffer = await htmlToDocx(html, null, {
+    const docxBuffer = await compileHtmlToValidDocx(html, {
       title: title || 'SmartDoc Form Template',
-      header: true,
-      footer: true,
-      margins: { top: 1440, right: 1440, bottom: 1440, left: 1440 }
+      fontFamily,
+      fontSize
     });
     res.json({ fileBase64: docxBuffer.toString('base64') });
   } catch (err) {
@@ -961,8 +1101,49 @@ app.get('/api/forms/templates/:id/file', async (req, res) => {
 
     const fileType = t.file_type || 'docx';
     const filename = t.docx_filename || (fileType === 'pdf' ? 'document.pdf' : fileType === 'image' ? 'document.png' : 'template.docx');
+    const isWordDoc = (fileType === 'docx' || fileType === 'doc') && t.is_editable !== false;
 
-    // 1. Try direct streaming from disk storage
+    // For Word templates:
+    // - When ?download=1 or ?rendered=1 is requested, render a Filling-Form-style .docx
+    //   (same fonts, header mark, resolved system tags, field labels, and '—' instead of placeholders).
+    // - Otherwise, ensure the raw .docx package passes OpenXML/OPC repair before sending.
+    if (isWordDoc) {
+      const docxMime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      const downloadFilename = filename.replace(/\.doc$/i, '.docx');
+
+      if ((req.query.download === '1' || req.query.rendered === '1') && t.html_content) {
+        const renderedBuf = await renderTemplateAsWordDocx(t, actor);
+        res.setHeader('Content-Type', docxMime);
+        res.setHeader('Content-Length', renderedBuf.length);
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(downloadFilename)}"`);
+        return res.send(renderedBuf);
+      }
+
+      let rawBuf = getTemplateBuffer(t.id, t.file_path);
+      if (!rawBuf && t.docx_base64) {
+        const clean = String(t.docx_base64).replace(/^data:[^;]+;base64,/, '').trim();
+        rawBuf = Buffer.from(clean, 'base64');
+      }
+      if (!rawBuf && t.html_content) {
+        rawBuf = await compileHtmlToValidDocx(t.html_content, {
+          title: t.title || 'SmartDoc Form Template',
+          fontFamily: t.font_family,
+          fontSize: t.font_size
+        });
+      }
+      if (rawBuf) {
+        const repairedBuf = repairDocxBuffer(rawBuf, {
+          fontFamily: t.font_family,
+          fontSize: t.font_size
+        });
+        res.setHeader('Content-Type', docxMime);
+        res.setHeader('Content-Length', repairedBuf.length);
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(downloadFilename)}"`);
+        return res.send(repairedBuf);
+      }
+    }
+
+    // 1. Try direct streaming from disk storage (PDF / image)
     const streamed = streamTemplateFile(t.id, t.file_path, res, filename, fileType);
     if (streamed) return;
 
@@ -1021,11 +1202,10 @@ app.post('/api/forms/templates/:id/render-print-document', async (req, res) => {
 
     let templateBase64 = getTemplateBase64(t.id, t.file_path) || t.docx_base64;
     if (!templateBase64 && (customHtml || t.html_content)) {
-      const docxBuf = await htmlToDocx(customHtml || t.html_content, null, {
+      const docxBuf = await compileHtmlToValidDocx(customHtml || t.html_content, {
         title: t.title || 'SmartDoc Form',
-        header: true,
-        footer: true,
-        margins: { top: 1440, right: 1440, bottom: 1440, left: 1440 }
+        fontFamily: t.font_family,
+        fontSize: t.font_size
       });
       templateBase64 = docxBuf.toString('base64');
     }
@@ -1158,13 +1338,18 @@ app.post('/api/forms/templates', async (req, res) => {
     let fileBase64 = rawFileBase64;
     // If created via Word Form Studio, generate valid .docx binary from HTML
     if (htmlContent && !fileBase64 && (fileType === 'docx' || fileType === 'doc')) {
-      const docxBuffer = await htmlToDocx(htmlContent, null, {
+      const docxBuffer = await compileHtmlToValidDocx(htmlContent, {
         title: title.trim(),
-        header: true,
-        footer: true,
-        margins: { top: 1440, right: 1440, bottom: 1440, left: 1440 }
+        fontFamily,
+        fontSize
       });
       fileBase64 = docxBuffer.toString('base64');
+    } else if (fileBase64 && (fileType === 'docx' || /\.docx$/i.test(fileName || ''))) {
+      try {
+        const clean = String(fileBase64).replace(/^data:[^;]+;base64,/, '').trim();
+        const repaired = repairDocxBuffer(Buffer.from(clean, 'base64'), { fontFamily, fontSize });
+        fileBase64 = repaired.toString('base64');
+      } catch (_) {}
     }
 
     if (!fileBase64) return res.status(400).json({ error: 'Please upload a file or design a form in Word Studio' });
@@ -1214,15 +1399,14 @@ app.post('/api/forms/templates', async (req, res) => {
       // binary so docxtemplater and docx-preview can process it seamlessly as a .docx
       if ((fileType === 'doc' || /\.doc$/i.test(fileName || '')) && finalHtmlContent) {
         try {
-          const docxBuffer = await htmlToDocx(finalHtmlContent, null, {
+          const docxBuffer = await compileHtmlToValidDocx(finalHtmlContent, {
             title: title || 'SmartDoc Form Template',
-            header: true,
-            footer: true,
-            margins: { top: 1440, right: 1440, bottom: 1440, left: 1440 }
+            fontFamily,
+            fontSize
           });
           fileBase64 = docxBuffer.toString('base64');
         } catch (err) {
-          console.warn('[POST templates] htmlToDocx conversion for .doc note:', err.message);
+          console.warn('[POST templates] compileHtmlToValidDocx conversion for .doc note:', err.message);
         }
       }
 
@@ -1479,13 +1663,15 @@ app.post('/api/forms/templates/bulk-import', async (req, res) => {
 
             // If legacy .doc, compile into valid .docx
             if ((fileType === 'doc' || /\.doc$/i.test(fileName)) && finalHtmlContent) {
-              const docxBuffer = await htmlToDocx(finalHtmlContent, null, {
-                title: fileTitle,
-                header: true,
-                footer: true,
-                margins: { top: 1440, right: 1440, bottom: 1440, left: 1440 }
+              const docxBuffer = await compileHtmlToValidDocx(finalHtmlContent, {
+                title: fileTitle
               });
               fileBase64 = docxBuffer.toString('base64');
+            } else if (fileBase64 && (fileType === 'docx' || /\.docx$/i.test(fileName))) {
+              try {
+                const clean = String(fileBase64).replace(/^data:[^;]+;base64,/, '').trim();
+                fileBase64 = repairDocxBuffer(Buffer.from(clean, 'base64')).toString('base64');
+              } catch (_) {}
             }
 
             cleanFields = (parsedWord.fields || []).map(key => ({
@@ -1655,11 +1841,10 @@ app.put('/api/forms/templates/:id', async (req, res) => {
     };
 
     if (htmlContent) {
-      const docxBuffer = await htmlToDocx(htmlContent, null, {
+      const docxBuffer = await compileHtmlToValidDocx(htmlContent, {
         title: nextTitle,
-        header: true,
-        footer: true,
-        margins: { top: 1440, right: 1440, bottom: 1440, left: 1440 }
+        fontFamily: fontFamily || t.font_family,
+        fontSize: fontSize || t.font_size
       });
       fileBase64 = docxBuffer.toString('base64');
       const parsed = await parseTemplate(fileBase64);
@@ -3088,7 +3273,8 @@ app.get('/api/audit-logs', async (req, res) => {
       SECURITY: [
         'USER_LOGIN', 'SIGNATURE_SAVED', 'SIGNATURE_CLEARED', 'AVATAR_UPDATED', 'AVATAR_CLEARED',
         'PKI_CERTIFICATE_ISSUED', 'USER_CREATED', 'USER_UPDATED', 'USER_ACTIVATED',
-        'USER_SUSPENDED', 'USER_DELETED', 'SYSTEM_RESET_ALL', 'SYSTEM_RESET_FORMS',
+        'USER_SUSPENDED', 'USER_DELETED', 'DEPARTMENT_CREATED', 'DEPARTMENT_UPDATED', 'DEPARTMENT_DELETED',
+        'SYSTEM_RESET_ALL', 'SYSTEM_RESET_FORMS',
         'SYSTEM_WIPED', 'FORMS_WIPED'
       ],
       COMMENTS: [

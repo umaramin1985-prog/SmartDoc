@@ -7,6 +7,7 @@ import { Download, Printer, Loader2, Lock, FileText, Image as ImageIcon, FileDow
 import { printWordDocument, printImageDocument } from '../utils/wordPrintEngine';
 import { exportWordToPdf } from '../utils/pdfExportEngine';
 import { FillFormModal } from './FillFormModal';
+import { SubmissionDetailModal } from './SubmissionDetailModal';
 
 // Renders .docx, .pdf, or image in the browser, with download & authentic Word print
 export const DocumentPreviewModal = () => {
@@ -20,8 +21,17 @@ export const DocumentPreviewModal = () => {
   const [exportingPdf, setExportingPdf] = useState(false);
   const [pdfProgressText, setPdfProgressText] = useState('');
 
+  const previewTemplate = documentPreview?.kind === 'template'
+    ? formTemplates?.find(t => String(t.id) === String(documentPreview.id))
+    : null;
+  const isEditableWordTemplate = Boolean(
+    previewTemplate &&
+    previewTemplate.isEditable !== false &&
+    (!previewTemplate.fileType || previewTemplate.fileType === 'docx' || previewTemplate.fileType === 'doc')
+  );
+
   useEffect(() => {
-    if (!documentPreview || documentPreview.kind === 'submission') {
+    if (!documentPreview || documentPreview.kind === 'submission' || isEditableWordTemplate) {
       if (objectUrl) {
         URL.revokeObjectURL(objectUrl);
         setObjectUrl(null);
@@ -75,22 +85,24 @@ export const DocumentPreviewModal = () => {
 
   if (!documentPreview) return null;
 
-  // If previewing a submission, delegate to authentic form sheet
+  // If previewing an editable Word form template, delegate to authentic FillFormModal sheet (view-only)
+  if (documentPreview.kind === 'template' && isEditableWordTemplate && previewTemplate) {
+    return (
+      <FillFormModal
+        template={previewTemplate}
+        isViewOnly={true}
+        onClose={closeDocumentPreview}
+      />
+    );
+  }
+
+  // If previewing a submission, delegate to authentic SubmissionDetailModal form sheet
   if (documentPreview.kind === 'submission') {
     const sub = formSubmissions?.find(x => String(x.id) === String(documentPreview.id));
-    const tmpl = formTemplates?.find(t => String(t.id) === String(sub?.templateId));
     if (sub) {
       return (
-        <FillFormModal
-          template={tmpl || {
-            id: sub.templateId,
-            title: sub.title,
-            department: sub.department,
-            fields: sub.fields || Object.keys(sub.formData || {}).map(k => ({ key: k, label: k })),
-            workflow: sub.workflow
-          }}
-          submission={sub}
-          isViewOnly={true}
+        <SubmissionDetailModal
+          submissionId={sub.id}
           onClose={closeDocumentPreview}
         />
       );

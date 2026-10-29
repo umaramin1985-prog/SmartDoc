@@ -89,7 +89,15 @@ const SYSTEM_TAGS_LIST = ['Form ID', 'Submitted By', 'Submitted Date', 'Version'
 // Allowed field widths (percent of the form row when a user fills the form)
 const WIDTH_OPTIONS = [25, 33, 50, 66, 75, 100];
 
-const esc = (str) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const decodeHtmlEntities = (str) =>
+  String(str || '')
+    .replace(/&(amp;)+/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+
+const esc = (str) => decodeHtmlEntities(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 const fieldIcon = (type) => type === 'date' ? '📅' : type === 'number' ? '🔢' : type === 'textarea' ? '📝' : type === 'dropdown' ? '🔽' : type === 'checkbox' ? '☑️' : '✏️';
 
@@ -124,7 +132,8 @@ const sigBlockStyleStr = (width) => {
   return 'width: 100%; max-width: 100%; display: block; margin: 10px 0; box-sizing: border-box;';
 };
 
-const sigInnerHtml = (slot, width = 100) => {
+const sigInnerHtml = (rawSlot, width = 100) => {
+  const slot = decodeHtmlEntities(rawSlot || 'Submitter').trim();
   const isSubmitter = String(slot).toLowerCase() === 'submitter';
   const normW = normalizeSigWidth(width);
   const widthPillsHtml = SIG_QUICK_WIDTHS.map(preset => {
@@ -147,9 +156,9 @@ const sigInnerHtml = (slot, width = 100) => {
 };
 
 const buildStudioSigBlockHtml = (slot, width = 100) => {
-  const s = String(slot || 'Submitter').trim();
+  const s = decodeHtmlEntities(slot || 'Submitter').trim();
   const normW = normalizeSigWidth(width);
-  return `<div class="sd-doc-sig-block" data-sig-slot="${esc(s)}" data-width="${esc(String(normW))}" style="${sigBlockStyleStr(normW)}" contenteditable="false">${sigInnerHtml(s, normW)}</div>`;
+  return `<div class="sd-doc-sig-block" data-sig-slot="${esc(s)}" data-width="${esc(String(normW))}" style="${sigBlockStyleStr(normW)}" contenteditable="false" draggable="true">${sigInnerHtml(s, normW)}</div>`;
 };
 
 const systemTagInnerHtml = (name) => `🏷️ {{${esc(name)}}}${REMOVE_BTN_HTML}`;
@@ -179,7 +188,7 @@ const convertRawHtmlToStudio = (rawHtml, existingFields = []) => {
   // System tags
   for (const st of SYSTEM_TAGS_LIST) {
     const re = new RegExp(`\\{\\{\\s*${st}\\s*\\}\\}`, 'gi');
-    docHtml = docHtml.replace(re, `<span class="sd-doc-system-tag" data-sys-tag="${esc(st)}" contenteditable="false">${systemTagInnerHtml(st)}</span>`);
+    docHtml = docHtml.replace(re, `<span class="sd-doc-system-tag" data-sys-tag="${esc(st)}" contenteditable="false" draggable="true">${systemTagInnerHtml(st)}</span>`);
   }
 
   // Strip wrapping <strong>/<b> around field placeholders so pills don't inherit nested tags
@@ -206,8 +215,12 @@ const convertRawHtmlToStudio = (rawHtml, existingFields = []) => {
     const type = isPh ? 'text' : (f.type || 'text');
     const isBold = !!(f.bold || f.isBold);
     const options = isPh ? [] : (f.options || []);
-    const widthAttr = (!isPh && f.width) ? ` data-width="${f.width}" style="width: ${f.width === 100 ? '100%' : `calc(${f.width}% - 8px)`}; box-sizing: border-box;"` : '';
-    return `<span class="sd-doc-field-pill${isPh ? ' is-placeholder' : ''}${isBold ? ' is-bold' : ''}" data-field-key="${esc(f.key)}" data-field-label="${esc(f.label)}" data-field-type="${type}" data-field-mode="${mode}" data-field-bold="${isBold ? 'true' : 'false'}" data-required="${f.required}" data-placeholder="${esc(f.placeholder || '')}" data-description="${esc(f.description || '')}" data-options='${JSON.stringify(options)}'${widthAttr} contenteditable="false">${pillInnerHtml(f.label, type, f.required, mode, isBold)}</span>`;
+    const isDirectInput = f.mode === 'input' || (f.mode !== 'placeholder' && (f.width || f.type === 'textarea'));
+    const widthVal = (!isPh && f.width) ? parseInt(f.width, 10) : 0;
+    const widthAttr = widthVal > 0
+      ? ` data-width="${widthVal}" style="width: ${widthVal === 100 ? '100%' : `calc(${widthVal}% - 8px)`}; max-width: ${widthVal === 100 ? '100%' : `calc(${widthVal}% - 8px)`}; box-sizing: border-box;"`
+      : (isDirectInput ? '' : '');
+    return `<span class="sd-doc-field-pill${isPh ? ' is-placeholder' : ''}${isBold ? ' is-bold' : ''}" data-field-key="${esc(f.key)}" data-field-label="${esc(f.label)}" data-field-type="${type}" data-field-mode="${mode}" data-field-bold="${isBold ? 'true' : 'false'}" data-required="${f.required}" data-placeholder="${esc(f.placeholder || '')}" data-description="${esc(f.description || '')}" data-options='${JSON.stringify(options)}'${widthAttr} contenteditable="false" draggable="true">${pillInnerHtml(f.label, type, f.required, mode, isBold)}</span>`;
   });
 
   return docHtml;
@@ -218,11 +231,14 @@ const applyPillWidth = (el, width) => {
   const w = parseInt(width, 10);
   if (w > 0) {
     el.setAttribute('data-width', String(w));
-    el.style.width = w === 100 ? '100%' : `calc(${w}% - 8px)`;
+    const cssW = w === 100 ? '100%' : `calc(${w}% - 8px)`;
+    el.style.width = cssW;
+    el.style.maxWidth = cssW;
     el.style.boxSizing = 'border-box';
   } else {
     el.removeAttribute('data-width');
     el.style.width = '';
+    el.style.maxWidth = '';
   }
 };
 
@@ -378,6 +394,10 @@ const stripEditorState = (root) => {
   root.querySelectorAll('.sd-link-editing').forEach(a => {
     a.classList.remove('sd-link-editing');
     if (!a.getAttribute('class')) a.removeAttribute('class');
+  });
+  root.querySelectorAll('.is-dragging').forEach(el => {
+    el.classList.remove('is-dragging');
+    if (!el.getAttribute('class')) el.removeAttribute('class');
   });
   root.querySelectorAll('.sd-image-remove').forEach(rm => rm.remove());
 };
@@ -1014,36 +1034,96 @@ const infoSvg = (size, cls = '') => `<svg ${SVG_ATTRS} width="${size}" height="$
 const penLineSvg = (size) => `<svg ${SVG_ATTRS} width="${size}" height="${size}" class="lucide lucide-pen-line"><path d="M12 20h9"></path><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"></path></svg>`;
 const clockSvg = (size) => `<svg ${SVG_ATTRS} width="${size}" height="${size}" class="lucide lucide-clock"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`;
 
-// Same input markup as FillFormModal.renderInputControl (interactive in preview, never submitted)
+// Same input markup as FillFormModal.renderInputControl (interactive in preview, never submitted; shows '—' instead of placeholders)
 const fillerInputHtml = (f) => {
-  const label = f.label || f.key;
   const boldCls = f.bold ? ' is-bold' : '';
   const boldStyle = f.bold ? ' style="font-weight: 700;"' : '';
   const cls = `sd-doc-live-input${boldCls}`;
-  const ph = esc(f.placeholder || (label ? `Enter ${label}…` : ''));
   if (f.type === 'textarea') {
-    return `<textarea rows="3" class="sd-doc-live-input sd-doc-live-textarea${boldCls}"${boldStyle} placeholder="${ph}"></textarea>`;
+    return `<textarea rows="3" class="sd-doc-live-input sd-doc-live-textarea${boldCls}"${boldStyle} placeholder="—"></textarea>`;
   }
   if (f.type === 'date') {
-    return `<input type="date" class="${cls}"${boldStyle} placeholder="${esc(f.placeholder || 'YYYY-MM-DD')}" />`;
+    return `<input type="text" class="${cls}"${boldStyle} placeholder="—" onfocus="this.type='date'" onblur="if(!this.value)this.type='text'" />`;
   }
   if (f.type === 'number') {
-    return `<input type="number" step="any" class="${cls}"${boldStyle} placeholder="${ph}" />`;
+    return `<input type="number" step="any" class="${cls}"${boldStyle} placeholder="—" />`;
   }
   if (f.type === 'dropdown' || f.type === 'select') {
     const opts = (f.options || []).map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
-    return `<select class="${cls}"${boldStyle}><option value="">-- Select ${esc(label || 'option')} --</option>${opts}</select>`;
+    return `<select class="${cls}"${boldStyle}><option value="">—</option>${opts}</select>`;
   }
   if (f.type === 'checkbox') {
     return `<label class="sd-doc-live-checkbox"><input type="checkbox" /><span>${esc(f.placeholder || f.label || 'I Confirm & Agree')}</span></label>`;
   }
-  return `<input type="text" class="${cls}"${boldStyle} placeholder="${ph}" />`;
+  return `<input type="text" class="${cls}"${boldStyle} placeholder="—" />`;
+};
+
+// Normalize inline field pills so Chrome contenteditable wrappers or non-breaking spaces (&nbsp;) never break side-by-side percentage rows
+const normalizeFieldRowLayout = (root) => {
+  if (!root) return;
+
+  // Ensure all interactive form controls on the canvas have draggable="true" enabled
+  root.querySelectorAll('.sd-doc-field-pill, .sd-doc-sig-block, .sd-doc-system-tag, .sd-doc-image-wrap').forEach(w => {
+    if (w.getAttribute('draggable') !== 'true') {
+      w.setAttribute('draggable', 'true');
+    }
+  });
+
+  // 1. If Chrome contenteditable wrapped a .sd-doc-field-pill inside an inline <span> or <font> when merging lines,
+  // unwrap the inline wrapper so percentage widths always resolve cleanly and pills are direct siblings in their block
+  root.querySelectorAll('.sd-doc-field-pill').forEach(pill => {
+    let parent = pill.parentElement;
+    while (
+      parent &&
+      parent !== root &&
+      (parent.tagName === 'SPAN' || parent.tagName === 'FONT') &&
+      !parent.classList.contains('sd-doc-field-pill') &&
+      !parent.classList.contains('sd-doc-sig-block') &&
+      !parent.classList.contains('sd-doc-system-tag')
+    ) {
+      const grand = parent.parentNode;
+      if (!grand) break;
+      while (parent.firstChild) {
+        grand.insertBefore(parent.firstChild, parent);
+      }
+      parent.remove();
+      parent = pill.parentElement;
+    }
+  });
+
+  // 2. Replace non-breaking spaces (\u00A0 / &nbsp;) in text nodes adjacent to field pills with normal spaces ' ',
+  // collapse multi-space runs between inline-sized pills so 3x33% or 4x25% never overflow 100%,
+  // and ensure back-to-back field pills have a single breakable space ' ' between them
+  const pills = Array.from(root.querySelectorAll('.sd-doc-field-pill'));
+  pills.forEach(pill => {
+    const prev = pill.previousSibling;
+    if (prev && prev.nodeType === 3) {
+      let val = prev.nodeValue.replace(/\u200B/g, '');
+      if (val.includes('\u00A0')) val = val.replace(/\u00A0+/g, ' ');
+      if (prev.previousSibling?.nodeType === 1 && prev.previousSibling.classList?.contains('sd-doc-field-pill') && val.trim() === '') {
+        val = ' ';
+      }
+      if (prev.nodeValue !== val) prev.nodeValue = val;
+    }
+    const next = pill.nextSibling;
+    if (next && next.nodeType === 3) {
+      let val = next.nodeValue.replace(/\u200B/g, '');
+      if (val.includes('\u00A0')) val = val.replace(/\u00A0+/g, ' ');
+      if (next.nextSibling?.nodeType === 1 && next.nextSibling.classList?.contains('sd-doc-field-pill') && val.trim() === '') {
+        val = ' ';
+      }
+      if (next.nodeValue !== val) next.nodeValue = val;
+    } else if (next && next.nodeType === 1 && next.classList?.contains('sd-doc-field-pill')) {
+      pill.parentNode.insertBefore(document.createTextNode(' '), next);
+    }
+  });
 };
 
 // Turn the editor content into the exact DOM the Fill Form sheet renders (same classes as FillFormModal)
 const buildPreviewHtml = (editorEl) => {
   const clone = editorEl.cloneNode(true);
   stripEditorState(clone);
+  normalizeFieldRowLayout(clone);
 
   clone.querySelectorAll('.sd-doc-field-pill').forEach(pill => {
     const f = readPillConfig(pill);
@@ -1053,18 +1133,20 @@ const buildPreviewHtml = (editorEl) => {
     const wrap = document.createElement('span');
     const isDirectInput = f.mode === 'input' || (f.mode !== 'placeholder' && (f.width || f.type === 'textarea'));
     if (!isDirectInput) {
-      // FillFormModal.renderPlaceholderInput (empty state)
+      // FillFormModal.renderPlaceholderInput (empty state shows dash '—' in preview)
       wrap.className = `sd-live-slot-field sd-live-slot-inline${boldCls}`;
-      wrap.innerHTML = `<span class="sd-doc-live-placeholder-wrapper${boldCls}"><span role="button" tabindex="0" class="sd-doc-live-placeholder is-empty${f.required ? ' is-required' : ''}${boldCls}"${boldStyle} title="${esc(f.description ? `${label}: ${f.description}${f.required ? ' (Required)' : ''}` : `Click to fill {{${label}}}${f.required ? ' (Required)' : ''}`)}"><span class="sd-ph-tag-token${boldCls}"><span class="sd-ph-brace">{{</span><span class="sd-ph-tag-title${boldCls}"${boldStyle}>${esc(label)}</span>${f.required ? '<span class="sd-ph-star" title="Mandatory field">*</span>' : ''}${f.description ? `<span class="sd-ph-info-pill" title="${esc(f.description)}">${infoSvg(10)}</span>` : ''}<span class="sd-ph-brace">}}</span></span><span class="sd-ph-empty-print-dash${boldCls}"${boldStyle}>—</span></span><span class="sd-print-value sd-print-placeholder-filled">—</span></span>`;
+      const dashStyle = f.bold ? ' style="display: inline; font-weight: 700;"' : ' style="display: inline;"';
+      wrap.innerHTML = `<span class="sd-doc-live-placeholder-wrapper${boldCls}"><span role="button" tabindex="-1" class="sd-doc-live-placeholder is-empty${f.required ? ' is-required' : ''}${boldCls}"${boldStyle} title="${esc(f.description ? `${label}: ${f.description}${f.required ? ' (Required)' : ''}` : `${label}${f.required ? ' (Required)' : ''}`)}"><span class="sd-ph-empty-print-dash${boldCls}"${dashStyle}>—</span></span><span class="sd-print-value sd-print-placeholder-filled">—</span></span>`;
     } else {
       // FillFormModal.renderFieldInput (direct input box)
       const isBlock = f.type === 'textarea' || f.width === 100;
       const widthStyle = f.width
-        ? (f.width === 100 ? 'width: 100%; margin-right: 0;' : `width: calc(${f.width}% - 8px);`)
-        : (f.type === 'textarea' ? 'width: 100%; margin-right: 0;' : '');
+        ? (f.width === 100 ? 'width: 100%; max-width: 100%; margin-right: 0;' : `width: calc(${f.width}% - 8px); max-width: calc(${f.width}% - 8px);`)
+        : (f.type === 'textarea' ? 'width: 100%; max-width: 100%; margin-right: 0;' : '');
       wrap.className = `sd-live-slot-field sd-live-slot-direct${boldCls}`;
+      if (f.width) wrap.setAttribute('data-width', String(f.width));
       if (widthStyle) wrap.setAttribute('style', widthStyle);
-      wrap.innerHTML = `<span class="sd-doc-live-field-wrap${isBlock ? ' is-block' : ''}"><span class="sd-doc-live-field-label" title="${esc(label)}"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${esc(label)}</span>${f.required ? '<span class="sd-required"> *</span>' : ''}</span>${f.description ? `<span class="sd-doc-live-field-desc">${infoSvg(11, 'sd-desc-icon-inline')} ${esc(f.description)}</span>` : ''}${fillerInputHtml(f)}</span>`;
+      wrap.innerHTML = `<span class="sd-doc-live-field-wrap${isBlock ? ' is-block' : ''}"><span class="sd-doc-live-field-label" title="${esc(label)}"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${esc(label)}</span>${f.required ? '<span class="sd-required"> *</span>' : ''}</span>${f.description ? `<span class="sd-doc-live-field-desc" title="${esc(f.description)}">${infoSvg(11, 'sd-desc-icon-inline')} <span class="sd-doc-live-field-desc-text">${esc(f.description)}</span></span>` : ''}${fillerInputHtml(f)}</span>`;
     }
     pill.replaceWith(wrap);
   });
@@ -1572,8 +1654,9 @@ export const SmartWordStudio = ({
     const html = getCleanEditorHtml(el);
     const caret = getSelectionOffsets(el);
     if (h.stack[h.index] === html) {
-      // Content unchanged: just remember the latest caret for this state
+      // Content unchanged: just remember the latest caret for this state and ensure preview is synced
       if (caret) h.sels[h.index] = caret;
+      refreshPreview();
       return;
     }
     h.stack = h.stack.slice(0, h.index + 1);
@@ -1597,7 +1680,7 @@ export const SmartWordStudio = ({
   };
 
   // Typing is grouped into bursts (one undo step per pause); structural edits are their own step
-  const IMMEDIATE_INPUT_TYPES = ['insertParagraph', 'insertLineBreak', 'insertFromPaste', 'insertFromDrop', 'deleteByCut', 'deleteByDrag', 'insertOrderedList', 'insertUnorderedList'];
+  const IMMEDIATE_INPUT_TYPES = ['insertParagraph', 'insertLineBreak', 'deleteContentBackward', 'deleteContentForward', 'insertFromPaste', 'insertFromDrop', 'deleteByCut', 'deleteByDrag', 'insertOrderedList', 'insertUnorderedList'];
   const handleEditorInput = (e) => {
     const inputType = e?.nativeEvent?.inputType || '';
     if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
@@ -1606,11 +1689,43 @@ export const SmartWordStudio = ({
       pushHistory();
       return;
     }
+    refreshPreview();
     typingTimerRef.current = setTimeout(() => {
       typingTimerRef.current = null;
       pushHistory();
     }, 500);
   };
+
+  // Keep preview 100% synchronized with any DOM change in the editor (including pill drag/drop, line merges, or view mode switches)
+  useEffect(() => {
+    if (viewMode === 'split' || viewMode === 'preview') {
+      refreshPreview();
+    }
+  }, [viewMode]);
+
+  useEffect(() => {
+    const el = editorRef.current;
+    if (!el || typeof MutationObserver === 'undefined') return;
+    let rafId = null;
+    const observer = new MutationObserver(() => {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        refreshPreview();
+      });
+    });
+    observer.observe(el, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ['data-width', 'data-field-mode', 'data-field-type', 'data-field-label', 'data-field-bold', 'data-required', 'data-placeholder', 'data-description', 'data-options', 'data-sig-slot', 'style']
+    });
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      observer.disconnect();
+    };
+  }, []);
 
   const restoreHistory = (index) => {
     const el = editorRef.current;
@@ -1662,6 +1777,11 @@ export const SmartWordStudio = ({
   const dragStartRef = useRef(null);
   const resizeHoverRef = useRef(null);
   const resizeRef = useRef(null);
+
+  // ---- Form Control Drag-and-Drop state ----
+  const draggedWidgetRef = useRef(null);
+  const lastDragEndTimeRef = useRef(0);
+  const [dropIndicator, setDropIndicator] = useState(null); // { left, top, height } in viewport coords
 
   const clearCellSelection = () => {
     const ed = editorRef.current;
@@ -2010,6 +2130,11 @@ export const SmartWordStudio = ({
     if (hover) {
       e.preventDefault();
       startResize(hover, e.clientX);
+      return;
+    }
+    // Do not start table cell range selection when clicking/dragging a form control widget
+    if (e.target.closest?.('.sd-doc-field-pill, .sd-doc-sig-block, .sd-doc-system-tag, .sd-doc-image-wrap')) {
+      dragStartRef.current = null;
       return;
     }
     const cell = e.target.closest?.('td, th');
@@ -3015,6 +3140,8 @@ export const SmartWordStudio = ({
     wrap.setAttribute('data-align', align);
     wrap.setAttribute('data-width', String(wPct));
     wrap.setAttribute('contenteditable', 'false');
+    wrap.setAttribute('draggable', 'true');
+    wrap.draggable = true;
     wrap.style.textAlign = align;
     wrap.style.margin = '14px 0';
     wrap.style.width = '100%';
@@ -3049,7 +3176,165 @@ export const SmartWordStudio = ({
     }
   };
 
+  const handlePaletteDragStart = (e, payload) => {
+    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.setData('application/x-smartdoc-palette', JSON.stringify(payload));
+  };
+
+  // Resolve a valid DOM Range (outside any contenteditable="false" pill) plus visual drop indicator coordinates
+  const resolveDropRangeAtPoint = (ed, clientX, clientY, ignoreEl = null) => {
+    if (!ed) return null;
+
+    // 1. Check if pointer is directly over a form control widget
+    const hoveredEl = document.elementFromPoint(clientX, clientY);
+    const directWidget = hoveredEl?.closest?.('.sd-doc-field-pill, .sd-doc-sig-block, .sd-doc-system-tag, .sd-doc-image-wrap');
+    if (directWidget && ed.contains(directWidget)) {
+      if (ignoreEl && (directWidget === ignoreEl || ignoreEl.contains(directWidget))) return null;
+      const wRect = directWidget.getBoundingClientRect();
+      const before = clientX < (wRect.left + wRect.width / 2);
+      const r = document.createRange();
+      if (before) r.setStartBefore(directWidget);
+      else r.setStartAfter(directWidget);
+      r.collapse(true);
+      return {
+        range: r,
+        indicator: {
+          left: before ? Math.max(4, wRect.left - 3) : (wRect.right + 2),
+          top: wRect.top,
+          height: Math.max(22, wRect.height)
+        }
+      };
+    }
+
+    // 2. Resolve caret position from point
+    let range = null;
+    if (typeof document.caretRangeFromPoint === 'function') {
+      range = document.caretRangeFromPoint(clientX, clientY);
+    } else if (typeof document.caretPositionFromPoint === 'function') {
+      const pos = document.caretPositionFromPoint(clientX, clientY);
+      if (pos && pos.offsetNode) {
+        range = document.createRange();
+        range.setStart(pos.offsetNode, pos.offset);
+        range.collapse(true);
+      }
+    }
+    if (!range || !ed.contains(range.commonAncestorContainer)) return null;
+
+    const startEl = range.startContainer.nodeType === 1
+      ? range.startContainer
+      : range.startContainer.parentElement;
+
+    // Never allow dropping inside a contenteditable="false" widget; snap before or after it
+    const snapWidget = startEl?.closest?.('.sd-doc-field-pill, .sd-doc-sig-block, .sd-doc-system-tag, .sd-doc-image-wrap');
+    if (snapWidget && ed.contains(snapWidget)) {
+      if (ignoreEl && (snapWidget === ignoreEl || ignoreEl.contains(snapWidget))) return null;
+      const wRect = snapWidget.getBoundingClientRect();
+      const before = clientX < (wRect.left + wRect.width / 2);
+      const r = document.createRange();
+      if (before) r.setStartBefore(snapWidget);
+      else r.setStartAfter(snapWidget);
+      r.collapse(true);
+      return {
+        range: r,
+        indicator: {
+          left: before ? Math.max(4, wRect.left - 3) : (wRect.right + 2),
+          top: wRect.top,
+          height: Math.max(22, wRect.height)
+        }
+      };
+    }
+
+    if (ignoreEl && ignoreEl.contains(range.commonAncestorContainer)) return null;
+
+    // Compute visual indicator coordinates for standard text/paragraph drop positions
+    let rect = range.getBoundingClientRect();
+    if (!rect || (rect.top === 0 && rect.left === 0 && rect.height === 0)) {
+      const clientRects = range.getClientRects?.();
+      if (clientRects && clientRects.length > 0) {
+        rect = clientRects[0];
+      } else if (startEl && ed.contains(startEl)) {
+        const pRect = startEl.getBoundingClientRect();
+        rect = {
+          left: Math.min(Math.max(clientX, pRect.left), pRect.right),
+          top: pRect.top,
+          height: Math.min(28, Math.max(20, pRect.height || 22))
+        };
+      }
+    }
+
+    return {
+      range,
+      indicator: rect && (rect.top > 0 || rect.left > 0)
+        ? {
+            left: rect.left,
+            top: rect.top,
+            height: Math.max(20, Math.min(34, rect.height || 22))
+          }
+        : null
+    };
+  };
+
+  const handleEditorDragStart = (e) => {
+    const removeBtn = e.target.closest?.('[data-remove]');
+    if (removeBtn) {
+      e.preventDefault();
+      return;
+    }
+    const widget = e.target.closest?.('.sd-doc-field-pill, .sd-doc-sig-block, .sd-doc-system-tag, .sd-doc-image-wrap');
+    if (!widget || !editorRef.current?.contains(widget)) return;
+
+    draggedWidgetRef.current = widget;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('application/x-smartdoc-widget', '1');
+    e.dataTransfer.setData('text/plain', widget.getAttribute('data-field-label') || widget.getAttribute('data-sig-slot') || widget.getAttribute('data-sys-tag') || 'Form Control');
+
+    setActiveFieldEdit(null);
+    setActiveSigEdit(null);
+
+    requestAnimationFrame(() => {
+      if (draggedWidgetRef.current === widget) {
+        widget.classList.add('is-dragging');
+      }
+    });
+  };
+
+  const handleEditorDragOver = (e) => {
+    e.preventDefault();
+    const ed = editorRef.current;
+    if (!ed) return;
+
+    const isInternal = Boolean(draggedWidgetRef.current);
+    e.dataTransfer.dropEffect = isInternal ? 'move' : 'copy';
+
+    const dropInfo = resolveDropRangeAtPoint(ed, e.clientX, e.clientY, draggedWidgetRef.current);
+    if (dropInfo?.indicator) {
+      setDropIndicator(dropInfo.indicator);
+    } else {
+      setDropIndicator(null);
+    }
+  };
+
+  const handleEditorDragLeave = (e) => {
+    if (!editorRef.current?.contains(e.relatedTarget)) {
+      setDropIndicator(null);
+    }
+  };
+
+  const handleEditorDragEnd = () => {
+    if (draggedWidgetRef.current) {
+      draggedWidgetRef.current.classList.remove('is-dragging');
+      draggedWidgetRef.current = null;
+    }
+    lastDragEndTimeRef.current = Date.now();
+    setDropIndicator(null);
+  };
+
   const handleEditorDrop = (e) => {
+    setDropIndicator(null);
+    const ed = editorRef.current;
+    if (!ed) return;
+
+    // 1. External image file drop
     const files = e.dataTransfer?.files;
     if (files && files.length > 0) {
       const file = files[0];
@@ -3061,8 +3346,103 @@ export const SmartWordStudio = ({
         }).catch(() => {
           addToast?.('Error', 'Failed to insert dropped image', 'error');
         });
+        return;
       }
     }
+
+    // 2. Moving an existing form control / signature / tag / image inside the canvas
+    if (draggedWidgetRef.current || e.dataTransfer?.getData('application/x-smartdoc-widget') === '1') {
+      e.preventDefault();
+      e.stopPropagation();
+      const widget = draggedWidgetRef.current;
+      draggedWidgetRef.current = null;
+      lastDragEndTimeRef.current = Date.now();
+      if (!widget || !ed.contains(widget)) return;
+      widget.classList.remove('is-dragging');
+
+      const dropInfo = resolveDropRangeAtPoint(ed, e.clientX, e.clientY, widget);
+      if (!dropInfo?.range || widget.contains(dropInfo.range.commonAncestorContainer)) return;
+
+      const marker = document.createElement('span');
+      dropInfo.range.insertNode(marker);
+
+      if (widget.nextSibling && widget.nextSibling !== marker && widget.nextSibling.nodeType === 3 && widget.nextSibling.textContent === ' ') {
+        widget.nextSibling.remove();
+      }
+
+      const oldParent = widget.parentElement;
+      marker.replaceWith(widget);
+
+      // Ensure a breakable space separates adjacent inline pills
+      if (widget.previousSibling?.nodeType === 1 && widget.previousSibling.matches?.('.sd-doc-field-pill, .sd-doc-system-tag')) {
+        widget.before(document.createTextNode(' '));
+      }
+      if (widget.nextSibling?.nodeType === 1 && widget.nextSibling.matches?.('.sd-doc-field-pill, .sd-doc-system-tag')) {
+        widget.after(document.createTextNode(' '));
+      } else if (!widget.nextSibling) {
+        widget.after(document.createTextNode(' '));
+      }
+
+      // Clean up the source paragraph if moving its sole widget left it completely empty
+      if (oldParent && oldParent !== widget.parentElement && oldParent.tagName === 'P') {
+        const hasText = oldParent.textContent.replace(/\u00a0/g, ' ').trim().length > 0;
+        const hasWidgets = Boolean(oldParent.querySelector('.sd-doc-field-pill, .sd-doc-sig-block, .sd-doc-system-tag, img, table, hr'));
+        if (!hasText && !hasWidgets && ed.children.length > 1) {
+          oldParent.remove();
+        }
+      }
+
+      normalizeToManualModeDom(ed);
+      normalizeFieldRowLayout(ed);
+      normalizeSignatureLayout(ed);
+      pushHistory();
+      refreshPreview();
+      return;
+    }
+
+    // 3. Dropping a new form control dragged from the Ribbon palette
+    const paletteRaw = e.dataTransfer?.getData('application/x-smartdoc-palette');
+    if (paletteRaw) {
+      e.preventDefault();
+      e.stopPropagation();
+      lastDragEndTimeRef.current = Date.now();
+      try {
+        const item = JSON.parse(paletteRaw);
+        const dropInfo = resolveDropRangeAtPoint(ed, e.clientX, e.clientY, null);
+        if (dropInfo?.range) {
+          savedRangeRef.current = dropInfo.range;
+          const sel = window.getSelection();
+          if (sel) {
+            sel.removeAllRanges();
+            sel.addRange(dropInfo.range);
+          }
+        }
+        if (item.kind === 'field') {
+          handleInsertField(item.fieldType || 'text', item.label || 'New Field', item.mode || 'input');
+        } else if (item.kind === 'signature') {
+          handleInsertSignature(item.deptName || 'Submitter');
+        } else if (item.kind === 'systag') {
+          handleInsertSystemTag(item.tagName || 'Form ID');
+        } else if (item.kind === 'hr') {
+          handleInsertHorizontalRule();
+        }
+        if (editorRef.current) {
+          normalizeFieldRowLayout(editorRef.current);
+          refreshPreview();
+        }
+      } catch {
+        // Ignore malformed drag payload
+      }
+      return;
+    }
+
+    setTimeout(() => {
+      if (editorRef.current) {
+        normalizeFieldRowLayout(editorRef.current);
+        pushHistory();
+        refreshPreview();
+      }
+    }, 0);
   };
 
   // Keep floating image toolbar positioned accurately when scrolling or resizing
@@ -3190,6 +3570,8 @@ export const SmartWordStudio = ({
     span.setAttribute('data-description', '');
     span.setAttribute('data-options', JSON.stringify(actualOptions));
     span.contentEditable = 'false';
+    span.draggable = true;
+    span.setAttribute('draggable', 'true');
 
     span.innerHTML = pillInnerHtml(defaultLabel, actualType, true, mode, false);
 
@@ -3226,6 +3608,8 @@ export const SmartWordStudio = ({
     block.className = 'sd-doc-sig-block';
     block.setAttribute('data-sig-slot', deptName);
     block.contentEditable = 'false';
+    block.draggable = true;
+    block.setAttribute('draggable', 'true');
     applySigWidth(block, normW);
     block.innerHTML = sigInnerHtml(deptName, normW);
 
@@ -3258,6 +3642,8 @@ export const SmartWordStudio = ({
     span.className = 'sd-doc-system-tag';
     span.setAttribute('data-sys-tag', tagName);
     span.contentEditable = 'false';
+    span.draggable = true;
+    span.setAttribute('draggable', 'true');
     span.innerHTML = systemTagInnerHtml(tagName);
 
     const space = document.createTextNode(' ');
@@ -3332,6 +3718,9 @@ export const SmartWordStudio = ({
 
   // Handle document click delegation for interactive widgets
   const handleEditorClick = (e) => {
+    // Suppress accidental click right after finishing a drag operation
+    if (Date.now() - lastDragEndTimeRef.current < 160) return;
+
     // Quick-remove (×) button on any widget
     const removeBtn = e.target.closest('[data-remove]');
     if (removeBtn) {
@@ -3610,18 +3999,19 @@ export const SmartWordStudio = ({
       docHtml = docHtml.replace(/\{\{\s*([^}]+)\}\}/g, (match, fieldName) => {
         const fn = fieldName.trim();
         if (SYSTEM_TAGS_LIST.some(st => st.toLowerCase() === fn.toLowerCase())) return match;
-        return `<span class="sd-doc-field-pill is-placeholder" data-field-key="${escapeHtml(fn)}" data-field-label="${escapeHtml(fn)}" data-field-type="text" data-field-mode="placeholder" data-field-bold="false" data-required="true" data-placeholder="" data-description="" data-options="[]" contenteditable="false">${pillInnerHtml(fn, 'text', true, 'placeholder', false)}</span>`;
+        return `<span class="sd-doc-field-pill is-placeholder" data-field-key="${escapeHtml(fn)}" data-field-label="${escapeHtml(fn)}" data-field-type="text" data-field-mode="placeholder" data-field-bold="false" data-required="true" data-placeholder="" data-description="" data-options="[]" contenteditable="false" draggable="true">${pillInnerHtml(fn, 'text', true, 'placeholder', false)}</span>`;
       });
 
       // Transform raw {{System Tag}} into system tags
       for (const st of SYSTEM_TAGS_LIST) {
         const re = new RegExp(`\\{\\{\\s*${st}\\s*\\}\\}`, 'gi');
-        docHtml = docHtml.replace(re, `<span class="sd-doc-system-tag" data-sys-tag="${escapeHtml(st)}" contenteditable="false">${systemTagInnerHtml(st)}</span>`);
+        docHtml = docHtml.replace(re, `<span class="sd-doc-system-tag" data-sys-tag="${escapeHtml(st)}" contenteditable="false" draggable="true">${systemTagInnerHtml(st)}</span>`);
       }
 
       if (editorRef.current) {
         editorRef.current.innerHTML = docHtml;
         normalizeToManualModeDom(editorRef.current);
+        normalizeFieldRowLayout(editorRef.current);
         normalizeEditorImages(editorRef.current);
         normalizeSignatureLayout(editorRef.current);
         pushHistory();
@@ -3666,6 +4056,7 @@ export const SmartWordStudio = ({
     const systemTags = [];
 
     // 1. Convert .sd-doc-field-pill -> {{field_key}}
+    normalizeFieldRowLayout(clone);
     const fieldPills = clone.querySelectorAll('.sd-doc-field-pill');
     fieldPills.forEach(pill => {
       const cfg = readPillConfig(pill);
@@ -3683,7 +4074,7 @@ export const SmartWordStudio = ({
     normalizeSignatureLayout(clone);
     const sigBlocks = clone.querySelectorAll('.sd-doc-sig-block');
     sigBlocks.forEach(sig => {
-      const slot = (sig.getAttribute('data-sig-slot') || 'Submitter').trim();
+      const slot = decodeHtmlEntities(sig.getAttribute('data-sig-slot') || 'Submitter').trim();
       const normW = normalizeSigWidth(sig.getAttribute('data-width'));
       signatureSlots.push(slot);
       const span = document.createElement('span');
@@ -4745,7 +5136,9 @@ export const SmartWordStudio = ({
                     <button
                       type="button"
                       className="sd-ribbon-btn-text"
-                      title="Insert In-Text Click-to-Fill Placeholder (e.g. Name, Date, Amount)"
+                      title="Click or drag onto document to insert In-Text Click-to-Fill Placeholder"
+                      draggable={true}
+                      onDragStart={e => handlePaletteDragStart(e, { kind: 'field', fieldType: 'text', label: 'New Placeholder', mode: 'placeholder' })}
                       onClick={() => handleInsertField('text', 'New Placeholder', 'placeholder')}
                     >
                       <Tag size={13} style={{ marginRight: 5, color: 'var(--primary-500)' }} /> Placeholder
@@ -4795,32 +5188,40 @@ export const SmartWordStudio = ({
                     <button
                       className="btn btn-secondary btn-sm"
                       style={{ borderColor: 'color-mix(in srgb, var(--primary-500) 45%, var(--border-color))' }}
+                      draggable={true}
+                      onDragStart={e => handlePaletteDragStart(e, { kind: 'field', fieldType: 'text', label: 'Party / Name', mode: 'placeholder' })}
                       onClick={() => handleInsertField('text', 'Party / Name', 'placeholder')}
-                      title="Insert in-text text placeholder for legal name, party, address"
+                      title="Click or drag onto document to insert in-text text placeholder"
                     >
                       <Tag size={13} style={{ color: 'var(--primary-500)' }} /> Name / Text
                     </button>
                     <button
                       className="btn btn-secondary btn-sm"
                       style={{ borderColor: 'color-mix(in srgb, var(--primary-500) 45%, var(--border-color))' }}
+                      draggable={true}
+                      onDragStart={e => handlePaletteDragStart(e, { kind: 'field', fieldType: 'text', label: 'Agreement Date', mode: 'placeholder' })}
                       onClick={() => handleInsertField('text', 'Agreement Date', 'placeholder')}
-                      title="Insert in-text date text placeholder (e.g. Effective Date)"
+                      title="Click or drag onto document to insert in-text date placeholder"
                     >
                       <Calendar size={13} style={{ color: 'var(--primary-500)' }} /> Date Placeholder
                     </button>
                     <button
                       className="btn btn-secondary btn-sm"
                       style={{ borderColor: 'color-mix(in srgb, var(--primary-500) 45%, var(--border-color))' }}
+                      draggable={true}
+                      onDragStart={e => handlePaletteDragStart(e, { kind: 'field', fieldType: 'text', label: 'Contract Amount', mode: 'placeholder' })}
                       onClick={() => handleInsertField('text', 'Contract Amount', 'placeholder')}
-                      title="Insert in-text amount / number text placeholder"
+                      title="Click or drag onto document to insert in-text amount / number placeholder"
                     >
                       <Hash size={13} style={{ color: 'var(--primary-500)' }} /> Amount / Number
                     </button>
                     <button
                       className="btn btn-secondary btn-sm"
                       style={{ borderColor: 'color-mix(in srgb, var(--primary-500) 45%, var(--border-color))' }}
+                      draggable={true}
+                      onDragStart={e => handlePaletteDragStart(e, { kind: 'field', fieldType: 'text', label: 'Governing Law', mode: 'placeholder' })}
                       onClick={() => handleInsertField('text', 'Governing Law', 'placeholder')}
-                      title="Insert in-text jurisdiction / governing law text placeholder"
+                      title="Click or drag onto document to insert in-text governing law placeholder"
                     >
                       <FileText size={13} style={{ color: 'var(--primary-500)' }} /> Governing Law
                     </button>
@@ -4833,22 +5234,58 @@ export const SmartWordStudio = ({
                 <div className="sd-ribbon-group">
                   <span className="sd-ribbon-group-title">Form Controls & Fields</span>
                   <div className="sd-ribbon-tools">
-                    <button className="btn btn-secondary btn-sm" onClick={() => handleInsertField('text', 'Text Field', 'input')}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      draggable={true}
+                      onDragStart={e => handlePaletteDragStart(e, { kind: 'field', fieldType: 'text', label: 'Text Field', mode: 'input' })}
+                      onClick={() => handleInsertField('text', 'Text Field', 'input')}
+                      title="Click or drag onto document to insert Text Box"
+                    >
                       <Type size={13} /> Text Box
                     </button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => handleInsertField('textarea', 'Detailed Notes', 'input')}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      draggable={true}
+                      onDragStart={e => handlePaletteDragStart(e, { kind: 'field', fieldType: 'textarea', label: 'Detailed Notes', mode: 'input' })}
+                      onClick={() => handleInsertField('textarea', 'Detailed Notes', 'input')}
+                      title="Click or drag onto document to insert Long Text area"
+                    >
                       <FileText size={13} /> Long Text
                     </button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => handleInsertField('date', 'Date Needed', 'input')}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      draggable={true}
+                      onDragStart={e => handlePaletteDragStart(e, { kind: 'field', fieldType: 'date', label: 'Date Needed', mode: 'input' })}
+                      onClick={() => handleInsertField('date', 'Date Needed', 'input')}
+                      title="Click or drag onto document to insert Date Picker"
+                    >
                       <Calendar size={13} /> Date Picker
                     </button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => handleInsertField('number', 'Quantity / Amount', 'input')}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      draggable={true}
+                      onDragStart={e => handlePaletteDragStart(e, { kind: 'field', fieldType: 'number', label: 'Quantity / Amount', mode: 'input' })}
+                      onClick={() => handleInsertField('number', 'Quantity / Amount', 'input')}
+                      title="Click or drag onto document to insert Number field"
+                    >
                       <Hash size={13} /> Number
                     </button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => handleInsertField('dropdown', 'Select Category', 'input')}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      draggable={true}
+                      onDragStart={e => handlePaletteDragStart(e, { kind: 'field', fieldType: 'dropdown', label: 'Select Category', mode: 'input' })}
+                      onClick={() => handleInsertField('dropdown', 'Select Category', 'input')}
+                      title="Click or drag onto document to insert Dropdown"
+                    >
                       <ChevronDown size={13} /> Dropdown
                     </button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => handleInsertField('checkbox', 'I Confirm Terms', 'input')}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      draggable={true}
+                      onDragStart={e => handlePaletteDragStart(e, { kind: 'field', fieldType: 'checkbox', label: 'I Confirm Terms', mode: 'input' })}
+                      onClick={() => handleInsertField('checkbox', 'I Confirm Terms', 'input')}
+                      title="Click or drag onto document to insert Checkbox"
+                    >
                       <CheckSquare size={13} /> Checkbox
                     </button>
                   </div>
@@ -4859,7 +5296,13 @@ export const SmartWordStudio = ({
                 <div className="sd-ribbon-group">
                   <span className="sd-ribbon-group-title">Signatures &amp; Approvals</span>
                   <div className="sd-ribbon-tools">
-                    <button className="btn btn-secondary btn-sm" onClick={() => handleInsertSignature('Submitter')}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      draggable={true}
+                      onDragStart={e => handlePaletteDragStart(e, { kind: 'signature', deptName: 'Submitter' })}
+                      onClick={() => handleInsertSignature('Submitter')}
+                      title="Click or drag onto document to insert Submitter Signature block"
+                    >
                       <PenTool size={13} /> Submitter Signature
                     </button>
 
@@ -4920,7 +5363,13 @@ export const SmartWordStudio = ({
                     >
                       <TableIcon size={13} /> Table <ChevronDown size={11} />
                     </button>
-                    <button className="btn btn-secondary btn-sm" onClick={handleInsertHorizontalRule}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      draggable={true}
+                      onDragStart={e => handlePaletteDragStart(e, { kind: 'hr' })}
+                      onClick={handleInsertHorizontalRule}
+                      title="Click or drag onto document to insert Horizontal Rule"
+                    >
                       Horizontal Rule
                     </button>
                     <button
@@ -5393,8 +5842,11 @@ export const SmartWordStudio = ({
                 onMouseMove={handleEditorMouseMove}
                 onMouseUp={handleEditorMouseUp}
                 onPaste={handleEditorPaste}
+                onDragStart={handleEditorDragStart}
+                onDragOver={handleEditorDragOver}
+                onDragLeave={handleEditorDragLeave}
+                onDragEnd={handleEditorDragEnd}
                 onDrop={handleEditorDrop}
-                onDragOver={e => e.preventDefault()}
                 spellCheck={true}
                 style={{
                   fontFamily,
@@ -5410,6 +5862,18 @@ export const SmartWordStudio = ({
                 <span>Page 1 of 1</span>
               </div>
             </div>
+
+            {/* Live Drag-and-Drop Caret Indicator */}
+            {dropIndicator && (
+              <div
+                className="sd-drop-caret-indicator sd-print-hide"
+                style={{
+                  left: `${dropIndicator.left}px`,
+                  top: `${dropIndicator.top}px`,
+                  height: `${dropIndicator.height}px`
+                }}
+              />
+            )}
 
             {/* Floating Quick-Remove Button for Hovered or Selected Table / Horizontal Line (<hr>) */}
             {hoveredBlockInfo && hoveredBlockInfo.el?.isConnected && (

@@ -993,6 +993,7 @@ export const SmartDashboard = () => {
       {selectedSubmissionId && (
         <SubmissionDetailModal
           submissionId={selectedSubmissionId}
+          initialViewAs={scope === 'mine' ? 'submitter' : 'auto'}
           onClose={() => setSelectedSubmissionId(null)}
         />
       )}

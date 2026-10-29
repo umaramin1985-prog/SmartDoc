@@ -5,6 +5,7 @@ import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 import WordExtractor from 'word-extractor';
 import mammoth from 'mammoth';
+import htmlToDocx from 'html-to-docx';
 
 const DELIMITERS = { start: '{{', end: '}}' };
 const SIGNATURE_RE = /^(?:signature|sig)\s*:\s*([^|}]+?)(?:\s*\|.*)?$/i;
@@ -12,7 +13,16 @@ const SIGNATURE_RE = /^(?:signature|sig)\s*:\s*([^|}]+?)(?:\s*\|.*)?$/i;
 // Tags filled automatically by the system (never asked from the user)
 export const SYSTEM_TAGS = ['Form ID', 'Submitted By', 'Submitted Date', 'Version', 'Department'];
 
-const normalize = (s) => String(s || '').trim().toLowerCase();
+const normalize = (s) =>
+  String(s || '')
+    .replace(/&(amp;)+/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
 
 function loadZip(base64) {
   const clean = String(base64 || '').replace(/^data:[^;]+;base64,/, '');
@@ -411,7 +421,7 @@ export function renderFilledDocument(templateBase64, { values = {}, system = {},
     const caption = `${sig.name || ''}${sig.date ? `  (${fmtDate(sig.date)})` : ''}`;
     const pkiText = sig.pkiFingerprint ? `[PKI Certified: ${sig.pkiFingerprint.slice(0, 26)}...]` : '';
     const pkiFragment = pkiText
-      ? `<w:br/><w:rPr><w:sz w:val="16"/><w:color w:val="555555"/><w:i/></w:rPr><w:t xml:space="preserve">${escXml(pkiText)}</w:t>`
+      ? `</w:r><w:r><w:rPr><w:i/><w:color w:val="555555"/><w:sz w:val="16"/></w:rPr><w:br/><w:t xml:space="preserve">${escXml(pkiText)}</w:t>`
       : '';
     xml = xml.replace(marker,
       `</w:t></w:r><w:r>${drawing}</w:r><w:r><w:br/><w:t xml:space="preserve">${escXml(caption)}</w:t>${pkiFragment}</w:r><w:r><w:t xml:space="preserve">`);
@@ -425,7 +435,7 @@ export function renderFilledDocument(templateBase64, { values = {}, system = {},
       block += `<w:p><w:r>${addImage(sig.image)}</w:r></w:p>`;
       block += `<w:p><w:pPr><w:spacing w:after="40"/></w:pPr><w:r><w:t xml:space="preserve">${escXml(sig.name || '')}${sig.date ? `  —  ${escXml(fmtDate(sig.date))}` : ''}</w:t></w:r></w:p>`;
       if (sig.pkiFingerprint) {
-        block += `<w:p><w:pPr><w:spacing w:after="120"/></w:pPr><w:r><w:rPr><w:sz w:val="16"/><w:color w:val="555555"/><w:i/></w:rPr><w:t xml:space="preserve">[PKI Digitally Sealed: ${escXml(sig.pkiFingerprint)}]</w:t></w:r></w:p>`;
+        block += `<w:p><w:pPr><w:spacing w:after="120"/></w:pPr><w:r><w:rPr><w:i/><w:color w:val="555555"/><w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">[PKI Digitally Sealed: ${escXml(sig.pkiFingerprint)}]</w:t></w:r></w:p>`;
       }
     }
     const bodyEnd = xml.lastIndexOf('</w:body>');
@@ -458,5 +468,485 @@ export function renderFilledDocument(templateBase64, { values = {}, system = {},
   }
   out.file('word/document.xml', xml);
 
-  return out.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+  const rawBuf = out.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+  return repairDocxBuffer(rawBuf);
+}
+
+// ---------- OpenXML & Microsoft Word Compatibility Engine ----------
+
+const TBL_BORDERS_ORDER = ['top', 'left', 'bottom', 'right', 'insideH', 'insideV', 'tl2br', 'tr2bl'];
+const CELL_MAR_ORDER = ['top', 'left', 'bottom', 'right'];
+const TBL_PR_ORDER = [
+  'tblStyle', 'tblpPr', 'tblOverlap', 'bidiVisual', 'tblStyleRowBandSize', 'tblStyleColBandSize',
+  'tblW', 'jc', 'tblCellSpacing', 'tblInd', 'tblBorders', 'shd', 'tblLayout', 'tblCellMar',
+  'tblLook', 'tblCaption', 'tblDescription'
+];
+const TC_PR_ORDER = [
+  'cnfStyle', 'tcW', 'gridSpan', 'hMerge', 'vMerge', 'tcBorders', 'shd', 'noWrap',
+  'tcMar', 'textDirection', 'tcFitText', 'vAlign', 'hideMark'
+];
+const P_PR_ORDER = [
+  'pStyle', 'keepNext', 'keepLines', 'pageBreakBefore', 'framePr', 'widowControl', 'numPr',
+  'suppressLineNumbers', 'pBdr', 'shd', 'tabs', 'suppressAutoHyphens', 'kinsoku', 'wordWrap',
+  'overflowPunct', 'topLinePunct', 'autoSpaceDE', 'autoSpaceDN', 'bidi', 'adjustRightInd',
+  'snapToGrid', 'spacing', 'ind', 'contextualSpacing', 'mirrorIndents', 'suppressOverlap',
+  'jc', 'textDirection', 'textAlignment', 'textboxTightWrap', 'outlineLvl', 'divId', 'cnfStyle',
+  'rPr', 'sectPr'
+];
+const R_PR_ORDER = [
+  'rStyle', 'rFonts', 'b', 'bCs', 'i', 'iCs', 'caps', 'smallCaps', 'strike', 'dstrike',
+  'outline', 'shadow', 'emboss', 'imprint', 'noProof', 'snapToGrid', 'vanish', 'webHidden',
+  'color', 'spacing', 'w', 'kern', 'position', 'sz', 'szCs', 'highlight', 'u', 'effect',
+  'bdr', 'shd', 'fitText', 'vertAlign', 'rtl', 'cs', 'em', 'lang', 'eastAsianLayout',
+  'specVanish', 'oMath'
+];
+
+function sortXmlChildrenBySchema(innerXml, orderList) {
+  const tokenRe = /<w:([a-zA-Z0-9]+)\b[^/>]*\/>|<w:([a-zA-Z0-9]+)\b[^/>]*>[\s\S]*?<\/w:\2>/g;
+  const items = [];
+  let m;
+  while ((m = tokenRe.exec(innerXml)) !== null) {
+    const tag = m[1] || m[2];
+    const idx = orderList.indexOf(tag);
+    items.push({ tag, xml: m[0], order: idx === -1 ? 999 : idx, pos: items.length });
+  }
+  if (items.length <= 1) return innerXml;
+  items.sort((a, b) => (a.order !== b.order ? a.order - b.order : a.pos - b.pos));
+  return items.map(x => x.xml).join('');
+}
+
+export function cleanWordFontName(rawFont) {
+  if (!rawFont) return 'Calibri';
+  const first = String(rawFont).split(',')[0].replace(/['"]/g, '').trim();
+  if (!first || /^(sans-serif|serif|monospace|system-ui|inherit)$/i.test(first)) return 'Calibri';
+  return first;
+}
+
+export function parseWordFontSizeHalfPts(rawSize) {
+  if (!rawSize) return 22; // 11pt default
+  const str = String(rawSize).trim().toLowerCase();
+  const num = parseFloat(str);
+  if (Number.isNaN(num) || num <= 0) return 22;
+  if (str.endsWith('px')) {
+    return Math.round((num * 0.75) * 2);
+  }
+  return Math.round(num * 2);
+}
+
+/**
+ * Repairs all OpenXML schema & OPC packaging defects produced by html-to-docx
+ * so Microsoft Word desktop opens the .docx file with zero errors:
+ * - Removes directory entries (_rels/, word/, etc.) from the ZIP central directory
+ * - Removes illegal <Override PartName="/_rels/.rels"> and <Override PartName="/word/_rels/document.xml.rels"> from [Content_Types].xml
+ * - Fixes w:header="undefined" w:footer="undefined" w:gutter="undefined" on <w:pgMar>
+ * - Removes broken unprefixed <hdr>/<ftr> header1.xml/footer1.xml and empty numbering.xml
+ * - Moves <w:sectPr> from the start of <w:body> to the end of <w:body>
+ * - Fixes <w:spacing w:lineRule="auto"/> without w:line, <w:br w:type="textWrapping"/>, and empty <w:r><w:rPr/></w:r>
+ * - Reorders <w:tblPr>, <w:tblBorders>, <w:tblCellMar>, <w:tcPr>, <w:tcBorders> children to strict ISO/IEC 29500-1 order
+ */
+export function repairDocxBuffer(inputBuffer, options = {}) {
+  const buf = Buffer.isBuffer(inputBuffer)
+    ? inputBuffer
+    : Buffer.from(String(inputBuffer || '').replace(/^data:[^;]+;base64,/, ''), 'base64');
+
+  const srcZip = new PizZip(buf);
+  const fontName = options.fontFamily ? cleanWordFontName(options.fontFamily) : null;
+  const fontHalfPts = options.fontSize ? parseWordFontSizeHalfPts(options.fontSize) : null;
+
+  // 1. Check if header1.xml / footer1.xml are broken unprefixed <hdr>/<ftr> from html-to-docx
+  let removeHeader1 = false;
+  let removeFooter1 = false;
+  let removeNumbering = false;
+
+  const hdr1 = srcZip.file('word/header1.xml')?.asText() || '';
+  if (hdr1 && (hdr1.includes('<hdr ') || !hdr1.includes('<w:hdr'))) {
+    removeHeader1 = true;
+  }
+  const ftr1 = srcZip.file('word/footer1.xml')?.asText() || '';
+  if (ftr1 && (ftr1.includes('<ftr ') || !ftr1.includes('<w:ftr'))) {
+    removeFooter1 = true;
+  }
+  const numXml = srcZip.file('word/numbering.xml')?.asText() || '';
+  if (numXml && !/<w:(?:abstractNum|num)\b/.test(numXml)) {
+    removeNumbering = true;
+  }
+
+  // 2. Repair word/document.xml
+  let docXml = srcZip.file('word/document.xml')?.asText() || '';
+  if (docXml) {
+    // Fix "undefined" attributes in <w:pgMar>
+    docXml = docXml
+      .replace(/w:header="undefined"/g, 'w:header="720"')
+      .replace(/w:footer="undefined"/g, 'w:footer="720"')
+      .replace(/w:gutter="undefined"/g, 'w:gutter="0"');
+
+    // Remove broken headerReference / footerReference
+    if (removeHeader1) {
+      docXml = docXml.replace(/<w:headerReference\b[^>]*\/>/g, '');
+    }
+    if (removeFooter1) {
+      docXml = docXml.replace(/<w:footerReference\b[^>]*\/>/g, '');
+    }
+
+    // Fix <w:spacing w:lineRule="auto"/> without w:line
+    docXml = docXml.replace(/<w:spacing\b([^>]*)\/>/g, (full, attrs) => {
+      if (attrs.includes('w:lineRule="auto"') && !attrs.includes('w:line=')) {
+        return `<w:spacing${attrs} w:line="260"/>`;
+      }
+      return full;
+    });
+
+    // Replace <w:br w:type="textWrapping"/> with standard <w:br/>
+    docXml = docXml.replace(/<w:br\s+w:type="textWrapping"\s*\/>/g, '<w:br/>');
+
+    // Remove empty <w:r><w:rPr/></w:r> runs that have no text, br, or drawing
+    docXml = docXml.replace(/<w:r>\s*<w:rPr\/>\s*<\/w:r>/g, '');
+
+    // Fix double/multiple-escaped &amp;amp; inside {{...}} tags
+    docXml = docXml.replace(/(\{\{[^{}]*)&(amp;){2,}([^{}]*\}\})/gi, '$1&amp;$3');
+
+    // Strict schema ordering for <w:tblBorders> and <w:tcBorders>
+    docXml = docXml.replace(/<w:(tblBorders|tcBorders)>([\s\S]*?)<\/w:\1>/g, (_, tag, inner) => {
+      return `<w:${tag}>${sortXmlChildrenBySchema(inner, TBL_BORDERS_ORDER)}</w:${tag}>`;
+    });
+
+    // Strict schema ordering for <w:tblCellMar> and <w:tcMar>
+    docXml = docXml.replace(/<w:(tblCellMar|tcMar)>([\s\S]*?)<\/w:\1>/g, (_, tag, inner) => {
+      return `<w:${tag}>${sortXmlChildrenBySchema(inner, CELL_MAR_ORDER)}</w:${tag}>`;
+    });
+
+    // Strict schema ordering for <w:tblPr>
+    docXml = docXml.replace(/<w:tblPr>([\s\S]*?)<\/w:tblPr>/g, (_, inner) => {
+      let fixedInner = inner;
+      if (!fixedInner.includes('<w:tblW')) {
+        fixedInner = `<w:tblW w:w="5000" w:type="pct"/>` + fixedInner;
+      }
+      return `<w:tblPr>${sortXmlChildrenBySchema(fixedInner, TBL_PR_ORDER)}</w:tblPr>`;
+    });
+
+    // Strict schema ordering for <w:tcPr>
+    docXml = docXml.replace(/<w:tcPr>([\s\S]*?)<\/w:tcPr>/g, (_, inner) => {
+      return `<w:tcPr>${sortXmlChildrenBySchema(inner, TC_PR_ORDER)}</w:tcPr>`;
+    });
+
+    // Strict schema ordering for <w:rPr>
+    docXml = docXml.replace(/<w:rPr>([\s\S]*?)<\/w:rPr>/g, (_, inner) => {
+      return `<w:rPr>${sortXmlChildrenBySchema(inner, R_PR_ORDER)}</w:rPr>`;
+    });
+
+    // Strict schema ordering for <w:pPr>
+    docXml = docXml.replace(/<w:pPr>([\s\S]*?)<\/w:pPr>/g, (_, inner) => {
+      return `<w:pPr>${sortXmlChildrenBySchema(inner, P_PR_ORDER)}</w:pPr>`;
+    });
+
+    // Move body-level <w:sectPr> from start of <w:body> to end of <w:body>
+    const bodyStartMatch = docXml.match(/(<w:body[^>]*>)\s*(<w:sectPr>[\s\S]*?<\/w:sectPr>)/);
+    if (bodyStartMatch) {
+      const sectPrXml = bodyStartMatch[2];
+      docXml = docXml.replace(bodyStartMatch[0], bodyStartMatch[1]);
+      const bodyEndIdx = docXml.lastIndexOf('</w:body>');
+      if (bodyEndIdx !== -1) {
+        // Ensure at least one <w:p> precedes <w:sectPr>
+        const beforeEnd = docXml.slice(0, bodyEndIdx);
+        const needsTrailingP = /<\/w:tbl>\s*$/.test(beforeEnd);
+        const trailingP = needsTrailingP ? '<w:p/>' : '';
+        docXml = beforeEnd + trailingP + sectPrXml + docXml.slice(bodyEndIdx);
+      }
+    }
+
+    srcZip.file('word/document.xml', docXml);
+  }
+
+  // 3. Repair word/_rels/document.xml.rels
+  let relsXml = srcZip.file('word/_rels/document.xml.rels')?.asText() || '';
+  if (relsXml) {
+    relsXml = relsXml.replace(/\s+TargetMode="Internal"/g, '');
+    if (removeHeader1) {
+      relsXml = relsXml.replace(/<Relationship\b[^>]*Target="header1\.xml"[^>]*\/>/g, '');
+    }
+    if (removeFooter1) {
+      relsXml = relsXml.replace(/<Relationship\b[^>]*Target="footer1\.xml"[^>]*\/>/g, '');
+    }
+    if (removeNumbering) {
+      relsXml = relsXml.replace(/<Relationship\b[^>]*Target="numbering\.xml"[^>]*\/>/g, '');
+    }
+    srcZip.file('word/_rels/document.xml.rels', relsXml);
+  }
+
+  // 4. Repair [Content_Types].xml (remove illegal <Override> for .rels parts and removed parts)
+  let ctXml = srcZip.file('[Content_Types].xml')?.asText() || '';
+  if (ctXml) {
+    ctXml = ctXml
+      .replace(/<Override\b[^>]*PartName="\/_rels\/\.rels"[^>]*\/>/g, '')
+      .replace(/<Override\b[^>]*PartName="\/word\/_rels\/document\.xml\.rels"[^>]*\/>/g, '');
+    if (removeHeader1) {
+      ctXml = ctXml.replace(/<Override\b[^>]*PartName="\/word\/header1\.xml"[^>]*\/>/g, '');
+    }
+    if (removeFooter1) {
+      ctXml = ctXml.replace(/<Override\b[^>]*PartName="\/word\/footer1\.xml"[^>]*\/>/g, '');
+    }
+    if (removeNumbering) {
+      ctXml = ctXml.replace(/<Override\b[^>]*PartName="\/word\/numbering\.xml"[^>]*\/>/g, '');
+    }
+    srcZip.file('[Content_Types].xml', ctXml);
+  }
+
+  // 5. Sync fontFamily & fontSize in word/styles.xml and word/theme/theme1.xml if specified
+  if (fontName || fontHalfPts) {
+    let stylesXml = srcZip.file('word/styles.xml')?.asText() || '';
+    if (stylesXml) {
+      if (fontName) {
+        stylesXml = stylesXml.replace(
+          /<w:rFonts\b[^>]*\/>/,
+          `<w:rFonts w:ascii="${escXml(fontName)}" w:hAnsi="${escXml(fontName)}" w:cs="${escXml(fontName)}"/>`
+        );
+      }
+      if (fontHalfPts) {
+        stylesXml = stylesXml.replace(
+          /(<w:rPrDefault>[\s\S]*?<w:sz w:val=")\d+("[\s\S]*?<w:szCs w:val=")\d+(")/,
+          `$1${fontHalfPts}$2${fontHalfPts}$3`
+        );
+      }
+      srcZip.file('word/styles.xml', stylesXml);
+    }
+    if (fontName) {
+      let themeXml = srcZip.file('word/theme/theme1.xml')?.asText() || '';
+      if (themeXml) {
+        themeXml = themeXml.replace(/typeface="Times New Roman"/g, `typeface="${escXml(fontName)}"`);
+        srcZip.file('word/theme/theme1.xml', themeXml);
+      }
+    }
+  }
+
+  // 6. Repack into a clean PizZip archive WITHOUT directory entries (_rels/, word/, etc.)
+  const cleanZip = new PizZip();
+  for (const [entryName, entryObj] of Object.entries(srcZip.files)) {
+    if (entryObj.dir || entryName.endsWith('/')) continue;
+    if (removeHeader1 && entryName === 'word/header1.xml') continue;
+    if (removeFooter1 && entryName === 'word/footer1.xml') continue;
+    if (removeNumbering && entryName === 'word/numbering.xml') continue;
+    cleanZip.file(entryName, entryObj.asNodeBuffer(), { createFolders: false });
+  }
+
+  return cleanZip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
+/**
+ * Pre-processes HTML before passing to html-to-docx:
+ * - Converts percentage widths on <td>/<th> (e.g. width: 50%) into pixel widths (e.g. width: 330px)
+ *   because html-to-docx's buildTableCellWidth only supports pt/px/cm/in and throws on %
+ */
+function normalizeHtmlForDocx(rawHtml) {
+  if (!rawHtml) return '<p></p>';
+  const PAGE_CONTENT_PX = 660;
+  let s = String(rawHtml);
+
+  // Convert style="... width: XX% ..." on td/th to px
+  s = s.replace(/<(td|th)\b([^>]*)>/gi, (full, tag, attrs) => {
+    const fixedAttrs = attrs.replace(/style="([^"]*)"/i, (sFull, styleVal) => {
+      const nextStyle = styleVal.replace(/\bwidth\s*:\s*([\d.]+)%/gi, (_, pct) => {
+        const px = Math.max(40, Math.round((parseFloat(pct) / 100) * PAGE_CONTENT_PX));
+        return `width: ${px}px`;
+      });
+      return `style="${nextStyle}"`;
+    });
+    return `<${tag}${fixedAttrs}>`;
+  });
+
+  return s;
+}
+
+/**
+ * Compiles HTML into a 100% Microsoft Word-compatible .docx Buffer.
+ */
+export async function compileHtmlToValidDocx(html, options = {}) {
+  const fontName = cleanWordFontName(options.fontFamily || options.font || 'Calibri');
+  const fontHalfPts = parseWordFontSizeHalfPts(options.fontSize || '11pt');
+  const safeHtml = normalizeHtmlForDocx(html || '<p></p>');
+
+  const rawBuffer = await htmlToDocx(safeHtml, null, {
+    title: options.title || 'SmartDoc Form',
+    font: fontName,
+    fontSize: fontHalfPts,
+    complexScriptFontSize: fontHalfPts,
+    header: false,
+    footer: false,
+    margins: {
+      top: 1152,
+      right: 1152,
+      bottom: 1152,
+      left: 1152,
+      header: 720,
+      footer: 720,
+      gutter: 0
+    }
+  });
+
+  return repairDocxBuffer(rawBuffer, {
+    fontFamily: fontName,
+    fontSize: options.fontSize || '11pt'
+  });
+}
+
+/**
+ * Renders a form template into a Filling-Form-style .docx Buffer where:
+ * - Fonts (fontFamily & fontSize) match the form sheet
+ * - System tags are resolved
+ * - All unfilled direct input fields and in-text placeholders display a dash ('—') instead of {{placeholders}}
+ * - Signature blocks render cleanly in their unsigned state
+ */
+export async function renderTemplateAsWordDocx(templateRow, actor = null) {
+  const title = templateRow.title || 'Form Document';
+  const department = templateRow.department || 'General';
+  const version = templateRow.version || '1.0';
+  const fontFamily = cleanWordFontName(templateRow.font_family || templateRow.fontFamily || 'Calibri');
+  const fontSize = templateRow.font_size || templateRow.fontSize || '11pt';
+  const rawFields = typeof templateRow.fields === 'string'
+    ? JSON.parse(templateRow.fields || '[]')
+    : (Array.isArray(templateRow.fields) ? templateRow.fields : []);
+
+  const fieldsMap = new Map();
+  rawFields.forEach(f => {
+    if (!f) return;
+    [f.key, f.label].forEach(k => {
+      if (!k) return;
+      const lower = String(k).toLowerCase().trim();
+      const clean = lower.replace(/[*:\s]+$/, '').trim();
+      fieldsMap.set(lower, f);
+      fieldsMap.set(clean, f);
+      fieldsMap.set(clean.replace(/\s+/g, '_'), f);
+      fieldsMap.set(clean.replace(/\W+/g, '-'), f);
+      fieldsMap.set(clean.replace(/\s+/g, ''), f);
+    });
+  });
+
+  const lookupField = (rawTag) => {
+    const fn = String(rawTag || '').trim().toLowerCase();
+    const clean = fn.replace(/[*:\s]+$/, '').trim();
+    return fieldsMap.get(fn)
+      || fieldsMap.get(clean)
+      || fieldsMap.get(clean.replace(/\s+/g, '_'))
+      || fieldsMap.get(clean.replace(/\W+/g, '-'))
+      || fieldsMap.get(clean.replace(/\s+/g, ''))
+      || null;
+  };
+
+  let html = String(templateRow.html_content || templateRow.htmlContent || `<p>${escXml(title)}</p>`);
+
+  // 1. Normalize Studio field pills into {{key}} tags first
+  html = html.replace(/<span[^>]*class="[^"]*sd-doc-field-pill[^"]*"[^>]*data-field-key="([^"]+)"[^>]*>[\s\S]*?<\/span>/gi, (_, key) => `{{${key}}}`);
+
+  // 2. Strip wrapping <strong>/<b> around {{field}} so field.bold controls weight
+  html = html.replace(/<(strong|b)[^>]*>\s*(\{\{\s*[^}]+\}\})\s*<\/\1>/gi, '$2');
+
+  // Helper to render a single direct input field cell
+  const renderDirectFieldCell = (f, widthPct = 100) => {
+    const label = f.label || f.key;
+    const reqStar = f.required ? '<span style="color: #dc2626;"> *</span>' : '';
+    const descHtml = f.description
+      ? `<p style="font-size: 8pt; color: #64748b;">${escXml(f.description)}</p>`
+      : '';
+    const valHtml = f.type === 'checkbox'
+      ? `<p>☐ ${escXml(f.placeholder || label || 'I Confirm & Agree')}</p>`
+      : `<p>${f.bold ? '<strong>—</strong>' : '—'}</p>`;
+    return `<td style="width: ${widthPct}%; border: 1px solid #cbd5e1; padding: 6px 10px; vertical-align: top;"><p style="font-size: 8.5pt; color: #475569;"><strong>${escXml(label)}</strong>${reqStar}</p>${descHtml}${valHtml}</td>`;
+  };
+
+  // 3. Convert paragraphs that contain only direct input {{fields}} into structured multi-column or single-column input box tables
+  //    (done before system tag replacement so a user field named {{Department}} on its own line renders as a form field box)
+  html = html.replace(/<p\b[^>]*>([\s\S]*?)<\/p>/gi, (fullP, inner) => {
+    const stripped = inner.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, '').replace(/&nbsp;|\s|<br\s*\/?>/gi, '');
+    if (stripped.length > 0) return fullP; // Paragraph has regular prose text too
+
+    const tagMatches = [...inner.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)];
+    if (tagMatches.length === 0) return fullP;
+    if (tagMatches.some(m => SIGNATURE_RE.test(m[1].trim()))) return fullP;
+
+    const matchedFields = tagMatches.map(m => lookupField(m[1])).filter(Boolean);
+    if (matchedFields.length !== tagMatches.length) return fullP;
+
+    const allDirect = matchedFields.every(f => f.mode === 'input' || (f.mode !== 'placeholder' && (f.width || f.type === 'textarea')));
+    if (!allDirect) return fullP;
+
+    const defaultW = Math.floor(100 / matchedFields.length);
+    const cells = matchedFields.map(f => renderDirectFieldCell(f, f.width || defaultW)).join('');
+    return `<table style="width: 100%; border-collapse: collapse;"><tbody><tr>${cells}</tr></tbody></table>`;
+  });
+
+  // 4. Resolve system tags
+  const todayFormatted = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  const submitterName = actor?.name || 'Submitter';
+
+  html = html.replace(/\{\{\s*Form\s*ID\s*\}\}/gi, '[Auto-Generated on Submit]');
+  html = html.replace(/\{\{\s*Submitted\s*By\s*\}\}/gi, escXml(submitterName));
+  html = html.replace(/\{\{\s*Submitted\s*Date\s*\}\}/gi, escXml(todayFormatted));
+  html = html.replace(/\{\{\s*Department\s*\}\}/gi, escXml(department));
+  html = html.replace(/\{\{\s*Version\s*\}\}/gi, `v${escXml(version)}`);
+
+  html = html.replace(/<span[^>]*class="[^"]*sd-doc-system-tag[^"]*"[^>]*data-sys-tag="([^"]+)"[^>]*>.*?<\/span>/gi, (_, tag) => {
+    const t = tag.trim().toLowerCase();
+    if (t === 'form id') return '[Auto-Generated on Submit]';
+    if (t === 'submitted by') return escXml(submitterName);
+    if (t === 'submitted date') return escXml(todayFormatted);
+    if (t === 'department') return escXml(department);
+    if (t === 'version') return `v${escXml(version)}`;
+    return `[${escXml(tag)}]`;
+  });
+
+  // 5. Convert signature slots into clean Filling-Form signature blocks (unwrapping enclosing <p> tags)
+  const renderSigHtml = (slotRaw) => {
+    const slot = String(slotRaw || 'Submitter')
+      .replace(/&(amp;)+/gi, '&')
+      .trim();
+    const isSub = ['submitter', 'applicant', 'originator'].includes(slot.toLowerCase());
+    const roleTitle = isSub ? 'Applicant / Submitter' : `${slot} Approver`;
+    const deptSub = isSub ? (actor?.department || department) : slot;
+    return `<table style="width: 100%; border-collapse: collapse;"><tbody><tr><td style="width: 100%; border: 1px solid #cbd5e1; padding: 10px 12px; background-color: #f8fafc;"><p style="color: #64748b; font-size: 8.5pt;">${isSub ? 'Applicant / Submitter Signature (Signed on Submission)' : `Pending ${escXml(slot)} Department Approval`}</p><p>________________________________________</p><p><strong>${escXml(roleTitle)}</strong> — <span style="color: #475569;">${escXml(deptSub)}</span></p></td></tr></tbody></table>`;
+  };
+
+  html = html.replace(
+    /<p\b[^>]*>\s*(?:<span[^>]*data-sig-width="[^"]*"[^>]*>)?\s*\{\{\s*(?:Signature|sig)\s*:\s*([^}|]+)(?:\|[^}]*)?\}\}\s*(?:<\/span>)?\s*<\/p>/gi,
+    (_, slot) => renderSigHtml(slot)
+  );
+  html = html.replace(
+    /<span[^>]*data-sig-width="[^"]*"[^>]*>\s*\{\{\s*(?:Signature|sig)\s*:\s*([^}|]+)(?:\|[^}]*)?\}\}\s*<\/span>/gi,
+    (_, slot) => renderSigHtml(slot)
+  );
+  html = html.replace(
+    /\{\{\s*(?:Signature|sig)\s*:\s*([^}|]+)(?:\|[^}]*)?\}\}/gi,
+    (_, slot) => renderSigHtml(slot)
+  );
+  html = html.replace(
+    /<div[^>]*class="[^"]*sd-doc-sig-block[^"]*"[^>]*data-sig-slot="([^"]+)"[^>]*>[\s\S]*?<\/div>\s*<\/div>/gi,
+    (_, slot) => renderSigHtml(slot)
+  );
+  // Ensure no <table ...> remains nested inside a <p>
+  html = html.replace(/<p\b[^>]*>\s*(<table\b[\s\S]*?<\/table>)\s*<\/p>/gi, '$1');
+
+  // 6. Replace any remaining {{field}} tags (in-text placeholders or direct fields inside tables/prose)
+  html = html.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (match, rawTag) => {
+    const f = lookupField(rawTag);
+    if (!f) return '—';
+    const isDirect = f.mode === 'input' || (f.mode !== 'placeholder' && (f.width || f.type === 'textarea'));
+    if (!isDirect) {
+      return f.bold ? '<strong>—</strong>' : '—';
+    }
+    const label = f.label || f.key;
+    const reqStar = f.required ? '<span style="color: #dc2626;"> *</span>' : '';
+    const valStr = f.type === 'checkbox'
+      ? `☐ ${escXml(f.placeholder || label || 'I Confirm & Agree')}`
+      : (f.bold ? '<strong>—</strong>' : '—');
+    return `<strong>${escXml(label)}</strong>${reqStar}: ${valStr}`;
+  });
+
+  // 7. Prepend the subtle page header mark (matching FillFormModal .sd-word-page-header-mark)
+  const headerBarHtml = `<table style="width: 100%; border-collapse: collapse;"><tbody><tr><td style="width: 65%; border: none; border-bottom: 1px solid #e2e8f0; padding: 0 0 6px 0; color: #64748b; font-size: 8.5pt;">${escXml(title)}</td><td style="width: 35%; border: none; border-bottom: 1px solid #e2e8f0; padding: 0 0 6px 0; text-align: right; color: #64748b; font-size: 8.5pt;">Department: ${escXml(department)}</td></tr></tbody></table><p><br/></p>`;
+
+  const fullHtml = `<div style="font-family: ${escXml(fontFamily)}, sans-serif; font-size: ${escXml(fontSize)};">${headerBarHtml}${html}</div>`;
+
+  return compileHtmlToValidDocx(fullHtml, {
+    title,
+    fontFamily,
+    fontSize
+  });
 }

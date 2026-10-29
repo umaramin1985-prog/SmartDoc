@@ -245,6 +245,12 @@ export const ActivityHub = ({ isStandalone = false }) => {
         return { label: 'User Suspended', tone: 'red', icon: AlertTriangle };
       case 'USER_DELETED':
         return { label: 'User Deleted', tone: 'red', icon: XCircle };
+      case 'DEPARTMENT_CREATED':
+        return { label: 'Dept Created', tone: 'cyan', icon: Folder };
+      case 'DEPARTMENT_UPDATED':
+        return { label: 'Dept Updated', tone: 'cyan', icon: Folder };
+      case 'DEPARTMENT_DELETED':
+        return { label: 'Dept Deleted', tone: 'red', icon: Trash2 };
       case 'SYSTEM_RESET_ALL':
       case 'SYSTEM_WIPED':
         return { label: 'System Wiped', tone: 'red', icon: AlertTriangle };

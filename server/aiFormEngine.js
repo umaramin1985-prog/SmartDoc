@@ -371,7 +371,7 @@ function mergeBlueprintWithCustomFields(baseFields, customFields) {
  */
 function renderFieldRowsHtml(fieldsList) {
   if (!fieldsList || fieldsList.length === 0) return '';
-  return fieldsList.map(f => `<p>{{${f.key}}}</p>`).join('\n');
+  return fieldsList.map(f => `<p>{{${f.key}}} </p>`).join('\n');
 }
 
 /**

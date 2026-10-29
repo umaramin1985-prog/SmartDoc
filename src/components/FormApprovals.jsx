@@ -275,6 +275,7 @@ export const FormApprovals = () => {
       {openId && (
         <SubmissionDetailModal
           submissionId={openId}
+          initialViewAs={tab === 'mine' ? 'submitter' : 'auto'}
           onClose={() => setOpenId(null)}
         />
       )}

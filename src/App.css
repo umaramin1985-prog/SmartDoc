@@ -10057,14 +10057,43 @@ body:has(.sd-studio-modal-backdrop) .sd-modal-backdrop:has(.sd-ai-generator-wrap
   display: inline-block !important;
   vertical-align: top !important;
   box-sizing: border-box !important;
-  margin: 2px 4px 6px 0 !important;
+  min-width: 0 !important;
+  margin: 2px 2px 6px 2px !important;
+}
+
+.sd-doc-field-pill[data-width="25"],
+.sd-live-slot-field.sd-live-slot-direct[data-width="25"] {
+  width: calc(25% - 8px) !important;
+  max-width: calc(25% - 8px) !important;
+}
+.sd-doc-field-pill[data-width="33"],
+.sd-live-slot-field.sd-live-slot-direct[data-width="33"] {
+  width: calc(33.33% - 8px) !important;
+  max-width: calc(33.33% - 8px) !important;
+}
+.sd-doc-field-pill[data-width="50"],
+.sd-live-slot-field.sd-live-slot-direct[data-width="50"] {
+  width: calc(50% - 8px) !important;
+  max-width: calc(50% - 8px) !important;
+}
+.sd-doc-field-pill[data-width="66"],
+.sd-live-slot-field.sd-live-slot-direct[data-width="66"] {
+  width: calc(66.66% - 8px) !important;
+  max-width: calc(66.66% - 8px) !important;
+}
+.sd-doc-field-pill[data-width="75"],
+.sd-live-slot-field.sd-live-slot-direct[data-width="75"] {
+  width: calc(75% - 8px) !important;
+  max-width: calc(75% - 8px) !important;
 }
 
 .sd-live-slot-field:has(.sd-doc-live-field-wrap.is-block),
+.sd-live-slot-field[data-width="100"],
 .sd-live-slot-field[style*="width: 100%"],
 .sd-live-slot-field[style*="width:100%"] {
   display: block !important;
   width: 100% !important;
+  max-width: 100% !important;
   margin: 4px 0 8px 0 !important;
 }
 
@@ -11125,6 +11154,18 @@ body:has(.sd-studio-modal-backdrop) .sd-modal-backdrop:has(.sd-ai-generator-wrap
   font-size: 0.72rem;
   color: #a1a1aa;
   margin-bottom: 4px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sd-doc-live-field-desc-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
 }
 .sd-desc-icon-inline {
   color: var(--primary-500, #a4fb4f);
@@ -15773,7 +15814,8 @@ a.sd-address-crumb:focus-visible {
 @media print {
   .sd-studio-zoom-statusbar,
   .sd-block-remove-popover,
-  .sd-header-zoom-group {
+  .sd-header-zoom-group,
+  .sd-drop-caret-indicator {
     display: none !important;
   }
   .sd-word-page-sheet,
@@ -15781,5 +15823,69 @@ a.sd-address-crumb:focus-visible {
     zoom: 1 !important;
   }
 }
+
+/* ============================================================================
+   Word Form Studio — Drag-and-Drop Form Controls & Drop Caret Indicator
+   ============================================================================ */
+.sd-doc-field-pill,
+.sd-doc-sig-block,
+.sd-doc-system-tag,
+.sd-doc-image-wrap {
+  cursor: grab;
+}
+
+.sd-doc-field-pill:active,
+.sd-doc-sig-block:active,
+.sd-doc-system-tag:active,
+.sd-doc-image-wrap:active {
+  cursor: grabbing;
+}
+
+.sd-doc-field-pill.is-dragging,
+.sd-doc-sig-block.is-dragging,
+.sd-doc-system-tag.is-dragging,
+.sd-doc-image-wrap.is-dragging {
+  opacity: 0.42 !important;
+  outline: 2px dashed #6366f1 !important;
+  outline-offset: 2px;
+}
+
+.sd-ribbon-tools button[draggable="true"] {
+  cursor: grab;
+}
+
+.sd-ribbon-tools button[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.sd-drop-caret-indicator {
+  position: fixed;
+  width: 3px;
+  background: #4f46e5;
+  border-radius: 2px;
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.22), 0 0 8px rgba(79, 70, 229, 0.55);
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.sd-drop-caret-indicator::before,
+.sd-drop-caret-indicator::after {
+  content: '';
+  position: absolute;
+  left: -3px;
+  width: 9px;
+  height: 3px;
+  background: #4f46e5;
+  border-radius: 2px;
+}
+
+.sd-drop-caret-indicator::before {
+  top: -2px;
+}
+
+.sd-drop-caret-indicator::after {
+  bottom: -2px;
+}
+
 
 
