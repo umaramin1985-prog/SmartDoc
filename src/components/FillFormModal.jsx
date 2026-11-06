@@ -422,7 +422,7 @@ export const FillFormModal = ({
         inp.placeholder = '';
         inp.removeAttribute('placeholder');
         if (!currentVal || blank) {
-          inp.value = '—';
+          inp.value = '';
         } else {
           inp.value = formatDate(currentVal) || currentVal;
         }
@@ -484,7 +484,7 @@ export const FillFormModal = ({
           inp.placeholder = '';
           inp.removeAttribute('placeholder');
           if (!currentVal) {
-            inp.value = '—';
+            inp.value = '';
           } else {
             inp.value = formatDate(currentVal) || currentVal;
           }
@@ -862,19 +862,19 @@ export const FillFormModal = ({
     const hasVal = String(val).trim().length > 0;
     const isBold = isFieldBold(f);
     const isActive = !isPrinting && (isViewOnly ? highlightedFieldKey === f.key : activeRailField === f.key);
-    const isDashMode = isViewOnly || isPrinting || isPrintingBlank;
+    const isReadOnlyMode = isViewOnly || isPrinting || isPrintingBlank;
 
     const commonProps = {
       id: elemId,
       'data-field-key': f.key,
       className: `sd-doc-live-input ${isInvalid ? 'is-invalid' : ''} ${isBold ? 'is-bold' : ''} ${isActive ? 'is-active-target' : ''}`,
       style: isBold ? { fontWeight: '700' } : undefined,
-      value: isPrintingBlank ? '—' : (hasVal ? (values[f.key] ?? '') : (isDashMode ? '—' : '')),
+      value: isPrintingBlank ? '' : (hasVal ? (values[f.key] ?? '') : ''),
       disabled: isViewOnly,
       readOnly: isViewOnly,
       onChange: (e) => !isViewOnly && setValues(prev => ({ ...prev, [f.key]: e.target.value })),
       onFocus: () => !isViewOnly && handleFocusField(f.key),
-      placeholder: isDashMode ? '—' : (f.placeholder || (f.label ? `Enter ${f.label}…` : ''))
+      placeholder: isReadOnlyMode ? '' : (f.placeholder || (f.label ? `Enter ${f.label}…` : ''))
     };
 
     if (f.type === 'textarea') {
@@ -882,24 +882,24 @@ export const FillFormModal = ({
         <>
           <textarea rows={3} {...commonProps} className={`sd-doc-live-input sd-doc-live-textarea ${isInvalid ? 'is-invalid' : ''} ${isBold ? 'is-bold' : ''} ${isActive ? 'is-active-target' : ''}`} />
           <div className="sd-print-value sd-print-value-textarea">
-            <div className="sd-print-text-block">{hasVal ? val : '—'}</div>
+            <div className="sd-print-text-block">{hasVal ? val : ''}</div>
           </div>
         </>
       );
     }
     if (f.type === 'date') {
-      const inputType = isDashMode ? 'text' : 'date';
-      const formattedDateVal = hasVal ? (formatDate(val) || val) : (isDashMode ? '—' : '');
+      const inputType = isReadOnlyMode ? 'text' : 'date';
+      const formattedDateVal = hasVal ? (formatDate(val) || val) : '';
       return (
         <>
           <input
             type={inputType}
             {...commonProps}
-            placeholder={isDashMode ? '—' : (f.placeholder || 'YYYY-MM-DD')}
-            value={isPrintingBlank ? '—' : (isDashMode ? formattedDateVal : (val ?? ''))}
+            placeholder={isReadOnlyMode ? '' : (f.placeholder || 'YYYY-MM-DD')}
+            value={isPrintingBlank ? '' : (isReadOnlyMode ? formattedDateVal : (val ?? ''))}
           />
           <div className="sd-print-value sd-print-value-input">
-            <span className="sd-print-text">{hasVal ? (formatDate(val) || val) : '—'}</span>
+            <span className="sd-print-text">{hasVal ? (formatDate(val) || val) : ''}</span>
           </div>
         </>
       );
@@ -908,12 +908,12 @@ export const FillFormModal = ({
       return (
         <>
           <input
-            type={isDashMode && !hasVal ? 'text' : 'number'}
-            step={isDashMode && !hasVal ? undefined : 'any'}
+            type={isReadOnlyMode && !hasVal ? 'text' : 'number'}
+            step={isReadOnlyMode && !hasVal ? undefined : 'any'}
             {...commonProps}
           />
           <div className="sd-print-value sd-print-value-input">
-            <span className="sd-print-text">{hasVal ? val : '—'}</span>
+            <span className="sd-print-text">{hasVal ? val : ''}</span>
           </div>
         </>
       );
@@ -925,13 +925,13 @@ export const FillFormModal = ({
       return (
         <>
           <select {...commonProps} value={isPrintingBlank ? '' : (values[f.key] ?? '')}>
-            <option value="">{isDashMode ? '—' : `-- Select ${f.label || 'option'} --`}</option>
+            <option value="">{isReadOnlyMode ? '' : `-- Select ${f.label || 'option'} --`}</option>
             {opts.map((opt, i) => (
               <option key={i} value={opt}>{opt}</option>
             ))}
           </select>
           <div className="sd-print-value sd-print-value-select">
-            <span className="sd-print-text">{hasVal ? val : '—'}</span>
+            <span className="sd-print-text">{hasVal ? val : ''}</span>
           </div>
         </>
       );
@@ -965,7 +965,7 @@ export const FillFormModal = ({
       <>
         <input type="text" {...commonProps} />
         <div className="sd-print-value sd-print-value-input">
-          <span className="sd-print-text">{hasVal ? val : '—'}</span>
+          <span className="sd-print-text">{hasVal ? val : ''}</span>
         </div>
       </>
     );

@@ -230,7 +230,9 @@ export const AppProvider = ({ children }) => {
   const [users, setUsers] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [folders, setFolders] = useState([]);
-  const [formTemplates, setFormTemplates] = useState([]);
+  const [allTemplates, setAllTemplates] = useState([]);
+  const formTemplates = useMemo(() => allTemplates.filter(t => t.status !== 'ARCHIVED'), [allTemplates]);
+  const archivedTemplates = useMemo(() => allTemplates.filter(t => t.status === 'ARCHIVED'), [allTemplates]);
   const [formSubmissions, setFormSubmissions] = useState([]);
   const [departmentMessages, setDepartmentMessages] = useState([]);
   const [templateReviews, setTemplateReviews] = useState([]);
@@ -259,7 +261,7 @@ export const AppProvider = ({ children }) => {
   const refreshUsers = useCallback(async () => setUsers(await apiService.getUsers()), []);
   const refreshDepartments = useCallback(async () => setDepartments(await apiService.getDepartments()), []);
   const refreshFolders = useCallback(async () => setFolders(await apiService.getFolders()), []);
-  const refreshTemplates = useCallback(async () => setFormTemplates(await apiService.getTemplates()), []);
+  const refreshTemplates = useCallback(async () => setAllTemplates(await apiService.getTemplates()), []);
   const refreshSubmissions = useCallback(async () => setFormSubmissions(await apiService.getSubmissions()), []);
   const refreshReviews = useCallback(async () => setTemplateReviews(await apiService.getReviews()), []);
   const refreshActivityLogs = useCallback(async (params = {}) => {
@@ -582,14 +584,22 @@ export const AppProvider = ({ children }) => {
     if (r) await refreshTemplates();
     return r;
   };
-  const archiveTemplate = async (id) => {
-    const r = await run(() => apiService.archiveTemplate(id));
+  const archiveTemplate = async (id, mode = null) => {
+    const r = await run(() => apiService.archiveTemplate(id, mode));
     if (r) {
       if (r.action === 'deleted') {
         addToast('Template Deleted', r.message || 'Document permanently deleted from drive.', 'success');
       } else {
-        addToast('Template Archived', r.message || 'Existing submissions were preserved.', 'info');
+        addToast('Template Archived', r.message || 'Moved to Archived Files.', 'info');
       }
+      await refreshTemplates();
+    }
+    return r;
+  };
+  const restoreTemplate = async (id) => {
+    const r = await run(() => apiService.restoreTemplate(id));
+    if (r) {
+      addToast('Template Restored', `"${r.title}" has been restored to ${r.department}.`, 'success');
       await refreshTemplates();
     }
     return r;
@@ -790,7 +800,7 @@ export const AppProvider = ({ children }) => {
     toasts, addToast, removeToast,
     currentUser, isAuthenticated, authLoading, isAdmin, isSuperAdmin, login, logout,
     activeTab, setActiveTab,
-    users, departments, folders, formTemplates, formSubmissions, departmentMessages, templateReviews,
+    users, departments, folders, formTemplates, archivedTemplates, formSubmissions, departmentMessages, templateReviews,
     refreshAll, refreshSubmissions, refreshTemplates, refreshFolders, refreshReviews,
     saveSignature, isSignatureModalOpen, profileModalInitialTab,
     getPkiCertificate, generatePkiCertificate, verifySubmissionSignatures,
@@ -823,7 +833,7 @@ export const AppProvider = ({ children }) => {
     canManageDepartment, createFolder, updateFolder, deleteFolder,
     createTemplate, bulkImportTemplates, refreshTemplates, refreshFolders,
     updateTemplate, updateTemplatePermissions, addTemplateComment, updateTemplateComment,
-    moveTemplate, archiveTemplate,
+    moveTemplate, archiveTemplate, restoreTemplate,
     submitForm, resubmitForm, workflowAction, addSubmissionComment, updateSubmissionComment,
     notifications, unreadNotificationsCount, refreshNotifications, markNotificationRead, markAllNotificationsRead,
     fetchDepartmentMessages, sendDepartmentMessage,

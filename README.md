@@ -19,7 +19,8 @@
 - **Draft Documents & Direct Staging**: Department admins can upload documents and templates purely as unpublished drafts (`status = 'DRAFT'`) without defining an approval chain. Drafts are private to department admins and can be promoted to active forms at any time.
 - **Dual View Modes**: Switch seamlessly between Grid (Card/Tiles) and Details (Table) views with dedicated Size columns.
 - **Safe Re-Parenting**: Deleting a folder automatically re-parents its contents to the parent folder to prevent data loss.
-- **Submission-Aware Deletion vs. Archival**: Deleting a document or template checks if any user has filled or submitted a form against it. If zero submissions exist, the file is permanently erased from the server disk drive (`storage/templates/`) and PostgreSQL database. If submissions exist, it is soft-archived to protect the audit trail and allow completed forms to continue rendering and verifying PKI signatures.
+- **Submission-Aware Deletion vs. Archival & Restore**: Deleting a document or template checks if any user has filled or submitted a form against it. If zero submissions exist, admins can choose to either **Move to Archive** or **Delete permanently** from the server disk drive (`storage/templates/`) and PostgreSQL database. If submissions exist, it is soft-archived (`status = 'ARCHIVED'`) to protect the audit trail and allow completed forms to continue rendering and verifying PKI signatures.
+- **Archived Forms & Files Explorer (`Archived Files`)**: Dedicated **`Archived Files`** node in the left Explorer tree and **`Archived (N)`** filter pill in the Explorer toolbar allow viewing, previewing, downloading, inspecting version history, and **Restoring** archived files back to their active department drive (`PUT /api/forms/templates/:id/restore`).
 
 ### 2. Microsoft Word & Form Creation Studio (`SmartWordStudio.jsx`)
 - **Full Union of Word Processor + Custom Form Creator**: Design professional documents and interactive forms on an authentic A4 sheet canvas.
@@ -69,7 +70,7 @@
   - **Staging & Clean Cancellation**: Inserting a placeholder stages the field and opens the customizer; canceling or closing the dialog cleanly removes the draft field from the document canvas without leaving orphan tags.
 - **Strict Manual-Mode Parity**: Both Word Upload (`server/docxEngine.js`) and AI Form Generation (`server/aiFormEngine.js`) strictly produce clean Manual-Mode HTML (`<p>`, `<p><br/></p>` line breaks, `<h1>`, `<h3>`, `<table>`, `hr`) without injecting custom padding, inline margins, or non-manual attributes.
 - **Backdrop Outside-Click Protection**: All dialogs, popovers, and modals in Word Form Studio and across the app feature outside-click protection so accidental clicks on the dark backdrop never discard unsaved changes.
-- **Live Form Preview & Download Parity**: Header toggle (Edit / Side by side / Preview), template Preview (`DocumentPreviewModal.jsx`), and exported `.docx` / `.pdf` files render the exact Filling Form layout (same fonts, multi-column rows, labels, field instructions, input boxes, and signature cards) — the only difference is that unfilled fields and in-text placeholders display a clean dash (`—`) instead of placeholder text or raw `{{tags}}`.
+- **Live Form Preview & Download Parity**: Header toggle (Edit / Side by side / Preview), template Preview (`DocumentPreviewModal.jsx`), and exported `.docx` / `.pdf` files render the exact Filling Form layout (same fonts, multi-column rows, labels, field instructions, input boxes, and signature cards) — unfilled direct input boxes remain clean and empty while unfilled in-text tags (`mode: 'placeholder'`) display a clean dash (`—`) instead of raw `{{tags}}`.
 - **Full `.docx` & `.doc` Roundtrip with OpenXML/OPC Repair Engine**: Import existing `.docx` and legacy `.doc` (Word 97-2004) files, edit directly in the studio, or start with a clean blank canvas; compile and export 100% Microsoft Word desktop-compliant `.docx` files via `compileHtmlToValidDocx`, `repairDocxBuffer`, and `renderTemplateAsWordDocx` (`server/docxEngine.js`).
 
 ### 3. Cross-Department Pre-Publication Review & Diff/Merge Workflow (`ReviewsHub.jsx`)
@@ -228,10 +229,10 @@
 - **Search, Filtering & CSV Export**: Real-time debounced keyword search, category pills, and complete CSV ledger export.
 - **Cryptographic Fingerprinting**: Every event is recorded with a verified SHA-256 integrity hash.
 
-### 18. Theme System, `100vh` Zero-Scroll Viewport & Version Tracking (`v1.4.0`)
+### 18. Theme System, `100vh` Zero-Scroll Viewport & Version Tracking (`v1.5.0`)
 - **Dark Mode & Light Mode + 5 Accent Themes**: Switch instantly between **Pure Black Dark Mode** (`#000000`) and **High-Contrast Light Mode** (`#f8fafc` / `#ffffff`), paired with 5 accent themes (**Electric Lime / Green**, **Crimson Red**, **Sunset Orange**, **Royal Purple**, **Ocean Blue**) from the Login top bar, Sidebar footer, or Profile & Signature modal (`App Theme` tab).
-- **`100vh` Zero-Scroll Viewport & Pinned Footer**: Every page across the application (except the full-screen `Word Form Studio` overlay) is locked to `100vh` with zero page-level vertical scrolling and `<AppFooter />` (`Powered by prynivo.com • v1.4.0`) permanently visible at the bottom.
-- **Live Footer Version Badge & Automated Cache Clearing ("Ctrl + F5")**: The footer (`AppFooter.jsx`) displays the real-time application version (`v1.4.0`) with a pulsing status dot and manual cache-clear action. Automatically purges `CacheStorage` and service workers with cache-busting reload whenever a new build version is detected.
+- **`100vh` Zero-Scroll Viewport & Pinned Footer**: Every page across the application (except the full-screen `Word Form Studio` overlay) is locked to `100vh` with zero page-level vertical scrolling and `<AppFooter />` (`Powered by prynivo.com • v1.5.0`) permanently visible at the bottom.
+- **Live Footer Version Badge & Automated Cache Clearing ("Ctrl + F5")**: The footer (`AppFooter.jsx`) displays the real-time application version (`v1.5.0`) with a pulsing status dot and manual cache-clear action. Automatically purges `CacheStorage` and service workers with cache-busting reload whenever a new build version is detected.
 - **Universal Backdrop Click Immunity**: All dialogs, popovers, and modals (folder CRUD, field customizers, single-field dialogs, missing fields alerts, commit modals) feature backdrop outside-click protection to safeguard against accidental data loss.
 
 ### 19. Native Disk / Object Storage Engine (`server/storageEngine.js`)

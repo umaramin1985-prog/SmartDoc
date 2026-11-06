@@ -47,7 +47,7 @@ app.use(express.json({ limit: '50mb' }));
 // ============================================================
 // Application Version & Cache Invalidation
 // ============================================================
-let appVersion = '1.4.0';
+let appVersion = '1.5.0';
 try {
   const pkgData = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
   if (pkgData && pkgData.version) appVersion = pkgData.version;
@@ -1081,7 +1081,7 @@ app.get('/api/forms/templates', async (req, res) => {
     const actor = await requireActor(req, res);
     if (!actor) return;
     const r = await query(
-      `SELECT * FROM form_templates WHERE status IN ('ACTIVE', 'DRAFT') ORDER BY created_at DESC`
+      `SELECT * FROM form_templates WHERE status IN ('ACTIVE', 'DRAFT', 'ARCHIVED') ORDER BY created_at DESC`
     );
     res.json(r.rows.filter(t => canSeeTemplate(actor, t)).map(mapTemplate));
   } catch (err) {
@@ -2198,25 +2198,27 @@ app.put('/api/forms/templates/:id/move', async (req, res) => {
 });
 
 // Delete or archive template:
-// If ANY user has filled or submitted a form against this template (count > 0),
+// If ANY user has filled or submitted a form against this template (count > 0), or if ?mode=archive is specified,
 // preserve it as ARCHIVED so existing submissions, signatures, and audit trails remain intact.
-// If NO user has filled or submitted a form (count === 0), permanently delete the file
+// If NO user has filled or submitted a form (count === 0) and ?mode=archive is not requested, permanently delete the file
 // from disk storage and delete the record from PostgreSQL.
 app.delete('/api/forms/templates/:id', async (req, res) => {
   try {
     const actor = await requireActor(req, res);
     if (!actor) return;
-    const r = await query('SELECT id, title, department, file_path FROM form_templates WHERE id = $1', [req.params.id]);
+    const r = await query('SELECT id, title, department, file_path, status FROM form_templates WHERE id = $1', [req.params.id]);
     const t = r.rows[0];
     if (!t) return res.status(404).json({ error: 'Template not found' });
     if (!isDeptAdmin(actor, t.department)) return res.status(403).json({ error: 'Only admins of the owning department can remove this template' });
+
+    const requestedMode = String(req.query.mode || '').toLowerCase();
 
     // Check if any user has filled or submitted a form for this template
     const subRes = await query('SELECT COUNT(*)::int AS count FROM form_submissions WHERE template_id = $1', [t.id]);
     const submissionCount = subRes.rows[0]?.count || 0;
 
-    if (submissionCount > 0) {
-      // Submissions exist on record: soft-archive so past submissions can still render and verify PKI signatures
+    if (submissionCount > 0 || (requestedMode === 'archive' && t.status !== 'ARCHIVED')) {
+      // Soft-archive so past submissions can still render and verify PKI signatures (or when admin explicitly archives)
       await query(`UPDATE form_templates SET status = 'ARCHIVED', updated_at = NOW() WHERE id = $1`, [t.id]);
       await audit('TEMPLATE_ARCHIVED', actor.username, t.title, t.department);
       return res.json({
@@ -2224,7 +2226,9 @@ app.delete('/api/forms/templates/:id', async (req, res) => {
         id: t.id,
         action: 'archived',
         submissionCount,
-        message: `Template has ${submissionCount} submission(s) on record and was archived to preserve audit integrity.`
+        message: submissionCount > 0
+          ? `Template has ${submissionCount} submission(s) on record and was archived to preserve audit integrity.`
+          : `"${t.title}" was moved to Archived Files.`
       });
     }
 
@@ -2244,6 +2248,55 @@ app.delete('/api/forms/templates/:id', async (req, res) => {
   } catch (err) {
     console.error('[DELETE templates]', err);
     res.status(500).json({ error: 'Failed to remove template' });
+  }
+});
+
+// Restore an archived template back to active/draft status in its department drive
+app.put('/api/forms/templates/:id/restore', async (req, res) => {
+  try {
+    const actor = await requireActor(req, res);
+    if (!actor) return;
+    const r = await query('SELECT * FROM form_templates WHERE id = $1', [req.params.id]);
+    const t = r.rows[0];
+    if (!t) return res.status(404).json({ error: 'Template not found' });
+    if (!isDeptAdmin(actor, t.department)) {
+      return res.status(403).json({ error: 'Only admins of the owning department can restore this template' });
+    }
+
+    // Verify target folder still exists; if deleted, restore to department root
+    let targetFolderId = t.folder_id || null;
+    if (targetFolderId) {
+      const fCheck = await query('SELECT id FROM folders WHERE id = $1 AND department = $2', [targetFolderId, t.department]);
+      if (fCheck.rowCount === 0) targetFolderId = null;
+    }
+
+    // Check for duplicate active/draft name in target folder
+    let restoredTitle = t.title;
+    const dup = await findDuplicateTemplateInFolder({
+      department: t.department,
+      folderId: targetFolderId,
+      title: restoredTitle,
+      fileName: t.docx_filename,
+      excludeId: t.id
+    });
+    if (dup) {
+      restoredTitle = `${t.title} (Restored)`;
+    }
+
+    const wf = parseJson(t.workflow, []);
+    const nextStatus = (t.is_editable !== false && wf.length === 0) ? 'DRAFT' : 'ACTIVE';
+
+    await query(
+      `UPDATE form_templates SET status = $1, title = $2, folder_id = $3, updated_at = NOW() WHERE id = $4`,
+      [nextStatus, restoredTitle, targetFolderId, t.id]
+    );
+    await audit('TEMPLATE_RESTORED', actor.username, `${t.unique_code} ${restoredTitle}`, t.department);
+
+    const updated = await query('SELECT * FROM form_templates WHERE id = $1', [t.id]);
+    res.json(mapTemplate(updated.rows[0]));
+  } catch (err) {
+    console.error('[PUT restore template]', err);
+    res.status(400).json({ error: err.message || 'Failed to restore archived template' });
   }
 });
 

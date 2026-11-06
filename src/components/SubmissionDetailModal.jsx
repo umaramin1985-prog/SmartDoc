@@ -27,13 +27,13 @@ const COMMENT_TYPE_LABELS = {
 
 export const SubmissionDetailModal = ({ submissionId, onClose, initialViewAs = 'auto' }) => {
   const {
-    formSubmissions, formTemplates, currentUser, isSuperAdmin, workflowAction,
+    formSubmissions, formTemplates, archivedTemplates, currentUser, isSuperAdmin, workflowAction,
     openSignatureModal, addSubmissionComment, updateSubmissionComment, addToast,
     verifySubmissionSignatures
   } = useApp();
 
   const s = formSubmissions.find(x => String(x.id) === String(submissionId));
-  const template = formTemplates.find(t => t.id === s?.templateId);
+  const template = formTemplates.find(t => t.id === s?.templateId) || archivedTemplates?.find(t => t.id === s?.templateId);
   const step = s?.workflow?.[(s.currentWorkflowStep || 1) - 1];
   const isOriginator = s?.submittedById === currentUser?.id;
   const canAct = Boolean(

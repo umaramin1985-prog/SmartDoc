@@ -1034,28 +1034,29 @@ const infoSvg = (size, cls = '') => `<svg ${SVG_ATTRS} width="${size}" height="$
 const penLineSvg = (size) => `<svg ${SVG_ATTRS} width="${size}" height="${size}" class="lucide lucide-pen-line"><path d="M12 20h9"></path><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"></path></svg>`;
 const clockSvg = (size) => `<svg ${SVG_ATTRS} width="${size}" height="${size}" class="lucide lucide-clock"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`;
 
-// Same input markup as FillFormModal.renderInputControl (interactive in preview, never submitted; shows '—' instead of placeholders)
+// Same input markup as FillFormModal.renderInputControl (interactive in preview, never submitted; clean empty boxes without dashes)
 const fillerInputHtml = (f) => {
   const boldCls = f.bold ? ' is-bold' : '';
   const boldStyle = f.bold ? ' style="font-weight: 700;"' : '';
   const cls = `sd-doc-live-input${boldCls}`;
+  const phAttr = f.placeholder && f.placeholder !== '—' ? ` placeholder="${esc(f.placeholder)}"` : '';
   if (f.type === 'textarea') {
-    return `<textarea rows="3" class="sd-doc-live-input sd-doc-live-textarea${boldCls}"${boldStyle} placeholder="—"></textarea>`;
+    return `<textarea rows="3" class="sd-doc-live-input sd-doc-live-textarea${boldCls}"${boldStyle}${phAttr}></textarea>`;
   }
   if (f.type === 'date') {
-    return `<input type="text" class="${cls}"${boldStyle} placeholder="—" onfocus="this.type='date'" onblur="if(!this.value)this.type='text'" />`;
+    return `<input type="text" class="${cls}"${boldStyle}${phAttr} onfocus="this.type='date'" onblur="if(!this.value)this.type='text'" />`;
   }
   if (f.type === 'number') {
-    return `<input type="number" step="any" class="${cls}"${boldStyle} placeholder="—" />`;
+    return `<input type="number" step="any" class="${cls}"${boldStyle}${phAttr} />`;
   }
   if (f.type === 'dropdown' || f.type === 'select') {
     const opts = (f.options || []).map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
-    return `<select class="${cls}"${boldStyle}><option value="">—</option>${opts}</select>`;
+    return `<select class="${cls}"${boldStyle}><option value="">${esc(f.placeholder && f.placeholder !== '—' ? f.placeholder : '')}</option>${opts}</select>`;
   }
   if (f.type === 'checkbox') {
     return `<label class="sd-doc-live-checkbox"><input type="checkbox" /><span>${esc(f.placeholder || f.label || 'I Confirm & Agree')}</span></label>`;
   }
-  return `<input type="text" class="${cls}"${boldStyle} placeholder="—" />`;
+  return `<input type="text" class="${cls}"${boldStyle}${phAttr} />`;
 };
 
 // Normalize inline field pills so Chrome contenteditable wrappers or non-breaking spaces (&nbsp;) never break side-by-side percentage rows
