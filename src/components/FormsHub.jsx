@@ -20,14 +20,14 @@ import {
   ShieldCheck, Lock, LayoutGrid, List, Plus,
   CheckCircle2, HardDrive, Edit2, Edit3, History, Image as ImageIcon, Shield,
   AlertTriangle, Send, Printer, FileEdit, Sparkles, Download, FileDown, Loader2,
-  Archive, RotateCcw
+  Archive, RotateCcw, Layers, Link2, Check
 } from 'lucide-react';
 
 export const FormsHub = () => {
   const {
     departments, folders, formTemplates, archivedTemplates, formSubmissions,
     currentUser, isAdmin, isSuperAdmin, canManageDepartment,
-    createFolder, updateFolder, deleteFolder, moveTemplate,
+    createFolder, updateFolder, deleteFolder, moveTemplate, updateTemplateSubforms,
     archiveTemplate, restoreTemplate, openDocumentPreview, startReview, addToast,
     refreshTemplates, refreshFolders
   } = useApp();
@@ -69,6 +69,44 @@ export const FormsHub = () => {
   const [downloadTarget, setDownloadTarget] = useState(null);
   const [downloadingFormat, setDownloadingFormat] = useState(null);
   const [downloadPdfProgress, setDownloadPdfProgress] = useState('');
+  const [subformsModalTarget, setSubformsModalTarget] = useState(null);
+  const [subformsSelection, setSubformsSelection] = useState([]);
+  const [subformsSearch, setSubformsSearch] = useState('');
+  const [savingSubforms, setSavingSubforms] = useState(false);
+
+  const parentMainFormBySubformId = useMemo(() => {
+    const map = new Map();
+    (formTemplates || []).forEach(main => {
+      if (main.status === 'ARCHIVED') return;
+      (main.subforms || []).forEach(sf => {
+        const sfId = typeof sf === 'string' ? sf : sf?.id;
+        if (sfId && sfId !== main.id && !map.has(sfId)) {
+          map.set(sfId, main);
+        }
+      });
+    });
+    return map;
+  }, [formTemplates]);
+
+  const openSubformsManager = (t) => {
+    const initial = (t.subforms || []).map(sf => (typeof sf === 'string' ? sf : sf?.id)).filter(Boolean);
+    setSubformsSelection(initial);
+    setSubformsSearch('');
+    setSubformsModalTarget(t);
+  };
+
+  const handleSaveSubformsModal = async () => {
+    if (!subformsModalTarget || savingSubforms) return;
+    setSavingSubforms(true);
+    try {
+      const res = await updateTemplateSubforms(subformsModalTarget.id, subformsSelection);
+      if (res) {
+        setSubformsModalTarget(null);
+      }
+    } finally {
+      setSavingSubforms(false);
+    }
+  };
 
   const handleDirectDownload = async (t) => {
     try {
@@ -158,6 +196,7 @@ export const FormsHub = () => {
       defaultExpiryDays: sendForReviewTarget.defaultExpiryDays || 14,
       workflow: sendForReviewTarget.workflow,
       fields: sendForReviewTarget.fields || [],
+      subforms: sendForReviewTarget.subforms || [],
       htmlContent: html,
       reviewerIds,
       message
@@ -628,6 +667,10 @@ export const FormsHub = () => {
     const isArchived = t.status === 'ARCHIVED';
     const canManageTpl = isSuperAdmin || (t.department && canManageDepartment(t.department));
     const subCount = isArchived ? (formSubmissions || []).filter(s => s.templateId === t.id).length : 0;
+    const taggedSubformsList = (t.subforms || [])
+      .map(sf => (typeof sf === 'string' ? (formTemplates || []).find(x => x.id === sf) : sf))
+      .filter(Boolean);
+    const parentMain = parentMainFormBySubformId.get(t.id) || null;
 
     return (
       <article key={t.id} className="sd-card sd-template-card">
@@ -674,6 +717,30 @@ export const FormsHub = () => {
                   {!isArchived && !t.isDraft && (!t.workflow || t.workflow.length === 0) && (
                     <span className="sd-badge sd-badge-warn sd-badge-xs" title="No approval workflow configured. An admin must configure the approval chain before this form can be filled.">
                       <AlertTriangle size={10} /> No Approvers
+                    </span>
+                  )}
+                  {taggedSubformsList.length > 0 && (
+                    <span
+                      className="sd-badge sd-badge-purple sd-badge-xs"
+                      style={{ cursor: canManageTpl && !isArchived ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                      title={`Main Form Bundle (${taggedSubformsList.length} tagged subform${taggedSubformsList.length === 1 ? '' : 's'}): ${taggedSubformsList.map(s => s.title).join(', ')}`}
+                      onClick={(e) => {
+                        if (canManageTpl && !isArchived) {
+                          e.stopPropagation();
+                          openSubformsManager(t);
+                        }
+                      }}
+                    >
+                      <Layers size={10} /> {taggedSubformsList.length} Subform{taggedSubformsList.length === 1 ? '' : 's'}
+                    </span>
+                  )}
+                  {parentMain && (
+                    <span
+                      className="sd-badge sd-badge-gray sd-badge-xs"
+                      title={`Subform linked to Main Form "${parentMain.title}" (${parentMain.code}) — Governed by Main Form's approval chain`}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                    >
+                      <Link2 size={10} /> Subform of {parentMain.title}
                     </span>
                   )}
                 </div>
@@ -737,13 +804,23 @@ export const FormsHub = () => {
               {canManageTpl && !isArchived && (
                 <>
                   {!isNonEditable && (
-                    <button
-                      className="sd-icon-btn-sm"
-                      title="Send for review"
-                      onClick={() => setSendForReviewTarget(t)}
-                    >
-                      <Send size={14} />
-                    </button>
+                    <>
+                      <button
+                        id={`btn-tpl-subforms-${t.id}`}
+                        className="sd-icon-btn-sm"
+                        title="Tag / Link Subforms (Combined Approval & Bundle)"
+                        onClick={() => openSubformsManager(t)}
+                      >
+                        <Layers size={14} />
+                      </button>
+                      <button
+                        className="sd-icon-btn-sm"
+                        title="Send for review"
+                        onClick={() => setSendForReviewTarget(t)}
+                      >
+                        <Send size={14} />
+                      </button>
+                    </>
                   )}
                   <button
                     className="sd-icon-btn-sm"
@@ -882,6 +959,10 @@ export const FormsHub = () => {
     const isArchived = t.status === 'ARCHIVED';
     const canManageTpl = isSuperAdmin || (t.department && canManageDepartment(t.department));
     const subCount = isArchived ? (formSubmissions || []).filter(s => s.templateId === t.id).length : 0;
+    const taggedSubformsList = (t.subforms || [])
+      .map(sf => (typeof sf === 'string' ? (formTemplates || []).find(x => x.id === sf) : sf))
+      .filter(Boolean);
+    const parentMain = parentMainFormBySubformId.get(t.id) || null;
 
     return (
       <tr key={t.id} className="sd-tr-template">
@@ -922,6 +1003,30 @@ export const FormsHub = () => {
               {(!t.workflow || t.workflow.length === 0) && (
                 <span className="sd-badge sd-badge-warn" title="No approval workflow configured">
                   <AlertTriangle size={10} /> No Approvers
+                </span>
+              )}
+              {taggedSubformsList.length > 0 && (
+                <span
+                  className="sd-badge sd-badge-purple"
+                  style={{ cursor: canManageTpl && !isArchived ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                  title={`Main Form Bundle (${taggedSubformsList.length} subforms): ${taggedSubformsList.map(s => s.title).join(', ')}`}
+                  onClick={(e) => {
+                    if (canManageTpl && !isArchived) {
+                      e.stopPropagation();
+                      openSubformsManager(t);
+                    }
+                  }}
+                >
+                  <Layers size={10} /> {taggedSubformsList.length} Subform{taggedSubformsList.length === 1 ? '' : 's'}
+                </span>
+              )}
+              {parentMain && (
+                <span
+                  className="sd-badge sd-badge-gray"
+                  title={`Subform of "${parentMain.title}" (${parentMain.code})`}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                >
+                  <Link2 size={10} /> Subform of {parentMain.title}
                 </span>
               )}
             </div>
@@ -998,13 +1103,23 @@ export const FormsHub = () => {
                 {canManageTpl && (
                   <>
                     {!isNonEditable && (
-                      <button
-                        className="sd-icon-btn"
-                        title="Send for review"
-                        onClick={() => setSendForReviewTarget(t)}
-                      >
-                        <Send size={15} />
-                      </button>
+                      <>
+                        <button
+                          id={`btn-tbl-tpl-subforms-${t.id}`}
+                          className="sd-icon-btn"
+                          title="Tag / Link Subforms (Combined Approval & Bundle)"
+                          onClick={() => openSubformsManager(t)}
+                        >
+                          <Layers size={15} />
+                        </button>
+                        <button
+                          className="sd-icon-btn"
+                          title="Send for review"
+                          onClick={() => setSendForReviewTarget(t)}
+                        >
+                          <Send size={15} />
+                        </button>
+                      </>
                     )}
                     <button
                       className="sd-icon-btn"
@@ -2243,6 +2358,160 @@ export const FormsHub = () => {
                   <span>{downloadingFormat === 'pdf' ? (downloadPdfProgress || 'Generating PDF…') : 'Save as PDF'}</span>
                 </button>
               </div>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 10. Tag / Manage Subforms Modal */}
+      {subformsModalTarget && (
+        <Modal
+          id="modal-manage-subforms"
+          size="md"
+          title={`Tag Subforms to "${subformsModalTarget.title}"`}
+          subtitle={`${subformsModalTarget.department} · ${subformsModalTarget.code} — Combined Pre-Publication Review, Publishing & Multi-Tab Filling`}
+          onClose={() => {
+            if (!savingSubforms) setSubformsModalTarget(null);
+          }}
+          footer={
+            <>
+              <span className="sd-muted" style={{ marginRight: 'auto', fontSize: '0.82rem' }}>
+                {subformsSelection.length} subform{subformsSelection.length === 1 ? '' : 's'} selected
+              </span>
+              {subformsSelection.length > 0 && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={savingSubforms}
+                  onClick={() => setSubformsSelection([])}
+                >
+                  Clear All
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={savingSubforms}
+                onClick={() => setSubformsModalTarget(null)}
+              >
+                Cancel
+              </button>
+              <button
+                id="btn-save-tagged-subforms"
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={savingSubforms}
+                onClick={handleSaveSubformsModal}
+              >
+                {savingSubforms ? <Loader2 size={14} className="sd-spin" /> : <Check size={14} />}
+                <span>{savingSubforms ? 'Syncing Bundle…' : 'Save & Sync Approval Chain'}</span>
+              </button>
+            </>
+          }
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div className="sd-alert sd-alert-info" style={{ fontSize: '0.82rem' }}>
+              <Layers size={16} />
+              <div>
+                <strong>Same-Department Bundle (Forms, PDFs &amp; Images):</strong> Subforms must belong to <strong>{subformsModalTarget.department}</strong> and can be any uploaded item (Word Form, PDF, or Image). Tagging subforms syncs <strong>{subformsModalTarget.title}</strong>&apos;s sequential approval chain ({(subformsModalTarget.workflow || []).map(w => typeof w === 'string' ? w : w.department).join(' → ') || 'None'}) across all selected subforms.
+              </div>
+            </div>
+
+            <div className="sd-search">
+              <Search size={14} />
+              <input
+                type="text"
+                placeholder={`Search forms, PDFs, or images in ${subformsModalTarget.department}…`}
+                value={subformsSearch}
+                onChange={e => setSubformsSearch(e.target.value)}
+                autoFocus
+              />
+            </div>
+
+            <div style={{ maxHeight: '340px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {(() => {
+                const sameDeptCandidates = (formTemplates || []).filter(c => {
+                  if (c.id === subformsModalTarget.id) return false;
+                  if (c.status === 'ARCHIVED') return false;
+                  if (c.department !== subformsModalTarget.department) return false;
+                  const q = subformsSearch.trim().toLowerCase();
+                  if (!q) return true;
+                  return (
+                    (c.title || '').toLowerCase().includes(q) ||
+                    (c.code || '').toLowerCase().includes(q) ||
+                    (c.fileName || '').toLowerCase().includes(q)
+                  );
+                });
+
+                if (sameDeptCandidates.length === 0) {
+                  return (
+                    <p className="sd-muted" style={{ textAlign: 'center', padding: '20px 0' }}>
+                      No other forms, PDFs, or images found in {subformsModalTarget.department}.
+                    </p>
+                  );
+                }
+
+                return sameDeptCandidates.map(c => {
+                  const isTagged = subformsSelection.includes(c.id);
+                  const orderIdx = subformsSelection.indexOf(c.id);
+                  const fType = (c.fileType || 'docx').toLowerCase();
+                  const isPdf = fType === 'pdf';
+                  const isImage = fType === 'image';
+                  const typeBadgeLabel = isPdf ? 'PDF' : isImage ? 'IMAGE' : 'WORD FORM';
+                  return (
+                    <div
+                      key={c.id}
+                      className="sd-card"
+                      onClick={() => {
+                        setSubformsSelection(prev =>
+                          prev.includes(c.id) ? prev.filter(id => id !== c.id) : [...prev, c.id]
+                        );
+                      }}
+                      style={{
+                        padding: '10px 14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        cursor: 'pointer',
+                        borderColor: isTagged ? 'var(--primary)' : 'var(--border-subtle)',
+                        background: isTagged ? 'var(--primary-soft)' : 'var(--bg-surface)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div
+                          style={{
+                            width: '28px',
+                            height: '28px',
+                            borderRadius: '6px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background: isTagged ? 'var(--primary)' : 'var(--bg-elevated)',
+                            color: isTagged ? '#000' : 'var(--text-muted)',
+                            fontWeight: 700,
+                            fontSize: '0.75rem'
+                          }}
+                        >
+                          {isTagged ? `S${orderIdx + 1}` : isImage ? <ImageIcon size={14} /> : <FileText size={14} />}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                            {c.title}
+                            <span className="sd-badge sd-badge-gray sd-badge-xs">{typeBadgeLabel}</span>
+                            {c.isDraft && <span className="sd-badge sd-badge-warn sd-badge-xs">Draft</span>}
+                          </div>
+                          <div className="sd-muted" style={{ fontSize: '0.76rem' }}>
+                            {c.department} · {c.code} · {isPdf ? 'Static PDF Document' : isImage ? 'Static Image Attachment' : `${(c.fields || []).length} field${(c.fields || []).length === 1 ? '' : 's'}`}
+                          </div>
+                        </div>
+                      </div>
+                      <span className={`sd-badge ${isTagged ? 'sd-badge-green' : 'sd-badge-gray'}`}>
+                        {isTagged ? `Tagged (#${orderIdx + 1})` : '+ Tag'}
+                      </span>
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </div>
         </Modal>

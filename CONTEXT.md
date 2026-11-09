@@ -255,7 +255,7 @@ Derived: `myApprovalQueue`, `mySubmissions`, `reviewsNeedingMe`.
 
 Actions: `login`, `logout`, `refreshAll`/`refreshUsers`/`refreshDepartments`/`refreshFolders`/`refreshTemplates`/`refreshSubmissions`/`refreshReviews`/`refreshNotifications`,
 `setTheme(mode)`, `toggleTheme()`, `setAccentColor(color)`, `saveSignature`, `saveAvatar`, `openProfileModal`, `closeProfileModal`, `canManageDepartment(deptName)`, `createFolder`, `updateFolder`, `deleteFolder`,
-`createTemplate`, `bulkImportTemplates`, `updateTemplate`, `updateTemplatePermissions`, `addTemplateComment`, `updateTemplateComment`, `moveTemplate`, `archiveTemplate`, `restoreTemplate`,
+`createTemplate`, `bulkImportTemplates`, `updateTemplate`, `updateTemplateSubforms`, `updateTemplatePermissions`, `addTemplateComment`, `updateTemplateComment`, `moveTemplate`, `archiveTemplate`, `restoreTemplate`,
 `submitForm`, `resubmitForm`, `workflowAction(id, 'APPROVE'|'OBJECTION'|'REJECT', notes)`, `addSubmissionComment`, `updateSubmissionComment`,
 `sendTemplateForReview`, `submitReviewChanges`, `saveReviewDecisions`, `finalizeReview`, `cancelReview`,
 `markNotificationRead`, `markAllNotificationsRead`, `wipeAllData`, `wipeFormsOnly`,
@@ -287,25 +287,26 @@ handles blob downloads, `parseDocx`, `htmlToDocx`, notification endpoints, and t
 | `POST /api/forms/templates/html-to-docx` | HTML → OpenXML-compliant `.docx` buffer via `compileHtmlToValidDocx` (`html-to-docx` + `repairDocxBuffer`) |
 | `GET /api/ai/ollama-status` | probes local Ollama daemon (`127.0.0.1:11434/api/tags`) → `{ online, baseUrl, models, defaultModel }` |
 | `POST /api/ai/generate-form` | `{ prompt, department, style, complexity, sections, engineMode, ollamaModel }` → `{ title, department, description, style, complexity, htmlContent, fields, workflow, source }` — synthesizes complete form template offline via Instant Built-in NLP (<15ms) or Local Ollama LLM |
-| `GET /api/forms/templates`, `GET /:id/file` | visibility: own dept or audience `ALL`; superadmin all. For Word templates, `?download=1` renders a Filling-Form-style `.docx` (`renderTemplateAsWordDocx`) with matching typography, header mark, resolved system tags, field labels, and `—` instead of placeholders; raw fetches pass through `repairDocxBuffer` |
+| `GET /api/forms/templates`, `GET /:id/file` | visibility: own dept or audience `ALL`; superadmin all (plus active tagged subforms of visible Main Forms). For Word templates, `?download=1` renders a Filling-Form-style `.docx` (`renderTemplateAsWordDocx`) with matching typography, header mark, resolved system tags, field labels, and `—` instead of placeholders; raw fetches pass through `repairDocxBuffer` |
 | `POST /api/forms/templates/:id/render-print-document` | `{ values, blank, customHtml }` → `.docx` buffer formatted for authentic Word printing (filled or pristine blank with handwriting lines) |
-| `POST /api/forms/templates` | admin (forced to own dept) / superadmin; supports `htmlContent`, `folderId`, `reviewId`, `isDraft: boolean`, and `status: 'DRAFT'` bypassing mandatory workflow requirement |
+| `POST /api/forms/templates` | admin (forced to own dept) / superadmin; supports `htmlContent`, `folderId`, `reviewId`, `subforms`, `isDraft: boolean`, and `status: 'DRAFT'` bypassing mandatory workflow requirement; syncs tagged subforms on publish |
 | `POST /api/forms/templates/bulk-import` | `{ department, folderId, audience, defaultExpiryDays, files }` — bulk intake of docx/doc/pdf/images; all imported files are strictly saved as unpublished drafts (`status: 'DRAFT'`, `workflow: []`) |
-| `PUT /api/forms/templates/:id` | admin of owning dept / superadmin; updates template in-place with Git-style version commit; sequentially indexes parameters `$1` through `$22` without omissions; supports transitioning from `DRAFT` to `ACTIVE` (validates workflow on publish) or saving draft updates |
+| `PUT /api/forms/templates/:id` | admin of owning dept / superadmin; updates template in-place with Git-style version commit; sequentially indexes parameters `$1` through `$23` without omissions; supports `subforms` and transitioning from `DRAFT` to `ACTIVE` (validates workflow on publish and syncs tagged subforms) or saving draft updates |
+| `PUT /api/forms/templates/:id/subforms` | `{ subforms: [templateId, ...] }` — tags/untags subform templates to a Main Form and immediately syncs the Main Form's approval workflow and published status across all tagged subforms |
 | `PUT /api/forms/templates/:id/move` | `{ folderId }` — moves template within department; requires dept admin |
 | `DELETE /api/forms/templates/:id` | `?mode=archive\|delete` — soft-archives (`status = 'ARCHIVED'`) when `mode=archive` or when submissions exist; permanently deletes when `mode=delete` and 0 submissions exist |
 | `PUT /api/forms/templates/:id/restore` | restores an `'ARCHIVED'` template back to its department drive (`'ACTIVE'` or `'DRAFT'`), falling back to department root if the original folder was deleted and appending ` (Restored)` on duplicate title conflicts |
 | `GET /api/template-reviews` | reviews involving current user (as initiator or reviewer) |
-| `GET /api/template-reviews/:id` | review detail (initiator gets all reviewer submissions + decisions; reviewer gets own copy) |
-| `POST /api/template-reviews` | initiate review with `{ templateId, title, department, folderId, htmlContent, fields, workflow, reviewerUserIds, notes }` |
+| `GET /api/template-reviews/:id` | review detail (initiator gets all reviewer submissions + decisions; reviewer gets own copy; includes `subforms` and `subformSnapshots`) |
+| `POST /api/template-reviews` | initiate review with `{ templateId, title, department, folderId, htmlContent, fields, workflow, subforms, reviewerUserIds, notes }` |
 | `POST /api/template-reviews/:id/submit` | reviewer submits modified HTML `{ modifiedHtml, comments, hasChanges }` |
 | `PUT /api/template-reviews/:id/decisions` | initiator updates accept/reject choices `{ decisions }` |
 | `POST /api/template-reviews/:id/finalize` | initiator commits decisions and produces merged HTML `{ mergedHtml }` |
 | `POST /api/template-reviews/:id/cancel` | initiator cancels review |
-| `GET/POST /api/forms/submissions` | submit requires saved signature, mandatory fields, future expiry; inherits `folder_id` |
-| `PUT /api/forms/submissions/:id/modify` | submitter only, only when `OBJECTION_RAISED`; bumps version (1.0→1.1), restarts chain at step 1 |
+| `GET/POST /api/forms/submissions` | submit requires saved signature, mandatory fields across Main Form + tagged subforms (`subformsData`), future expiry; inherits `folder_id` |
+| `PUT /api/forms/submissions/:id/modify` | submitter only, only when `OBJECTION_RAISED`; accepts `formData` and `subformsData`, bumps version (1.0→1.1), restarts chain at step 1 |
 | `POST /api/forms/submissions/:id/workflow-action` | `APPROVE`/`OBJECTION`/`REJECT`; dept admin of current step or superadmin; blocked if expired |
-| `GET /api/forms/submissions/:id/document` | filled docx with signatures |
+| `GET /api/forms/submissions/:id/document` | filled docx with signatures (supports optional `?subformId=<id>` for bundled subforms) |
 | `GET /api/users/:id/pki-certificate` | retrieves user's X.509 certificate and parsed cryptographic metadata |
 | `POST /api/users/:id/pki-certificate/generate` | re-issues / renews user's RSA-2048 keypair and X.509 certificate |
 | `GET /api/users/:id/pki-certificate/download` | downloads public X.509 certificate file (`.crt`) |
@@ -355,6 +356,20 @@ Audit entries are written server-side to `audit_logs` with SHA-256 verification 
   - Statuses: `PENDING_REVIEW` (waiting for reviewer submissions) → `READY_FOR_DECISION` (all reviewers submitted) → `DECIDED` (initiator accepted/rejected changes and finalized merge) → `PUBLISHED` (template saved into folder) or `CANCELLED`.
   - Reviewers can modify the document layout, text, tables, and form fields in SmartWordStudio, and submit with comments.
   - The initiator receives granular block/word diffs, accepts or rejects individual changes from each reviewer (with automatic conflict detection if multiple reviewers touched the same block), previews the live merged document, and resumes in Word Form Studio to publish.
+- **Main Form + Tagged Subforms Bundle & Combined Approval Process**:
+  - **Same-Department & Multi-Format Subform Tagging (`SmartWordStudio.jsx`, `FormsHub.jsx`, `PUT /api/forms/templates/:id/subforms`)**:
+    - Main Forms and their tagged Subforms must strictly belong to the **same department** (`sf.department === mainForm.department`).
+    - Subforms can be **anything uploaded to that department**: editable Word Form templates (`.docx`, `.doc`), static PDF documents (`.pdf`), or Image attachments (`.png`, `.jpg`, `.jpeg`, `.webp`).
+    - Admins can tag/untag subforms via either the **Workflow & Approvals** ribbon tab in `SmartWordStudio.jsx` (`+ Tag Subforms…`) or the **`Tag / Link Subforms`** quick-action button (`Layers` icon) on cards/rows in `FormsHub.jsx`.
+  - **Combined Pre-Publication & Publishing Governance (`syncTaggedSubforms`, `getGoverningMainForm` in `server/server.js`)**:
+    - The Main Form's sequential department approval chain (`workflow`) overrides and governs all tagged Subforms.
+    - When a Main Form is sent for Pre-Publication Review (`POST /api/template-reviews`), its same-department tagged subforms and their snapshots are included in the review package (`ReviewsHub.jsx` displays a `+N Subform(s)` badge).
+    - When the Main Form is published (`ACTIVE`), all tagged draft subforms (Word forms, PDFs, or Images) are automatically published (`ACTIVE`) and Word subform workflows are synchronized to match the Main Form's `workflow`.
+  - **Combined Multi-Tab Filling & Approval Process (`FillFormModal.jsx`, `SubmissionDetailModal.jsx`, `POST /api/forms/submissions`, `PUT /api/forms/submissions/:id/modify`)**:
+    - Opening a Main Form with tagged subforms in `FillFormModal.jsx` renders a **Multi-Tab Document Switcher Bar** above the A4 sheet allowing the filer to switch between **`Main Form: {Title}`** and **`Subform 1..N: {Title}`** (rendering interactive Word form sheets for Word subforms, embedded PDF viewers for `.pdf` subforms, and image viewers for image subforms), fill fields across all sheets, sign once, and submit as a single combined package (`formData` + `subformsData`).
+    - Mandatory fields are validated across the Main Form and every tagged Subform before submission; clicking `Fill Now →` in the Missing Mandatory Fields prompt automatically switches to the corresponding document tab and focuses the field.
+    - Reviewers and originators viewing the submission in `SubmissionDetailModal.jsx` use the same **Multi-Tab Document Switcher Bar** to inspect the Main Form and all Subform sheets, target fields on any sheet for review notes/objections, verify PKI signatures (which cover both `formData` and `subformsData`), and **Approve & Sign / Raise Objection / Reject** the entire bundle together.
+    - Tagged subforms can also be filled standalone in `FormsHub.jsx`, governed by the Main Form's synced approval chain.
 
 ---
 
@@ -364,8 +379,8 @@ Tables in use:
 - `users` (incl. `signature_image`, `pki_certificate_pem`, `pki_public_key_pem`, `pki_private_key_pem`, `pki_serial_number`, `pki_fingerprint`, `pki_issued_at`, `pki_expires_at`)
 - `departments`
 - `folders` (`id`, `name`, `department`, `parent_id`, `created_by_id`, `created_by_name`, `created_at`, `updated_at`)
-- `form_templates` (`id`, `unique_code`, `title`, `department`, `description`, `folder_id`, `status`, `file_type`, `file_size`, `file_path`, `file_hash`, `mime_type`, `docx_filename`, `is_editable`, `access_type`, `allowed_departments`, `allowed_users`, `version`, `version_history`, `comments`, `audience`, `fields`, `workflow`, `signature_slots`, `system_tags`, `html_content`, `font_family`, `font_size`, `docx_base64` [migrated to disk & released as NULL])
-- `form_submissions` (`folder_id`, workflow, version history, signatures, comments, `pki_signature` JSONB envelope)
+- `form_templates` (`id`, `unique_code`, `title`, `department`, `description`, `folder_id`, `status`, `file_type`, `file_size`, `file_path`, `file_hash`, `mime_type`, `docx_filename`, `is_editable`, `access_type`, `allowed_departments`, `allowed_users`, `version`, `version_history`, `comments`, `audience`, `fields`, `workflow`, `subforms`, `signature_slots`, `system_tags`, `html_content`, `font_family`, `font_size`, `docx_base64` [migrated to disk & released as NULL])
+- `form_submissions` (`folder_id`, `form_data`, `subforms_data`, workflow, version history, signatures, comments, `pki_signature` JSONB envelope)
 - `notifications` (`id`, `user_id`, `title`, `message`, `type`, `link_type`, `link_id`, `is_read`, `created_at`)
 - `template_reviews` (`id`, `title`, `department`, `folder_id`, `base_html`, `base_fields`, `base_workflow`, `status`, `decisions`, `merged_html`, `notes`, `initiator_id`, `initiator_name`, `published_template_id`)
 - `template_review_reviewers` (`id`, `review_id`, `user_id`, `user_name`, `user_department`, `status`, `modified_html`, `comments`, `has_changes`, `submitted_at`)
@@ -397,6 +412,15 @@ SmartDoc decouples binary files from PostgreSQL into a high-performance native d
 ---
 
 ## 10. Revision Log
+
+- **2026-11-09 (`v1.5.0`)** — Main Form + Tagged Subforms Bundle & Combined Approval Process:
+  - **Subform Tagging & Combined Pre-Publication/Publishing Governance (`SmartWordStudio.jsx`, `FormsHub.jsx`, `ReviewsHub.jsx`, `AppContext.jsx`, `apiService.js`, `server/server.js`)**:
+    * Added ability to tag Subforms to a Main Form inside `SmartWordStudio.jsx` (Workflow & Approvals ribbon tab + Main Form Bundle Bar above the A4 sheet with Subform Preview modal) and directly from `FormsHub.jsx` (`Tag / Link Subforms` action button + modal on grid cards and table rows).
+    * Added `PUT /api/forms/templates/:id/subforms` (`updateTemplateSubforms`) and backend `syncTaggedSubforms` / `getGoverningMainForm` helpers so the Main Form's approval workflow overrides and governs all tagged subforms, automatically publishing any tagged draft subforms when the Main Form is published.
+    * Included `subforms` and `subformSnapshots` in Pre-Publication Reviews (`POST /api/template-reviews`, `ReviewsHub.jsx`).
+  - **Combined Multi-Tab Form Filling & Submission Approval (`FillFormModal.jsx`, `SubmissionDetailModal.jsx`, `server/server.js`)**:
+    * Added a **Multi-Tab Document Switcher Bar** in `FillFormModal.jsx` so users filling a Main Form with tagged subforms can switch between the Main Form and each Subform tab, fill fields across all bundled documents, validate mandatory fields across all sheets, sign once, and submit as a single package (`formData` + `subformsData`).
+    * Enabled reviewers and submitters in `SubmissionDetailModal.jsx` to switch across the locked Main Form and Subform tabs, target fields on any bundled sheet for review comments/objections, verify PKI signatures covering `subformsData`, and approve/object/reject the entire package together.
 
 - **2026-11-06 (`v1.5.0`)** — Archived Forms & Files Explorer View, Restore to Drive & Clean Empty Input Boxes:
   - **Archived Forms & Files Explorer View & Restore (`FormsHub.jsx`, `AppContext.jsx`, `apiService.js`, `server/server.js`, `DocumentPreviewModal.jsx`, `SubmissionDetailModal.jsx`)**:

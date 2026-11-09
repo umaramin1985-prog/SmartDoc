@@ -569,6 +569,17 @@ export const AppProvider = ({ children }) => {
     if (r) await refreshTemplates();
     return r;
   };
+  const updateTemplateSubforms = async (id, subforms) => {
+    const r = await run(
+      () => apiService.updateTemplateSubforms(id, subforms),
+      'Tagged Subforms Updated',
+      Array.isArray(subforms) && subforms.length > 0
+        ? `${subforms.length} subform${subforms.length === 1 ? '' : 's'} linked with combined approval workflow.`
+        : 'All subform links cleared from this main form.'
+    );
+    if (r) await refreshTemplates();
+    return r;
+  };
   const addTemplateComment = async (id, data) => {
     const r = await run(() => apiService.addTemplateComment(id, data), 'Comment added');
     if (r) await refreshTemplates();
@@ -832,7 +843,7 @@ export const AppProvider = ({ children }) => {
     createUser, updateUser, toggleUserStatus, deleteUser, createDepartment, updateDepartment, deleteDepartment,
     canManageDepartment, createFolder, updateFolder, deleteFolder,
     createTemplate, bulkImportTemplates, refreshTemplates, refreshFolders,
-    updateTemplate, updateTemplatePermissions, addTemplateComment, updateTemplateComment,
+    updateTemplate, updateTemplatePermissions, updateTemplateSubforms, addTemplateComment, updateTemplateComment,
     moveTemplate, archiveTemplate, restoreTemplate,
     submitForm, resubmitForm, workflowAction, addSubmissionComment, updateSubmissionComment,
     notifications, unreadNotificationsCount, refreshNotifications, markNotificationRead, markAllNotificationsRead,

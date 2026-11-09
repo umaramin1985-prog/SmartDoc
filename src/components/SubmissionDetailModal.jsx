@@ -78,12 +78,35 @@ export const SubmissionDetailModal = ({ submissionId, onClose, initialViewAs = '
 
   if (!s) return null;
 
-  const fields = template?.fields || Object.keys(s.formData || {}).map(k => ({ key: k, label: k }));
+  const mainFields = template?.fields || Object.keys(s.formData || {}).map(k => ({ key: k, label: k }));
+  const allKnownTemplates = [...(formTemplates || []), ...(archivedTemplates || [])];
+  const rawSubformIds = [
+    ...(Array.isArray(template?.subforms) ? template.subforms : []),
+    ...Object.keys(s.subformsData || {})
+  ];
+  const seenSubformIds = new Set();
+  const subformFieldsList = [];
+  rawSubformIds.forEach(rawId => {
+    const sid = typeof rawId === 'string' ? rawId : rawId?.id;
+    if (!sid || sid === template?.id || seenSubformIds.has(sid)) return;
+    seenSubformIds.add(sid);
+    const sf = allKnownTemplates.find(ft => ft.id === sid);
+    if (sf && Array.isArray(sf.fields)) {
+      sf.fields.forEach(f => {
+        subformFieldsList.push({
+          ...f,
+          label: `[${sf.title}] ${f.label || f.key}`
+        });
+      });
+    }
+  });
+  const fields = [...mainFields, ...subformFieldsList];
   const effectiveTemplate = template || {
     id: s.templateId,
     title: s.title,
     department: s.department,
-    fields,
+    fields: mainFields,
+    subforms: rawSubformIds,
     workflow: s.workflow
   };
 

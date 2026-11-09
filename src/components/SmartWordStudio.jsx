@@ -2412,6 +2412,58 @@ export const SmartWordStudio = ({
   const [workflow, setWorkflow] = useState(() =>
     normalizeWorkflowSteps(targetTemplate?.workflow || reviewSession?.review?.workflow || seed?.workflow)
   );
+  const [subforms, setSubforms] = useState(() => {
+    const raw = targetTemplate?.subforms || reviewSession?.review?.settings?.subforms || seed?.subforms || [];
+    return Array.isArray(raw) ? raw.map(s => (typeof s === 'string' ? s : s?.id)).filter(Boolean) : [];
+  });
+  const [showSubformPickerModal, setShowSubformPickerModal] = useState(false);
+  const [subformSearchQuery, setSubformSearchQuery] = useState('');
+  const [previewSubformDoc, setPreviewSubformDoc] = useState(null);
+
+  const governingMainForm = useMemo(() => {
+    const myId = targetTemplate?.id || targetTemplateId;
+    if (!myId) return null;
+    return (formTemplates || []).find(t =>
+      t.id !== myId &&
+      t.status !== 'ARCHIVED' &&
+      Array.isArray(t.subforms) &&
+      t.subforms.some(s => (typeof s === 'string' ? s : s?.id) === myId)
+    ) || null;
+  }, [targetTemplate, targetTemplateId, formTemplates]);
+
+  const availableSubformCandidates = useMemo(() => {
+    const myId = targetTemplate?.id || targetTemplateId;
+    const currentDept = department || currentUser?.department;
+    return (formTemplates || []).filter(t => {
+      if (myId && t.id === myId) return false;
+      if (t.status === 'ARCHIVED') return false;
+      if (currentDept && t.department !== currentDept) return false;
+      return true;
+    });
+  }, [formTemplates, targetTemplate, targetTemplateId, department, currentUser]);
+
+  // Keep tagged subforms strictly within the same department when department changes
+  useEffect(() => {
+    const currentDept = department || currentUser?.department;
+    if (!currentDept || !formTemplates?.length) return;
+    const deptIds = new Set(
+      formTemplates.filter(t => t.department === currentDept && t.status !== 'ARCHIVED').map(t => t.id)
+    );
+    setSubforms(prev => {
+      const filtered = prev.filter(id => deptIds.has(id));
+      return filtered.length === prev.length ? prev : filtered;
+    });
+  }, [department, currentUser, formTemplates]);
+
+  const resolvedTaggedSubforms = useMemo(() => {
+    const currentDept = department || currentUser?.department;
+    const snapshots = reviewSession?.review?.settings?.subformSnapshots || seed?.subformSnapshots || [];
+    const snapMap = new Map((Array.isArray(snapshots) ? snapshots : []).map(s => [s.id, s]));
+    const tmplMap = new Map((formTemplates || []).map(t => [t.id, t]));
+    return (subforms || [])
+      .map(id => tmplMap.get(id) || snapMap.get(id))
+      .filter(sf => sf && (!currentDept || !sf.department || sf.department === currentDept));
+  }, [subforms, formTemplates, reviewSession, seed, department, currentUser]);
 
   // Duplicate file check for current folder & department
   const duplicateConflict = useMemo(() => {
@@ -4215,6 +4267,7 @@ export const SmartWordStudio = ({
         fontFamily,
         fontSize,
         fields: compiled.fields,
+        subforms,
         workflow: normalizeWorkflowSteps(workflow).map((dept, i) => ({ step: i + 1, department: dept })),
         status: 'ACTIVE',
         isDraft: false,
@@ -4256,6 +4309,7 @@ export const SmartWordStudio = ({
         fontFamily,
         fontSize,
         fields: compiled.fields,
+        subforms,
         workflow: normalizeWorkflowSteps(workflow).map((dept, i) => ({ step: i + 1, department: dept })),
         reviewerIds,
         message
@@ -4301,6 +4355,7 @@ export const SmartWordStudio = ({
         fontFamily,
         fontSize,
         fields: compiled.fields,
+        subforms,
         workflow: normalizeWorkflowSteps(workflow).map((dept, i) => ({ step: i + 1, department: dept })),
         status: 'ACTIVE',
         isDraft: false,
@@ -4349,6 +4404,7 @@ export const SmartWordStudio = ({
         fontFamily,
         fontSize,
         fields: compiled.fields,
+        subforms,
         workflow: normalizeWorkflowSteps(workflow).map((dept, i) => ({ step: i + 1, department: dept })),
         status: 'DRAFT',
         isDraft: true,
@@ -5763,6 +5819,65 @@ export const SmartWordStudio = ({
                     </select>
                   </div>
                 </div>
+
+                {/* Tagged Subforms (Combined Approval & Bundle) */}
+                <div className="sd-workflow-chain-bar" style={{ marginTop: '6px' }}>
+                  <span className="sd-workflow-chain-title">
+                    <Layers size={14} /> Tagged Subforms:
+                  </span>
+                  <div className="sd-workflow-steps-pills" style={{ gap: '6px', flexWrap: 'wrap' }}>
+                    {governingMainForm && (
+                      <div className="sd-wf-step-pill" style={{ borderColor: 'var(--primary)', background: 'var(--primary-soft)' }}>
+                        <LinkIcon size={12} style={{ color: 'var(--primary)' }} />
+                        <span className="sd-wf-step-name">
+                          Subform of <strong>{governingMainForm.title}</strong> ({governingMainForm.code})
+                        </span>
+                        <span className="sd-wf-step-sub">— Approval chain synced with Main Form</span>
+                      </div>
+                    )}
+
+                    {resolvedTaggedSubforms.length === 0 ? (
+                      <span className="sd-muted" style={{ fontSize: '0.78rem' }}>
+                        No subforms tagged yet. Tag subforms to combine pre-publication review, publishing, and multi-tab form filling.
+                      </span>
+                    ) : (
+                      resolvedTaggedSubforms.map((sf, idx) => (
+                        <div key={sf.id} className="sd-wf-step-pill" style={{ borderColor: 'var(--primary-border)' }}>
+                          <span className="sd-wf-step-idx" style={{ background: 'var(--primary)', color: '#000' }}>S{idx + 1}</span>
+                          <span className="sd-wf-step-name">{sf.title}</span>
+                          <span className="sd-wf-step-sub">({sf.department})</span>
+                          <div className="sd-wf-step-actions">
+                            <button
+                              type="button"
+                              className="sd-wf-step-btn"
+                              title="Preview Subform Sheet"
+                              onClick={() => setPreviewSubformDoc(sf)}
+                            >
+                              <Eye size={11} />
+                            </button>
+                            <button
+                              type="button"
+                              className="sd-wf-step-btn remove"
+                              title="Untag Subform"
+                              onClick={() => setSubforms(prev => prev.filter(id => id !== sf.id))}
+                            >
+                              <X size={11} />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-xs"
+                      style={{ height: '26px', padding: '0 10px', fontSize: '0.76rem', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                      onClick={() => setShowSubformPickerModal(true)}
+                    >
+                      <Plus size={12} /> Tag Subforms…
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -5780,6 +5895,53 @@ export const SmartWordStudio = ({
             }
           }}
         >
+          {resolvedTaggedSubforms.length > 0 && (
+            <div
+              className="sd-studio-subforms-bundle-bar"
+              style={{
+                maxWidth: '816px',
+                width: '100%',
+                margin: '0 auto 12px auto',
+                padding: '8px 14px',
+                borderRadius: '10px',
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--border-subtle)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '10px',
+                flexWrap: 'wrap'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span className="sd-badge sd-badge-green" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                  <Layers size={12} /> Main Form Bundle ({resolvedTaggedSubforms.length} Subform{resolvedTaggedSubforms.length === 1 ? '' : 's'})
+                </span>
+                {resolvedTaggedSubforms.map((sf, idx) => (
+                  <button
+                    key={sf.id}
+                    type="button"
+                    className="btn btn-secondary btn-xs"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem' }}
+                    onClick={() => setPreviewSubformDoc(sf)}
+                    title={`Click to preview Subform ${idx + 1}: ${sf.title}`}
+                  >
+                    <FileText size={11} /> S{idx + 1}: {sf.title} <Eye size={11} />
+                  </button>
+                ))}
+              </div>
+              {!isReviewer && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-xs"
+                  onClick={() => setShowSubformPickerModal(true)}
+                  style={{ fontSize: '0.75rem' }}
+                >
+                  <Plus size={12} /> Manage Subforms
+                </button>
+              )}
+            </div>
+          )}
           {isReviewer && (
             <div className="sd-studio-review-banner" id="review-banner">
               <UserCheck size={16} />
@@ -6988,6 +7150,181 @@ export const SmartWordStudio = ({
           onGenerated={handleApplyAiGeneratedForm}
           currentDepartment={activeDept}
         />
+
+        {/* POPUP 8: Tag Subforms to Main Form Modal */}
+        {showSubformPickerModal && (
+          <Modal
+            id="modal-studio-tag-subforms"
+            size="md"
+            title="Tag Subforms to Main Form"
+            subtitle={`Link subforms (Word Forms, PDFs, or Images) from "${department || currentUser?.department}" to "${title || 'Main Form'}" for combined publishing & approval.`}
+            onClose={() => setShowSubformPickerModal(false)}
+            footer={
+              <>
+                <span className="sd-muted" style={{ marginRight: 'auto', fontSize: '0.82rem' }}>
+                  {subforms.length} subform{subforms.length === 1 ? '' : 's'} tagged
+                </span>
+                {subforms.length > 0 && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setSubforms([])}
+                  >
+                    Clear All
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => setShowSubformPickerModal(false)}
+                >
+                  <Check size={14} /> Done
+                </button>
+              </>
+            }
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div className="sd-alert sd-alert-info" style={{ fontSize: '0.82rem' }}>
+                <Layers size={16} />
+                <div>
+                  <strong>Same-Department Bundle (Forms, PDFs &amp; Images):</strong> Subforms must belong to <strong>{department || currentUser?.department}</strong> and can be any uploaded item — Word Form, PDF document, or Image. The Main Form&apos;s approval chain governs all tagged subforms.
+                </div>
+              </div>
+
+              <input
+                type="text"
+                className="sd-input"
+                placeholder={`Search forms, PDFs, or images in ${department || currentUser?.department}…`}
+                value={subformSearchQuery}
+                onChange={e => setSubformSearchQuery(e.target.value)}
+                autoFocus
+              />
+
+              <div style={{ maxHeight: '320px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {availableSubformCandidates
+                  .filter(c => {
+                    const q = subformSearchQuery.trim().toLowerCase();
+                    if (!q) return true;
+                    return (
+                      (c.title || '').toLowerCase().includes(q) ||
+                      (c.code || '').toLowerCase().includes(q) ||
+                      (c.fileName || '').toLowerCase().includes(q)
+                    );
+                  })
+                  .map(c => {
+                    const isTagged = subforms.includes(c.id);
+                    const orderIdx = subforms.indexOf(c.id);
+                    const fType = (c.fileType || 'docx').toLowerCase();
+                    const isPdf = fType === 'pdf';
+                    const isImage = fType === 'image';
+                    const typeBadgeLabel = isPdf ? 'PDF' : isImage ? 'IMAGE' : 'WORD FORM';
+                    return (
+                      <div
+                        key={c.id}
+                        className="sd-card"
+                        onClick={() => {
+                          setSubforms(prev =>
+                            prev.includes(c.id) ? prev.filter(id => id !== c.id) : [...prev, c.id]
+                          );
+                        }}
+                        style={{
+                          padding: '10px 14px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          cursor: 'pointer',
+                          borderColor: isTagged ? 'var(--primary)' : 'var(--border-subtle)',
+                          background: isTagged ? 'var(--primary-soft)' : 'var(--bg-surface)'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <div
+                            style={{
+                              width: '26px',
+                              height: '26px',
+                              borderRadius: '6px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              background: isTagged ? 'var(--primary)' : 'var(--bg-elevated)',
+                              color: isTagged ? '#000' : 'var(--text-muted)',
+                              fontWeight: 700,
+                              fontSize: '0.75rem'
+                            }}
+                          >
+                            {isTagged ? `S${orderIdx + 1}` : isImage ? <ImageIcon size={14} /> : <FileText size={14} />}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                              {c.title}
+                              <span className="sd-badge sd-badge-gray" style={{ fontSize: '0.66rem' }}>{typeBadgeLabel}</span>
+                              {c.isDraft && <span className="sd-badge sd-badge-amber" style={{ fontSize: '0.68rem' }}>DRAFT</span>}
+                            </div>
+                            <div className="sd-muted" style={{ fontSize: '0.76rem' }}>
+                              {c.department} · {c.code} · {isPdf ? 'Static PDF Document' : isImage ? 'Static Image Attachment' : `${(c.fields || []).length} field${(c.fields || []).length === 1 ? '' : 's'}`}
+                            </div>
+                          </div>
+                        </div>
+                        <span className={`sd-badge ${isTagged ? 'sd-badge-green' : 'sd-badge-gray'}`}>
+                          {isTagged ? 'Tagged' : '+ Tag'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                {availableSubformCandidates.length === 0 && (
+                  <p className="sd-muted" style={{ textAlign: 'center', padding: '20px 0' }}>
+                    No other forms, PDFs, or images in {department || currentUser?.department} available to tag yet.
+                  </p>
+                )}
+              </div>
+            </div>
+          </Modal>
+        )}
+
+        {/* POPUP 9: Subform Sheet Preview Modal */}
+        {previewSubformDoc && (
+          <Modal
+            id="modal-studio-preview-subform"
+            size="lg"
+            title={`Subform Preview: ${previewSubformDoc.title}`}
+            subtitle={`${previewSubformDoc.department || activeDept} · ${previewSubformDoc.code || 'Subform'} · ${(previewSubformDoc.fileType || 'docx').toUpperCase()}`}
+            onClose={() => setPreviewSubformDoc(null)}
+            footer={
+              <button type="button" className="btn btn-primary btn-sm" onClick={() => setPreviewSubformDoc(null)}>
+                Close Preview
+              </button>
+            }
+          >
+            {(previewSubformDoc.fileType === 'pdf' || previewSubformDoc.fileType === 'image') ? (
+              <div style={{ padding: '24px', textAlign: 'center', background: 'var(--bg-elevated)', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
+                <p style={{ margin: '0 0 8px 0', fontWeight: 700, fontSize: '0.95rem' }}>
+                  {previewSubformDoc.title} ({previewSubformDoc.fileType.toUpperCase()} Attachment)
+                </p>
+                <p className="sd-muted" style={{ margin: 0, fontSize: '0.82rem' }}>
+                  File: {previewSubformDoc.fileName || previewSubformDoc.code} — This {previewSubformDoc.fileType.toUpperCase()} subform will be displayed as an interactive tab inside the combined form viewer &amp; approval workflow.
+                </p>
+              </div>
+            ) : (
+              <div
+                style={{
+                  background: '#ffffff',
+                  color: '#0f172a',
+                  padding: '32px 40px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-subtle)',
+                  maxHeight: '65vh',
+                  overflowY: 'auto',
+                  fontFamily: previewSubformDoc.fontFamily || 'Calibri, sans-serif',
+                  fontSize: previewSubformDoc.fontSize || '11pt',
+                  lineHeight: 1.55
+                }}
+                dangerouslySetInnerHTML={{
+                  __html: previewSubformDoc.htmlContent || `<p><em>${previewSubformDoc.title}</em></p>`
+                }}
+              />
+            )}
+          </Modal>
+        )}
       </div>
     </div>
   );

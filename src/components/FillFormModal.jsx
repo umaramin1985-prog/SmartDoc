@@ -4,7 +4,7 @@ import { useApp } from '../context/AppContext';
 import { apiService } from '../services/apiService';
 import { printWordDocument } from '../utils/wordPrintEngine';
 import { exportFormSheetToPdf } from '../utils/pdfExportEngine';
-import { formatDate } from './ui';
+import { formatDate, downloadBlob } from './ui';
 import {
   ArrowLeft,
   PenLine,
@@ -32,7 +32,10 @@ import {
   CheckSquare,
   Info,
   Loader2,
-  Lock
+  Lock,
+  Layers,
+  Link2,
+  Image as ImageIcon
 } from 'lucide-react';
 import { fieldColumnSpan } from './formLayout';
 
@@ -74,14 +77,151 @@ export const FillFormModal = ({
   onFieldClickInViewOnly = null,
   highlightedFieldKey = null
 }) => {
-  const { currentUser, users, submitForm, resubmitForm, openSignatureModal, addToast } = useApp();
+  const { currentUser, users, formTemplates, archivedTemplates, submitForm, resubmitForm, openSignatureModal, addToast } = useApp();
   const isResubmit = !!submission && !isViewOnly;
-  const fields = useMemo(() => template?.fields || [], [template]);
   const hasWorkflow = Array.isArray(template?.workflow) && template.workflow.length > 0;
 
-  const [values, setValues] = useState(() =>
-    Object.fromEntries(fields.map(f => [f.key, submission?.formData?.[f.key] ?? '']))
+  // Resolve tagged subforms for this Main Form (or from saved submission.subformsData)
+  const allKnownTemplates = useMemo(
+    () => [...(formTemplates || []), ...(archivedTemplates || [])],
+    [formTemplates, archivedTemplates]
   );
+
+  const taggedSubforms = useMemo(() => {
+    const rawIds = [
+      ...(Array.isArray(template?.subforms) ? template.subforms : []),
+      ...Object.keys(submission?.subformsData || {})
+    ];
+    const seen = new Set();
+    const list = [];
+    for (const rawId of rawIds) {
+      const sid = typeof rawId === 'string' ? rawId : rawId?.id;
+      if (!sid || sid === template?.id || seen.has(sid)) continue;
+      seen.add(sid);
+      const found = allKnownTemplates.find(ft => ft.id === sid);
+      // Enforce same-department rule for Main Form and Subforms
+      if (found && (!template?.department || found.department === template.department)) {
+        list.push(found);
+      }
+    }
+    return list;
+  }, [template, submission, allKnownTemplates]);
+
+  const parentMainForm = useMemo(() => {
+    if (!template?.id || taggedSubforms.length > 0) return null;
+    return (formTemplates || []).find(
+      ft =>
+        ft.id !== template.id &&
+        ft.department === template.department &&
+        Array.isArray(ft.subforms) &&
+        ft.subforms.includes(template.id)
+    ) || null;
+  }, [template, taggedSubforms, formTemplates]);
+
+  const [activeDocTabId, setActiveDocTabId] = useState('MAIN');
+
+  const activeDocTemplate = useMemo(() => {
+    if (activeDocTabId === 'MAIN') return template;
+    return taggedSubforms.find(sf => sf.id === activeDocTabId) || template;
+  }, [activeDocTabId, template, taggedSubforms]);
+
+  const activeSubformFileType = (activeDocTemplate?.fileType || 'docx').toLowerCase();
+  const isActiveSubformStatic = activeDocTabId !== 'MAIN' && (activeSubformFileType === 'pdf' || activeSubformFileType === 'image');
+  const [staticSubformUrl, setStaticSubformUrl] = useState(null);
+  const [staticSubformBlob, setStaticSubformBlob] = useState(null);
+  const [staticSubformLoading, setStaticSubformLoading] = useState(false);
+  const [staticSubformError, setStaticSubformError] = useState('');
+
+  useEffect(() => {
+    if (!isActiveSubformStatic || !activeDocTemplate?.id) {
+      setStaticSubformUrl(prev => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+      setStaticSubformBlob(null);
+      setStaticSubformLoading(false);
+      setStaticSubformError('');
+      return;
+    }
+
+    let cancelled = false;
+    setStaticSubformLoading(true);
+    setStaticSubformError('');
+
+    apiService
+      .getTemplateFile(activeDocTemplate.id)
+      .then(blob => {
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        setStaticSubformBlob(blob);
+        setStaticSubformUrl(prev => {
+          if (prev) URL.revokeObjectURL(prev);
+          return url;
+        });
+        setStaticSubformLoading(false);
+      })
+      .catch(err => {
+        if (cancelled) return;
+        setStaticSubformError(err.message || 'Could not load subform attachment');
+        setStaticSubformLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isActiveSubformStatic, activeDocTemplate?.id]);
+
+  const mainFields = useMemo(() => template?.fields || [], [template]);
+  const fields = useMemo(() => activeDocTemplate?.fields || [], [activeDocTemplate]);
+
+  const [mainValues, setMainValues] = useState(() =>
+    Object.fromEntries((template?.fields || []).map(f => [f.key, submission?.formData?.[f.key] ?? '']))
+  );
+
+  const [subformsValues, setSubformsValues] = useState(() => {
+    const init = {};
+    taggedSubforms.forEach(sf => {
+      const saved = submission?.subformsData?.[sf.id] || {};
+      init[sf.id] = Object.fromEntries((sf.fields || []).map(f => [f.key, saved[f.key] ?? '']));
+    });
+    return init;
+  });
+
+  useEffect(() => {
+    if (!taggedSubforms.length) return;
+    setSubformsValues(prev => {
+      let changed = false;
+      const next = { ...prev };
+      taggedSubforms.forEach(sf => {
+        if (!next[sf.id]) {
+          changed = true;
+          const saved = submission?.subformsData?.[sf.id] || {};
+          next[sf.id] = Object.fromEntries((sf.fields || []).map(f => [f.key, saved[f.key] ?? '']));
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [taggedSubforms, submission]);
+
+  const values = useMemo(() => {
+    if (activeDocTabId === 'MAIN' || !activeDocTemplate || activeDocTemplate.id === template?.id) {
+      return mainValues;
+    }
+    return subformsValues[activeDocTemplate.id] || {};
+  }, [activeDocTabId, activeDocTemplate, template, mainValues, subformsValues]);
+
+  const setValues = useCallback((updater) => {
+    if (activeDocTabId === 'MAIN' || !activeDocTemplate || activeDocTemplate.id === template?.id) {
+      setMainValues(prev => (typeof updater === 'function' ? updater(prev) : updater));
+    } else {
+      const sfId = activeDocTemplate.id;
+      setSubformsValues(prev => {
+        const currentSfVals = prev[sfId] || {};
+        const nextSfVals = typeof updater === 'function' ? updater(currentSfVals) : updater;
+        return { ...prev, [sfId]: nextSfVals };
+      });
+    }
+  }, [activeDocTabId, activeDocTemplate, template]);
 
   const [expiryDate, setExpiryDate] = useState(() => {
     const existing = submission?.expiryDate;
@@ -124,6 +264,12 @@ export const FillFormModal = ({
   const [mountedSlots, setMountedSlots] = useState([]);
 
   useEffect(() => {
+    if (!isViewOnly) {
+      setActiveRailField(fields[0]?.key || null);
+    }
+  }, [activeDocTabId]);
+
+  useEffect(() => {
     if (!isViewOnly && !activeRailField && fields.length > 0) {
       setActiveRailField(fields[0].key);
     }
@@ -148,6 +294,36 @@ export const FillFormModal = ({
   const missingMandatoryCount = useMemo(() => {
     return fields.filter(f => f.required && !isFieldFilled(f, values[f.key])).length;
   }, [fields, values, isFieldFilled]);
+
+  const allMissingItems = useMemo(() => {
+    const items = [];
+    mainFields.forEach(f => {
+      if (f.required && !isFieldFilled(f, mainValues[f.key])) {
+        items.push({
+          tabId: 'MAIN',
+          tabTitle: `Main Form: ${template?.title || 'Main Form'}`,
+          field: f,
+          key: f.key,
+          label: f.label || f.key
+        });
+      }
+    });
+    taggedSubforms.forEach((sf, idx) => {
+      const sfVals = subformsValues[sf.id] || {};
+      (sf.fields || []).forEach(f => {
+        if (f.required && !isFieldFilled(f, sfVals[f.key])) {
+          items.push({
+            tabId: sf.id,
+            tabTitle: `Subform ${idx + 1}: ${sf.title || 'Subform'}`,
+            field: f,
+            key: f.key,
+            label: f.label || f.key
+          });
+        }
+      });
+    });
+    return items;
+  }, [mainFields, mainValues, template, taggedSubforms, subformsValues, isFieldFilled]);
 
   // Robust resolution for on-document form element (direct input wrap/box or in-text placeholder)
   const getDocFieldElement = useCallback((key) => {
@@ -593,7 +769,7 @@ export const FillFormModal = ({
 
   // Process template HTML content into DOM slots for React portals
   const { processedHtml, placedKeys, hasDocxHtml } = useMemo(() => {
-    const rawHtml = template?.htmlContent?.trim();
+    const rawHtml = activeDocTemplate?.htmlContent?.trim();
     if (!rawHtml) {
       return { processedHtml: '', placedKeys: new Set(), hasDocxHtml: false };
     }
@@ -659,8 +835,8 @@ export const FillFormModal = ({
     const today = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
     const formIdText = submission?.uniqueNumber || `[Auto-Generated on Submit]`;
     const submitterName = submission?.submittedByName || currentUser?.name || 'Submitter';
-    const deptName = template?.department || submission?.department || 'Department';
-    const verText = isResubmit ? bumpPreview(submission?.version) : (template?.version || '1.0');
+    const deptName = activeDocTemplate?.department || template?.department || submission?.department || 'Department';
+    const verText = isResubmit ? bumpPreview(submission?.version) : (activeDocTemplate?.version || template?.version || '1.0');
 
     html = html.replace(/\{\{\s*Form\s*ID\s*\}\}/gi, `<span class="sd-pv-sys">${formIdText}</span>`);
     html = html.replace(/\{\{\s*Submitted\s*By\s*\}\}/gi, `<span class="sd-pv-sys">${submitterName}</span>`);
@@ -733,7 +909,7 @@ export const FillFormModal = ({
     html = html.replace(/(<\/span>)(?:&nbsp;|\u00A0|\s)*(<span class="sd-live-slot-field)/gi, '$1 $2');
 
     return { processedHtml: html, placedKeys: placed, hasDocxHtml: true };
-  }, [template, submission, currentUser, fieldsMap, isResubmit, isFieldBold]);
+  }, [activeDocTemplate, template, submission, currentUser, fieldsMap, isResubmit, isFieldBold]);
 
   // After HTML renders, discover slot DOM elements for React portals
   useLayoutEffect(() => {
@@ -802,20 +978,25 @@ export const FillFormModal = ({
       return;
     }
 
-    if (missing.length > 0) {
+    if (allMissingItems.length > 0) {
       setShowMissingPromptModal(true);
-      const missingLabels = missing.map(k => fieldsMap.get(k.toLowerCase())?.label || k);
+      const firstMissing = allMissingItems[0];
+      if (firstMissing && firstMissing.tabId !== activeDocTabId) {
+        setActiveDocTabId(firstMissing.tabId);
+      }
+      const missingLabels = allMissingItems.map(item => item.label);
       addToast(
         'Missing Required Fields',
-        `Please complete all mandatory fields highlighted in red (${missingLabels.slice(0, 3).join(', ')}${missingLabels.length > 3 ? '...' : ''}).`,
+        `Please complete all mandatory fields across the form package (${missingLabels.slice(0, 3).join(', ')}${missingLabels.length > 3 ? '...' : ''}).`,
         'warn'
       );
-      // Scroll to the first missing field
-      const firstKey = missing[0];
-      const targetEl = document.getElementById(`live-placeholder-${firstKey.replace(/\W+/g, '-').toLowerCase()}`) ||
-                       document.getElementById(`live-field-${firstKey.replace(/\W+/g, '-').toLowerCase()}`);
-      if (targetEl) {
-        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (firstMissing && firstMissing.tabId === activeDocTabId) {
+        const firstKey = firstMissing.key;
+        const targetEl = document.getElementById(`live-placeholder-${firstKey.replace(/\W+/g, '-').toLowerCase()}`) ||
+                         document.getElementById(`live-field-${firstKey.replace(/\W+/g, '-').toLowerCase()}`);
+        if (targetEl) {
+          targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
       }
       return;
     }
@@ -833,14 +1014,17 @@ export const FillFormModal = ({
 
     setSaving(true);
     try {
+      const payloadSubformsData = taggedSubforms.length > 0 ? subformsValues : undefined;
       const result = isResubmit
-        ? await resubmitForm(submission.id, { formData: values, changeSummary, expiryDate })
-        : await submitForm({ templateId: template.id, formData: values, expiryDate });
+        ? await resubmitForm(submission.id, { formData: mainValues, subformsData: payloadSubformsData, changeSummary, expiryDate })
+        : await submitForm({ templateId: template.id, formData: mainValues, subformsData: payloadSubformsData, expiryDate });
 
       if (result) {
         addToast(
           isResubmit ? 'Form Resubmitted' : 'Form Submitted Successfully',
-          `"${template.title}" has been routed to the approval chain.`,
+          taggedSubforms.length > 0
+            ? `"${template.title}" + ${taggedSubforms.length} subform(s) routed to the combined approval chain.`
+            : `"${template.title}" has been routed to the approval chain.`,
           'success'
         );
         onClose();
@@ -1439,6 +1623,30 @@ export const FillFormModal = ({
               <span className="sd-form-filler-title">{template.title}</span>
               <span className="sd-badge sd-badge-accent">{template.department}</span>
               <span className="sd-badge sd-badge-gray">v{isResubmit ? bumpPreview(submission.version) : (submission?.version || template.version || '1.0')}</span>
+              {taggedSubforms.length > 0 && (
+                <span
+                  className="sd-badge"
+                  style={{
+                    background: 'color-mix(in srgb, var(--primary-500) 14%, transparent)',
+                    color: 'var(--primary-500)',
+                    border: '1px solid color-mix(in srgb, var(--primary-500) 35%, transparent)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  <Layers size={11} /> +{taggedSubforms.length} Subform{taggedSubforms.length > 1 ? 's' : ''}
+                </span>
+              )}
+              {parentMainForm && (
+                <span
+                  className="sd-badge sd-badge-gray"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  title={`Linked subform of "${parentMainForm.title}" — governed by Main Form approval chain`}
+                >
+                  <Link2 size={11} /> Subform of {parentMainForm.title}
+                </span>
+              )}
               {headerBadgesOverride}
             </div>
             <div className="sd-form-filler-meta">
@@ -1446,7 +1654,13 @@ export const FillFormModal = ({
                 <>
                   <span>{template.code || template.fileName || 'Form Document'}</span>
                   <span>·</span>
-                  <span>{isViewOnly ? 'Read-only form preview' : 'Fill out fields directly on the form and submit'}</span>
+                  <span>
+                    {isViewOnly
+                      ? 'Read-only form preview'
+                      : taggedSubforms.length > 0
+                      ? `Fill Main Form & ${taggedSubforms.length} tagged subform(s), sign once, and submit as one combined package`
+                      : 'Fill out fields directly on the form and submit'}
+                  </span>
                 </>
               )}
             </div>
@@ -1586,29 +1800,219 @@ export const FillFormModal = ({
           </div>
         )}
 
+        {/* Multi-Tab Document Switcher Bar (Main Form + Tagged Subforms) */}
+        {taggedSubforms.length > 0 && (
+          <div
+            className="sd-print-hide"
+            style={{
+              width: '820px',
+              maxWidth: '100%',
+              marginBottom: '14px',
+              padding: '10px 14px',
+              borderRadius: '10px',
+              background: 'var(--bg-elevated)',
+              border: '1px solid var(--border-subtle)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary-500)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                <Layers size={14} />
+                <span>Combined Form Package ({1 + taggedSubforms.length} Documents — Shared Approval &amp; Single Sign-Off)</span>
+              </div>
+              {!isViewOnly && allMissingItems.length > 0 && (
+                <span style={{ fontSize: '0.73rem', color: 'var(--warn-500)', fontWeight: 600 }}>
+                  {allMissingItems.length} required field{allMissingItems.length > 1 ? 's' : ''} remaining across package
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              {(() => {
+                const isMainActive = activeDocTabId === 'MAIN';
+                const mainFilledCount = mainFields.filter(f => isFieldFilled(f, mainValues[f.key])).length;
+                const mainMissingReqCount = mainFields.filter(f => f.required && !isFieldFilled(f, mainValues[f.key])).length;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => setActiveDocTabId('MAIN')}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '7px',
+                      padding: '6px 12px',
+                      borderRadius: '7px',
+                      fontSize: '0.78rem',
+                      fontWeight: isMainActive ? 700 : 600,
+                      cursor: 'pointer',
+                      border: isMainActive ? '1px solid var(--primary-500)' : '1px solid var(--border-subtle)',
+                      background: isMainActive
+                        ? 'color-mix(in srgb, var(--primary-500) 15%, var(--bg-surface))'
+                        : 'var(--bg-surface)',
+                      color: isMainActive ? 'var(--primary-500)' : 'var(--text-main)',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <FileText size={13} />
+                    <span>Main Form: {template.title}</span>
+                    <span
+                      className="sd-badge sd-badge-xs"
+                      style={{
+                        background: mainMissingReqCount === 0
+                          ? 'rgba(16, 185, 129, 0.16)'
+                          : touched
+                          ? 'rgba(239, 68, 68, 0.18)'
+                          : 'var(--bg-elevated)',
+                        color: mainMissingReqCount === 0
+                          ? '#10b981'
+                          : touched
+                          ? '#ef4444'
+                          : 'var(--text-muted)'
+                      }}
+                    >
+                      {mainFilledCount}/{mainFields.length}
+                    </span>
+                  </button>
+                );
+              })()}
+
+              {taggedSubforms.map((sf, idx) => {
+                const isTabActive = activeDocTabId === sf.id;
+                const sfFileType = (sf.fileType || 'docx').toLowerCase();
+                const isStaticSubform = sfFileType === 'pdf' || sfFileType === 'image';
+                const sfFields = sf.fields || [];
+                const sfVals = subformsValues[sf.id] || {};
+                const sfFilledCount = sfFields.filter(f => isFieldFilled(f, sfVals[f.key])).length;
+                const sfMissingReqCount = sfFields.filter(f => f.required && !isFieldFilled(f, sfVals[f.key])).length;
+                return (
+                  <button
+                    key={sf.id}
+                    type="button"
+                    onClick={() => setActiveDocTabId(sf.id)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '7px',
+                      padding: '6px 12px',
+                      borderRadius: '7px',
+                      fontSize: '0.78rem',
+                      fontWeight: isTabActive ? 700 : 600,
+                      cursor: 'pointer',
+                      border: isTabActive ? '1px solid var(--primary-500)' : '1px solid var(--border-subtle)',
+                      background: isTabActive
+                        ? 'color-mix(in srgb, var(--primary-500) 15%, var(--bg-surface))'
+                        : 'var(--bg-surface)',
+                      color: isTabActive ? 'var(--primary-500)' : 'var(--text-main)',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    {sfFileType === 'image' ? <ImageIcon size={13} /> : <Layers size={13} />}
+                    <span>Subform {idx + 1}: {sf.title}</span>
+                    {isStaticSubform ? (
+                      <span className="sd-badge sd-badge-gray sd-badge-xs">
+                        {sfFileType.toUpperCase()}
+                      </span>
+                    ) : (
+                      <span
+                        className="sd-badge sd-badge-xs"
+                        style={{
+                          background: sfMissingReqCount === 0
+                            ? 'rgba(16, 185, 129, 0.16)'
+                            : touched
+                            ? 'rgba(239, 68, 68, 0.18)'
+                            : 'var(--bg-elevated)',
+                          color: sfMissingReqCount === 0
+                            ? '#10b981'
+                            : touched
+                            ? '#ef4444'
+                            : 'var(--text-muted)'
+                        }}
+                      >
+                        {sfFilledCount}/{sfFields.length}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Authentic A4 Paper Document Sheet */}
         <div
           ref={sheetRef}
           className="sd-form-filler-sheet size-a4 portrait margins-normal"
           style={{
-            fontFamily: template?.fontFamily || undefined,
-            fontSize: template?.fontSize || undefined
+            fontFamily: activeDocTemplate?.fontFamily || template?.fontFamily || undefined,
+            fontSize: activeDocTemplate?.fontSize || template?.fontSize || undefined
           }}
         >
           {/* Header Mark */}
           <div className="sd-word-page-header-mark">
-            <span>{template.department} — Enterprise Word Form</span>
-            <span>{template.code || 'CONFIDENTIAL'}</span>
+            <span>{activeDocTemplate?.department || template.department} — Enterprise {isActiveSubformStatic ? `${activeSubformFileType.toUpperCase()} Subform` : 'Word Form'}</span>
+            <span>{activeDocTemplate?.code || template.code || 'CONFIDENTIAL'}</span>
           </div>
 
-          {/* Form Body: Either Word Template HTML or Official Clean Fallback */}
-          {hasDocxHtml ? (
+          {/* Form Body: Static PDF/Image Subform Viewer, Word Template HTML, or Official Clean Fallback */}
+          {isActiveSubformStatic ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', minHeight: '520px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: '1px solid #e2e8f0' }}>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 700, color: '#0f172a' }}>
+                    {activeDocTemplate?.title}
+                  </h2>
+                  <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                    Bundled {activeSubformFileType.toUpperCase()} Subform · {activeDocTemplate?.code || activeDocTemplate?.fileName}
+                  </span>
+                </div>
+                {staticSubformBlob && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-xs sd-print-hide"
+                    onClick={() => downloadBlob(staticSubformBlob, activeDocTemplate?.fileName || `${activeDocTemplate?.title}.${activeSubformFileType === 'pdf' ? 'pdf' : 'png'}`)}
+                  >
+                    <Download size={12} /> Download {activeSubformFileType.toUpperCase()}
+                  </button>
+                )}
+              </div>
+
+              {staticSubformLoading && (
+                <div style={{ padding: '48px 0', textAlign: 'center', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                  <Loader2 size={18} className="sd-spin" /> Loading {activeSubformFileType.toUpperCase()} subform…
+                </div>
+              )}
+
+              {staticSubformError && (
+                <div className="sd-alert sd-alert-error">{staticSubformError}</div>
+              )}
+
+              {!staticSubformLoading && !staticSubformError && staticSubformUrl && activeSubformFileType === 'pdf' && (
+                <iframe
+                  src={staticSubformUrl}
+                  title={activeDocTemplate?.title || 'PDF Subform'}
+                  style={{ width: '100%', height: '680px', border: '1px solid #cbd5e1', borderRadius: '6px', background: '#f8fafc' }}
+                />
+              )}
+
+              {!staticSubformLoading && !staticSubformError && staticSubformUrl && activeSubformFileType === 'image' && (
+                <div style={{ textAlign: 'center', padding: '12px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px' }}>
+                  <img
+                    src={staticSubformUrl}
+                    alt={activeDocTemplate?.title || 'Image Subform'}
+                    style={{ maxWidth: '100%', height: 'auto', borderRadius: '4px' }}
+                  />
+                </div>
+              )}
+            </div>
+          ) : hasDocxHtml ? (
             <div
               ref={docBodyRef}
               className="sd-word-editor-body sd-pv-doc"
               style={{
-                fontFamily: template?.fontFamily || undefined,
-                fontSize: template?.fontSize || undefined
+                fontFamily: activeDocTemplate?.fontFamily || template?.fontFamily || undefined,
+                fontSize: activeDocTemplate?.fontSize || template?.fontSize || undefined
               }}
               dangerouslySetInnerHTML={{ __html: processedHtml }}
             />
@@ -1617,8 +2021,8 @@ export const FillFormModal = ({
               {/* Fallback Official Document Structure */}
               <div className="sd-form-filler-official-header">
                 <div>
-                  <div className="sd-form-filler-official-brand">{template.department}</div>
-                  <h1 className="sd-form-filler-official-title">{template.title}</h1>
+                  <div className="sd-form-filler-official-brand">{activeDocTemplate?.department || template.department}</div>
+                  <h1 className="sd-form-filler-official-title">{activeDocTemplate?.title || template.title}</h1>
                 </div>
                 <div className="sd-form-filler-official-meta">
                   <div><strong>Form ID:</strong> {submission?.uniqueNumber || `FRM-${new Date().getFullYear()}-XXXX`}</div>
@@ -1627,9 +2031,9 @@ export const FillFormModal = ({
                 </div>
               </div>
 
-              {template.description && (
+              {(activeDocTemplate?.description || template.description) && (
                 <p className="sd-muted" style={{ marginBottom: '24px', fontSize: '0.9rem', lineHeight: 1.5 }}>
-                  {template.description}
+                  {activeDocTemplate?.description || template.description}
                 </p>
               )}
 
@@ -1676,7 +2080,7 @@ export const FillFormModal = ({
           )}
 
           {/* If the Word document didn't have an explicit submitter or department signature slot, append them at document bottom */}
-          {(!hasSubmitterSigSlot || !hasDocxHtml || unplacedWorkflowSteps.length > 0) && (
+          {!isActiveSubformStatic && (!hasSubmitterSigSlot || !hasDocxHtml || unplacedWorkflowSteps.length > 0) && (
             <div style={{ marginTop: '36px', paddingTop: '20px', borderTop: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {(!hasSubmitterSigSlot || !hasDocxHtml) && renderSignatureSlot('Submitter')}
               {unplacedWorkflowSteps.map((st, idx) => (
@@ -1691,7 +2095,7 @@ export const FillFormModal = ({
           {hasWorkflow && (
             <div className="sd-form-filler-workflow-chain sd-print-hide" style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid #e2e8f0' }}>
               <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
-                Sequential Department Approval Chain
+                Sequential Department Approval Chain {taggedSubforms.length > 0 ? '(Shared Across Main Form & Tagged Subforms)' : ''}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
                 <span
@@ -1743,7 +2147,13 @@ export const FillFormModal = ({
           {/* Footer Mark (In-App Only) */}
           <div className="sd-word-page-footer-mark sd-print-hide">
             <span>SmartDoc Automated Form Engine</span>
-            <span>Page 1 of 1</span>
+            <span>
+              {taggedSubforms.length > 0
+                ? (activeDocTabId === 'MAIN'
+                    ? `Main Form (1 of ${1 + taggedSubforms.length})`
+                    : `Subform ${taggedSubforms.findIndex(sf => sf.id === activeDocTabId) + 1} (${taggedSubforms.findIndex(sf => sf.id === activeDocTabId) + 2} of ${1 + taggedSubforms.length})`)
+                : 'Page 1 of 1'}
+            </span>
           </div>
         </div>
       </main>
@@ -1758,7 +2168,11 @@ export const FillFormModal = ({
             <div className="sd-rail-header-top">
               <div className="sd-rail-title-row">
                 <FileEdit size={16} className="sd-rail-icon" />
-                <h3 className="sd-rail-title">Document Form Fields</h3>
+                <h3 className="sd-rail-title">
+                  {taggedSubforms.length > 0
+                    ? (activeDocTabId === 'MAIN' ? 'Main Form Fields' : `Subform Fields`)
+                    : 'Document Form Fields'}
+                </h3>
               </div>
               <div className="sd-rail-header-actions">
                 <button
@@ -1784,12 +2198,14 @@ export const FillFormModal = ({
               </div>
             </div>
             <p className="sd-rail-subtitle">
-              Fill values here or click placeholders in the document sheet. Updates appear live on paper.
+              {taggedSubforms.length > 0
+                ? `Active sheet: "${activeDocTemplate?.title || template.title}". Switch tabs above the document to fill all bundled forms.`
+                : 'Fill values here or click placeholders in the document sheet. Updates appear live on paper.'}
             </p>
             {missingMandatoryCount > 0 && (
               <div className="sd-rail-mandatory-alert">
                 <AlertTriangle size={13} />
-                <span>{missingMandatoryCount} mandatory field{missingMandatoryCount > 1 ? 's' : ''} remaining</span>
+                <span>{missingMandatoryCount} mandatory field{missingMandatoryCount > 1 ? 's' : ''} remaining on this sheet</span>
               </div>
             )}
           </div>
@@ -2132,7 +2548,7 @@ export const FillFormModal = ({
                     Mandatory Fields Incomplete
                   </h3>
                   <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-                    Cannot submit until all required fields are filled.
+                    Cannot submit until all required fields across the package are filled.
                   </span>
                 </div>
               </div>
@@ -2146,49 +2562,62 @@ export const FillFormModal = ({
                 The following mandatory fields and placeholders must be completed:
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '240px', overflowY: 'auto' }}>
-                {fields.filter(f => f.required && !isFieldFilled(f, values[f.key])).map(f => (
-                  <div
-                    key={f.key}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '8px 12px',
-                      borderRadius: 'var(--radius-md)',
-                      background: 'rgba(239, 68, 68, 0.08)',
-                      border: '1px solid rgba(239, 68, 68, 0.25)'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ color: 'var(--bad-500)', fontWeight: 800 }}>*</span>
-                      <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                        {f.label || f.key}
-                      </span>
-                      <span className="sd-badge sd-badge-gray sd-badge-xs">
-                        {f.mode === 'placeholder' ? 'Placeholder' : 'Input'}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-xs"
-                      style={{ fontSize: '0.72rem', padding: '3px 8px' }}
-                      onClick={() => {
-                        setShowMissingPromptModal(false);
-                        if (f.mode === 'placeholder') {
-                          handleOpenFieldDialog(f);
-                        } else {
-                          const el = document.getElementById(`live-field-${f.key.replace(/\W+/g, '-').toLowerCase()}`);
-                          if (el) {
-                            el.focus();
-                            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                          }
-                        }
+                {allMissingItems.map((item, idx) => {
+                  const f = item.field;
+                  return (
+                    <div
+                      key={`${item.tabId}-${f.key}-${idx}`}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '8px 12px',
+                        borderRadius: 'var(--radius-md)',
+                        background: 'rgba(239, 68, 68, 0.08)',
+                        border: '1px solid rgba(239, 68, 68, 0.25)'
                       }}
                     >
-                      Fill Now →
-                    </button>
-                  </div>
-                ))}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <span style={{ color: 'var(--bad-500)', fontWeight: 800 }}>*</span>
+                        <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                          {f.label || f.key}
+                        </span>
+                        {taggedSubforms.length > 0 && (
+                          <span className="sd-badge sd-badge-accent sd-badge-xs">
+                            {item.tabTitle}
+                          </span>
+                        )}
+                        <span className="sd-badge sd-badge-gray sd-badge-xs">
+                          {f.mode === 'placeholder' ? 'Placeholder' : 'Input'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-xs"
+                        style={{ fontSize: '0.72rem', padding: '3px 8px', flexShrink: 0 }}
+                        onClick={() => {
+                          setShowMissingPromptModal(false);
+                          if (item.tabId !== activeDocTabId) {
+                            setActiveDocTabId(item.tabId);
+                          }
+                          setTimeout(() => {
+                            if (f.mode === 'placeholder') {
+                              handleOpenFieldDialog(f);
+                            } else {
+                              const el = document.getElementById(`live-field-${f.key.replace(/\W+/g, '-').toLowerCase()}`);
+                              if (el) {
+                                el.focus();
+                                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                              }
+                            }
+                          }, 80);
+                        }}
+                      >
+                        Fill Now →
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
