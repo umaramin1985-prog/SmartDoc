@@ -231,8 +231,44 @@ export const AppProvider = ({ children }) => {
   const [departments, setDepartments] = useState([]);
   const [folders, setFolders] = useState([]);
   const [allTemplates, setAllTemplates] = useState([]);
-  const formTemplates = useMemo(() => allTemplates.filter(t => t.status !== 'ARCHIVED'), [allTemplates]);
-  const archivedTemplates = useMemo(() => allTemplates.filter(t => t.status === 'ARCHIVED'), [allTemplates]);
+
+  const canUserAccessTemplate = useCallback((u, t) => {
+    if (!u || !t) return false;
+    if (u.systemRole === 'superadmin') return true;
+    const isDraft = t.status === 'DRAFT' || t.isDraft;
+    if (isDraft) {
+      return u.systemRole === 'admin' && u.department === t.department;
+    }
+    const accessType = t.accessType || (t.audience === 'ALL' ? 'ALL' : 'DEPARTMENTS');
+    if (accessType === 'USERS') {
+      const allowedUsers = Array.isArray(t.allowedUsers) ? t.allowedUsers : [];
+      return allowedUsers.some(au => {
+        if (typeof au === 'string') {
+          return String(au) === String(u.id) || au.toLowerCase() === String(u.username || '').toLowerCase();
+        }
+        return (
+          String(au?.id) === String(u.id) ||
+          (au?.username && au.username.toLowerCase() === String(u.username || '').toLowerCase())
+        );
+      });
+    }
+    if (accessType === 'DEPARTMENTS') {
+      const allowedDepts = Array.isArray(t.allowedDepartments) ? t.allowedDepartments : [];
+      if (allowedDepts.length === 0) return t.department === u.department;
+      return allowedDepts.includes(u.department);
+    }
+    if (accessType === 'ALL') return true;
+    return t.department === u.department;
+  }, []);
+
+  const formTemplates = useMemo(
+    () => allTemplates.filter(t => t.status !== 'ARCHIVED' && canUserAccessTemplate(currentUser, t)),
+    [allTemplates, currentUser, canUserAccessTemplate]
+  );
+  const archivedTemplates = useMemo(
+    () => allTemplates.filter(t => t.status === 'ARCHIVED' && canUserAccessTemplate(currentUser, t)),
+    [allTemplates, currentUser, canUserAccessTemplate]
+  );
   const [formSubmissions, setFormSubmissions] = useState([]);
   const [departmentMessages, setDepartmentMessages] = useState([]);
   const [templateReviews, setTemplateReviews] = useState([]);
@@ -356,7 +392,7 @@ export const AppProvider = ({ children }) => {
     setCurrentUser(null);
     setUsers([]);
     setFolders([]);
-    setFormTemplates([]);
+    setAllTemplates([]);
     setFormSubmissions([]);
     setDepartmentMessages([]);
     setTemplateReviews([]);

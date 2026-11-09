@@ -21,6 +21,7 @@
 - **Safe Re-Parenting**: Deleting a folder automatically re-parents its contents to the parent folder to prevent data loss.
 - **Submission-Aware Deletion vs. Archival & Restore**: Deleting a document or template checks if any user has filled or submitted a form against it. If zero submissions exist, admins can choose to either **Move to Archive** or **Delete permanently** from the server disk drive (`storage/templates/`) and PostgreSQL database. If submissions exist, it is soft-archived (`status = 'ARCHIVED'`) to protect the audit trail and allow completed forms to continue rendering and verifying PKI signatures.
 - **Archived Forms & Files Explorer (`Archived Files`)**: Dedicated **`Archived Files`** node in the left Explorer tree and **`Archived (N)`** filter pill in the Explorer toolbar allow viewing, previewing, downloading, inspecting version history, and **Restoring** archived files back to their active department drive (`PUT /api/forms/templates/:id/restore`).
+- **Main Form + Tagged Subforms Bundle (`Tag / Link Subforms`)**: Department admins can tag any uploaded file from the **same department** — editable Word Forms (`.docx`, `.doc`), static PDFs (`.pdf`), or Images (`.png`, `.jpg`, `.jpeg`, `.webp`) — as Subforms to a Main Form. The Main Form's approval chain governs all tagged subforms, automatically publishes any draft subforms when the Main Form is published, and bundles them for combined pre-publication review, multi-tab filling, and single-click submission approval.
 
 ### 2. Microsoft Word & Form Creation Studio (`SmartWordStudio.jsx`)
 - **Full Union of Word Processor + Custom Form Creator**: Design professional documents and interactive forms on an authentic A4 sheet canvas.
@@ -58,7 +59,7 @@
     - Drag and reorder any existing form field pill (`.sd-doc-field-pill`), signature block (`.sd-doc-sig-block`), system tag (`.sd-doc-system-tag`), or image wrapper (`.sd-doc-image-wrap`) anywhere on the canvas — onto the same horizontal row before/after another control, onto a different line, or inside/outside table cells — with a live visual drop caret indicator (`.sd-drop-caret-indicator`).
     - Drag form control buttons directly from the **Home** and **Insert Elements** ribbon tabs onto the document canvas at any target drop location.
   - **Page Layout Tab & MS Word-Style Page Zoom (`50%`–`200%`)**: Margins (Normal, Narrow, Wide), Page sizes (A4, Letter), Orientation (Portrait, Landscape), and interactive **Page Zoom** controls (`50%` to `200%` via header stepper, bottom status bar slider, and `75%` / `100%` / `125%` / `150%` preset pills).
-  - **Workflow & Approvals Tab**: Target department, destination folder, target audience (All Users vs Department Only), decision deadline in days, and ordered department approval chains (auto-synced with department signature slots).
+  - **Workflow & Approvals Tab & Subform Bundling**: Target department, destination folder, target audience (All Users vs Department Only), decision deadline in days, ordered department approval chains (auto-synced with department signature slots), and **`+ Tag Subforms…`** selector to bundle same-department Word forms, PDFs, or Images with a live **Main Form Bundle Bar** and Subform Preview modal above the A4 sheet.
 - **Authentic Microsoft Word Print Engine**: Dedicated print pipeline (`printWordDocument` and `POST /api/forms/render-print-document`) that renders genuine Word documents (`.docx`) for printing with authentic Word margins, headers, tables, and page layout rather than basic browser HTML print.
 - **Save as Draft Option**: Dedicated `[ Save Draft ]` action allows saving work directly into folders without configuring an approval chain until ready to publish.
 - **In-Document Interactive Widgets & Universal Element Removal**: Clickable field pills (`.sd-doc-field-pill`), signature blocks (`.sd-doc-sig-block`), and system tags open customization modals directly inside the document canvas for:
@@ -118,6 +119,7 @@
 
 ### 5. Form Submissions & Fill Workflow (`FillFormModal.jsx`)
 - **Dynamic Form Filling**: Auto-generates form controls from detected template placeholders and Word Form Studio widgets.
+- **Multi-Tab Main Form + Subforms Bundle Switcher**: When a Main Form has tagged subforms (same-department Word forms, PDFs, or Images), a **Multi-Tab Document Switcher Bar** appears above the document sheet so the user can seamlessly switch between **`Main Form`** and **`Subform 1..N`** (interactive Word sheets, embedded PDF viewer, or Image viewer), complete mandatory fields across all sheets, sign once, and submit as a single combined package (`formData` + `subformsData`).
 - **Dedicated Right-Side Interactive Form Rail**: Docked panel containing clean input cards for all placeholders and form fields, complete with live completion counters, mandatory indicators, field index tags, and type-specific controls (date shortcuts, number, dropdown, textarea).
 - **Field Descriptions & Guidance**: Interactive fields display rich multi-line instructional guidance in the right rail cards, single-field dialogs, and canvas tooltips to help users complete complex forms accurately.
 - **Zero-Highlight Natural Text & Baseline Alignment**: In-text placeholders blend seamlessly into document prose with zero colored boxes or borders (`border: none; background: transparent;`), sitting directly on the typographic baseline (`line-height: inherit !important`) with zero line displacement.
@@ -183,8 +185,8 @@
 - **Three-Tier Scope Control**:
   - **All Users (`ALL`)**: Public access across the entire organization.
   - **Specific Departments (`DEPARTMENTS`)**: Restricted to designated department drives and their members.
-  - **Specific Persons Only (`USERS`)**: Individual-level access whitelist for confidential executive forms.
-- **Strict Query Filtering**: Backend enforces access checks on template listing and file access to prevent unauthorized viewing.
+  - **Specific Persons Only (`USERS`)**: Individual-level access whitelist (`allowedUsers`) for confidential executive forms and files.
+- **Strict Dual-Layer Enforcement**: Both the backend (`canSeeTemplate` in `server/server.js`) and client state (`canUserAccessTemplate` in `src/context/AppContext.jsx`) strictly enforce `USERS`, `DEPARTMENTS`, and `ALL` permissions across template listings, tagged subforms, and file downloads so unauthorized users never discover or open restricted items.
 
 ### 12. Real-Time Enterprise Notification System & Interactive Actionable Toasts (`NotificationBell.jsx`, `ToastContainer.jsx`)
 - **Instant Alerts Drawer**: Notification bell in sidebar with live unread counter badge and 15s background polling.

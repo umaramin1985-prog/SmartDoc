@@ -231,24 +231,25 @@ function mapSubmission(s) {
 }
 
 function canSeeTemplate(actor, t) {
+  if (!actor || !t) return false;
   if (isSuper(actor)) return true;
-  if (isDeptAdmin(actor, t.department)) return true;
   // If it's an unpublished DRAFT, only admins of that department (or superadmin) can view/manage it
-  if (t.status === 'DRAFT') return false;
+  if (t.status === 'DRAFT') return isDeptAdmin(actor, t.department);
+
   const accessType = t.access_type || (t.audience === 'ALL' ? 'ALL' : 'DEPARTMENTS');
-  if (accessType === 'ALL') return true;
-  if (accessType === 'DEPARTMENTS') {
-    const allowedDepts = parseJson(t.allowed_departments, []);
-    if (allowedDepts.length === 0) return t.department === actor.department;
-    return allowedDepts.includes(actor.department) || t.department === actor.department;
-  }
   if (accessType === 'USERS') {
     const allowedUsers = parseJson(t.allowed_users, []);
     return allowedUsers.some(u => {
-      if (typeof u === 'string') return u === actor.id || u.toLowerCase() === (actor.username || '').toLowerCase();
-      return u.id === actor.id || (u.username && u.username.toLowerCase() === (actor.username || '').toLowerCase());
+      if (typeof u === 'string') return String(u) === String(actor.id) || u.toLowerCase() === (actor.username || '').toLowerCase();
+      return String(u.id) === String(actor.id) || (u.username && u.username.toLowerCase() === (actor.username || '').toLowerCase());
     });
   }
+  if (accessType === 'DEPARTMENTS') {
+    const allowedDepts = parseJson(t.allowed_departments, []);
+    if (allowedDepts.length === 0) return t.department === actor.department;
+    return allowedDepts.includes(actor.department);
+  }
+  if (accessType === 'ALL') return true;
   return t.department === actor.department;
 }
 
@@ -1085,17 +1086,7 @@ app.get('/api/forms/templates', async (req, res) => {
     const r = await query(
       `SELECT * FROM form_templates WHERE status IN ('ACTIVE', 'DRAFT', 'ARCHIVED') ORDER BY created_at DESC`
     );
-    const visibleMain = r.rows.filter(t => canSeeTemplate(actor, t));
-    const taggedSubformIds = new Set();
-    visibleMain.forEach(t => {
-      parseJson(t.subforms, []).forEach(subId => {
-        const id = typeof subId === 'string' ? subId : subId?.id;
-        if (id) taggedSubformIds.add(id);
-      });
-    });
-    const finalRows = r.rows.filter(t =>
-      canSeeTemplate(actor, t) || (t.status === 'ACTIVE' && taggedSubformIds.has(t.id))
-    );
+    const finalRows = r.rows.filter(t => canSeeTemplate(actor, t));
     res.json(finalRows.map(mapTemplate));
   } catch (err) {
     console.error('[GET templates]', err);
@@ -2490,14 +2481,14 @@ app.post('/api/forms/submissions', async (req, res) => {
     const cleanSubformsData = {};
     if (subformIds.length > 0) {
       const sfRows = await query(
-        `SELECT id, title, fields, status FROM form_templates WHERE id = ANY($1)`,
+        `SELECT * FROM form_templates WHERE id = ANY($1)`,
         [subformIds]
       );
       const sfMap = new Map(sfRows.rows.map(r => [r.id, r]));
       const rawSfData = (subformsData && typeof subformsData === 'object') ? subformsData : {};
       for (const sfId of subformIds) {
         const sf = sfMap.get(sfId);
-        if (!sf || sf.status === 'ARCHIVED') continue;
+        if (!sf || sf.status === 'ARCHIVED' || !canSeeTemplate(actor, sf)) continue;
         const sfFields = parseJson(sf.fields, []);
         const { data: sfClean, error: sfErr } = validateFormData(sfFields, rawSfData[sfId] || {});
         if (sfErr) {
@@ -2616,14 +2607,14 @@ app.put('/api/forms/submissions/:id/modify', async (req, res) => {
     const sfTitleMap = new Map();
     if (subformIds.length > 0) {
       const sfRows = await query(
-        `SELECT id, title, fields, status FROM form_templates WHERE id = ANY($1)`,
+        `SELECT * FROM form_templates WHERE id = ANY($1)`,
         [subformIds]
       );
       const sfMap = new Map(sfRows.rows.map(r => [r.id, r]));
       const rawSfData = (subformsData && typeof subformsData === 'object') ? subformsData : prevSubformsData;
       for (const sfId of subformIds) {
         const sf = sfMap.get(sfId);
-        if (!sf || sf.status === 'ARCHIVED') continue;
+        if (!sf || sf.status === 'ARCHIVED' || !canSeeTemplate(actor, sf)) continue;
         sfTitleMap.set(sfId, sf.title);
         const sfFields = parseJson(sf.fields, []);
         const { data: sfClean, error: sfErr } = validateFormData(sfFields, rawSfData[sfId] || {});
