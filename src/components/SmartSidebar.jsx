@@ -1,33 +1,49 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
-import { initials, UserAvatar } from './ui';
+import { UserAvatar } from './ui';
 import { NotificationBell } from './NotificationBell';
 import { ACCENT_COLORS } from './ColorThemePicker';
 import SmartDocLogoIcon from './SmartDocLogoIcon';
 import { getPathForTab, tabLinkProps } from '../utils/router';
 import {
-  LayoutGrid, FolderOpen, FileText, CheckCircle2, MessageSquare, Settings,
-  LogOut, PenLine, ClipboardCheck, Camera,
-  PanelLeftClose, PanelLeftOpen, ChevronLeft, ChevronRight, History, UserCheck,
-  Sun, Moon
+  LayoutGrid, FolderOpen, CheckCircle2, MessageSquare, Settings,
+  LogOut, ClipboardCheck, Camera, Search,
+  ChevronLeft, ChevronRight, History, UserCheck,
+  Sun, Moon, Sparkles
 } from 'lucide-react';
 
-export const SmartSidebar = () => {
+export const SmartSidebar = ({ onOpenCommandPalette }) => {
   const {
     activeTab, setActiveTab, currentUser, logout,
-    isSuperAdmin, myApprovalQueue, reviewsNeedingMe, openSignatureModal, openProfileModal,
+    isSuperAdmin, myApprovalQueue, reviewsNeedingMe, openProfileModal,
     sidebarCollapsed, toggleSidebar, accentColor, setAccentColor,
     theme, toggleTheme
   } = useApp();
 
-  const items = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutGrid },
-    { id: 'forms', label: 'Forms & Templates', icon: FolderOpen },
-    { id: 'approvals', label: 'Submissions & Approvals', icon: CheckCircle2, badge: myApprovalQueue.length },
-    { id: 'reviews', label: 'Reviews', icon: ClipboardCheck, badge: reviewsNeedingMe.length },
-    { id: 'dept-messaging', label: 'Team Messaging', icon: MessageSquare },
-    { id: 'activity', label: 'Activity Log', icon: History },
-    ...(isSuperAdmin ? [{ id: 'settings', label: 'Users & Departments', icon: Settings }] : [])
+  const sections = [
+    {
+      title: 'Workspace',
+      items: [
+        { id: 'dashboard', label: 'Dashboard', icon: LayoutGrid },
+        { id: 'dashboard-modern', label: 'Modern Dashboard', icon: Sparkles },
+        { id: 'forms', label: 'Forms & Templates', icon: FolderOpen },
+      ]
+    },
+    {
+      title: 'Workflows',
+      items: [
+        { id: 'approvals', label: 'Submissions & Approvals', icon: CheckCircle2, badge: myApprovalQueue.length },
+        { id: 'reviews', label: 'Reviews', icon: ClipboardCheck, badge: reviewsNeedingMe.length },
+        { id: 'dept-messaging', label: 'Team Messaging', icon: MessageSquare },
+      ]
+    },
+    {
+      title: 'Governance',
+      items: [
+        { id: 'activity', label: 'Activity Log', icon: History },
+        ...(isSuperAdmin ? [{ id: 'settings', label: 'Users & Departments', icon: Settings }] : [])
+      ]
+    }
   ];
 
   const isLight = theme === 'light';
@@ -38,14 +54,14 @@ export const SmartSidebar = () => {
         <a
           className="smart-sidebar-brand"
           {...tabLinkProps('/', () => setActiveTab('dashboard'))}
-          title={sidebarCollapsed ? "SmartDoc - Forms & Approvals" : undefined}
+          title={sidebarCollapsed ? "SmartDoc - Enterprise Forms & Approvals" : undefined}
         >
           <div className="smart-brand-icon-box">
             <SmartDocLogoIcon size={20} className="smart-brand-icon" />
           </div>
           <div className="smart-brand-titles">
             <span className="smart-brand-name">SmartDoc</span>
-            <span className="smart-brand-sub">Forms &amp; Approvals</span>
+            <span className="smart-brand-sub">Enterprise Forms &amp; PKI</span>
           </div>
         </a>
 
@@ -56,26 +72,51 @@ export const SmartSidebar = () => {
         </div>
       </div>
 
+      {onOpenCommandPalette && (
+        <button
+          id="btn-sidebar-spotlight"
+          type="button"
+          className="smart-sidebar-search-btn"
+          onClick={onOpenCommandPalette}
+          title="Quick Search & Command Palette (Ctrl+K)"
+        >
+          <Search size={15} className="smart-sidebar-search-icon" />
+          {!sidebarCollapsed && (
+            <>
+              <span className="smart-sidebar-search-text">Quick Search…</span>
+              <kbd className="smart-sidebar-search-kbd">Ctrl K</kbd>
+            </>
+          )}
+        </button>
+      )}
+
       <nav className="smart-sidebar-nav">
-        {items.map(({ id, label, icon: Icon, badge }) => (
-          <a
-            key={id}
-            id={`nav-${id}-btn`}
-            className={`smart-nav-item ${activeTab === id ? 'active' : ''}`}
-            {...tabLinkProps(getPathForTab(id), () => setActiveTab(id))}
-            title={sidebarCollapsed ? `${label}${badge > 0 ? ` (${badge})` : ''}` : undefined}
-          >
-            <div className="smart-nav-icon-wrap">
-              <Icon size={17} />
-              {sidebarCollapsed && badge > 0 && (
-                <span className="smart-nav-dot-badge" title={`${badge} pending`}>
-                  {badge > 9 ? '9+' : badge}
-                </span>
-              )}
-            </div>
-            <span className="smart-nav-text">{label}</span>
-            {!sidebarCollapsed && badge > 0 && <span className="smart-nav-badge">{badge}</span>}
-          </a>
+        {sections.map((section) => (
+          <div key={section.title} className="smart-nav-section">
+            {!sidebarCollapsed && (
+              <div className="smart-nav-section-label">{section.title}</div>
+            )}
+            {section.items.map(({ id, label, icon: Icon, badge }) => (
+              <a
+                key={id}
+                id={`nav-${id}-btn`}
+                className={`smart-nav-item ${activeTab === id ? 'active' : ''}`}
+                {...tabLinkProps(getPathForTab(id), () => setActiveTab(id))}
+                title={sidebarCollapsed ? `${label}${badge > 0 ? ` (${badge})` : ''}` : undefined}
+              >
+                <div className="smart-nav-icon-wrap">
+                  <Icon size={17} />
+                  {sidebarCollapsed && badge > 0 && (
+                    <span className="smart-nav-dot-badge" title={`${badge} pending`}>
+                      {badge > 9 ? '9+' : badge}
+                    </span>
+                  )}
+                </div>
+                <span className="smart-nav-text">{label}</span>
+                {!sidebarCollapsed && badge > 0 && <span className="smart-nav-badge">{badge}</span>}
+              </a>
+            ))}
+          </div>
         ))}
       </nav>
 
@@ -130,7 +171,7 @@ export const SmartSidebar = () => {
                   className={`smart-color-dot ${accentColor === c.id ? 'active' : ''}`}
                   style={{ backgroundColor: c.hex }}
                   onClick={() => setAccentColor(c.id)}
-                  title={`${c.label}${c.id === 'green' ? ' (Default)' : ''}`}
+                  title={`${c.label}${c.id === 'blue' ? ' (Default)' : ''}`}
                   aria-label={`Select ${c.label}`}
                 />
               ))}

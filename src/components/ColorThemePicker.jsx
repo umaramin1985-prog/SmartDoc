@@ -3,15 +3,15 @@ import { useApp } from '../context/AppContext';
 import { Palette, Check, Sun, Moon } from 'lucide-react';
 
 export const ACCENT_COLORS = [
-  { id: 'green', label: 'Current Green', hex: '#a4fb4f', desc: 'Default Electric Green' },
-  { id: 'red', label: 'Red', hex: '#ef4444', desc: 'Crimson Red' },
-  { id: 'orange', label: 'Orange', hex: '#f97316', desc: 'Vibrant Orange' },
-  { id: 'purple', label: 'Purple', hex: '#a855f7', desc: 'Royal Purple' },
-  { id: 'blue', label: 'Blue', hex: '#3b82f6', desc: 'Electric Blue' },
+  { id: 'blue', label: 'Royal Blue', hex: '#2563eb', desc: 'Default Enterprise Blue' },
+  { id: 'green', label: 'Emerald', hex: '#059669', desc: 'Enterprise Emerald' },
+  { id: 'purple', label: 'Indigo Violet', hex: '#7c3aed', desc: 'Executive Violet' },
+  { id: 'orange', label: 'Amber Orange', hex: '#ea580c', desc: 'Warm Enterprise Orange' },
+  { id: 'red', label: 'Crimson', hex: '#e11d48', desc: 'Executive Crimson' },
 ];
 
 export const ColorThemePicker = () => {
-  const { accentColor = 'green', setAccentColor, theme = 'dark', setTheme } = useApp();
+  const { accentColor = 'blue', setAccentColor, theme = 'light', setTheme } = useApp();
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
 
@@ -55,19 +55,19 @@ export const ColorThemePicker = () => {
           <div className="sd-theme-mode-segmented">
             <button
               type="button"
-              className={`sd-theme-mode-seg-btn ${theme === 'dark' ? 'is-active' : ''}`}
-              onClick={() => setTheme('dark')}
-            >
-              <Moon size={13} />
-              <span>Dark</span>
-            </button>
-            <button
-              type="button"
               className={`sd-theme-mode-seg-btn ${theme === 'light' ? 'is-active' : ''}`}
               onClick={() => setTheme('light')}
             >
               <Sun size={13} />
               <span>Light</span>
+            </button>
+            <button
+              type="button"
+              className={`sd-theme-mode-seg-btn ${theme === 'dark' ? 'is-active' : ''}`}
+              onClick={() => setTheme('dark')}
+            >
+              <Moon size={13} />
+              <span>Dark</span>
             </button>
           </div>
 
@@ -77,26 +77,26 @@ export const ColorThemePicker = () => {
               return (
                 <button
                   key={color.id}
-                  id={`btn-color-choice-${color.id}`}
+                  id={`btn-color-option-${color.id}`}
                   type="button"
-                  className={`sd-color-option-item ${isSelected ? 'is-selected' : ''}`}
+                  className={`sd-color-option-item ${isSelected ? 'selected' : ''}`}
                   onClick={() => {
                     setAccentColor(color.id);
                     setIsOpen(false);
                   }}
                 >
                   <span
-                    className="sd-color-swatch-circle"
+                    className="sd-color-option-swatch"
                     style={{ backgroundColor: color.hex }}
                   />
-                  <div className="sd-color-option-text">
+                  <div className="sd-color-option-info">
                     <span className="sd-color-option-name">
                       {color.label}
-                      {color.id === 'green' && <span className="sd-color-default-badge">Default</span>}
+                      {color.id === 'blue' && <span className="sd-color-default-tag">Default</span>}
                     </span>
                     <span className="sd-color-option-desc">{color.desc}</span>
                   </div>
-                  {isSelected && <Check size={15} className="sd-color-check-icon" />}
+                  {isSelected && <Check size={14} className="sd-color-option-check" />}
                 </button>
               );
             })}

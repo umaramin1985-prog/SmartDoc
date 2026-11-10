@@ -1,11 +1,15 @@
 import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { PageHeader, EmptyState, StatusBadge, formatDate } from './ui';
+import {
+  PageHeader, EmptyState, StatusBadge, formatDate,
+  WorkflowMiniProgress, WorkflowTrack, SlaBadge, UserAvatar
+} from './ui';
 import { SubmissionDetailModal } from './SubmissionDetailModal';
 import { buildAppUrl, tabLinkProps, tabOpenProps } from '../utils/router';
 import { useDeepLink } from '../utils/useDeepLink';
 import {
-  Inbox, Send, Building2, CheckCircle2, Search, FileText, AlertTriangle, ArrowRight, Eye, X
+  Inbox, Send, Building2, CheckCircle2, Search, FileText,
+  AlertTriangle, Eye, X, LayoutGrid, List, ShieldCheck
 } from 'lucide-react';
 
 const STATUS_OPTIONS = [
@@ -16,7 +20,7 @@ const STATUS_OPTIONS = [
   { id: 'REJECTED', label: 'Rejected', tone: 'red' }
 ];
 
-const SubmissionTable = ({ rows, onOpen, showSubmitter = true, showDept = true, currentUserId }) => (
+const SubmissionTable = ({ rows, onOpen, onPreviewDoc, showSubmitter = true, showDept = true, currentUserId }) => (
   <div className="sd-table-wrap sd-card">
     <table className="sd-table sd-table-click">
       <thead>
@@ -25,15 +29,14 @@ const SubmissionTable = ({ rows, onOpen, showSubmitter = true, showDept = true, 
           <th>Title</th>
           {showDept && <th>Department</th>}
           {showSubmitter && <th>Submitted by</th>}
-          <th>Current step</th>
-          <th>Deadline</th>
+          <th>Approval Pipeline</th>
+          <th>Deadline &amp; SLA</th>
           <th>Status</th>
           <th style={{ textAlign: 'right' }}>Action</th>
         </tr>
       </thead>
       <tbody>
         {rows.map(s => {
-          const step = s.workflow?.[(s.currentWorkflowStep || 1) - 1];
           const isOriginator = s.submittedById === currentUserId;
           const hasObjection = s.status === 'OBJECTION_RAISED' && isOriginator;
           const detailUrl = buildAppUrl('approvals', { submission: s.id });
@@ -75,23 +78,40 @@ const SubmissionTable = ({ rows, onOpen, showSubmitter = true, showDept = true, 
                 </td>
               )}
               <td>
-                {s.status === 'IN_REVIEW' && step ? (
-                  <span className="sd-badge sd-badge-accent sd-badge-sm">{step.department}</span>
-                ) : (
-                  <span className="sd-muted">—</span>
-                )}
+                <WorkflowMiniProgress
+                  workflow={s.workflow}
+                  currentStep={s.currentWorkflowStep}
+                  status={s.status}
+                />
               </td>
-              <td>{formatDate(s.expiryDate)}</td>
+              <td>
+                <div className="sd-deadline-cell">
+                  <span>{formatDate(s.expiryDate)}</span>
+                  <SlaBadge createdAt={s.createdAt} expiryDate={s.expiryDate} status={s.status} />
+                </div>
+              </td>
               <td><StatusBadge status={s.status} /></td>
               <td style={{ textAlign: 'right' }} onClick={e => e.stopPropagation()}>
-                <a
-                  id={`btn-view-submission-${s.id}`}
-                  className="btn btn-secondary btn-xs"
-                  {...tabLinkProps(detailUrl, () => onOpen(s.id))}
-                  title="View submission details"
-                >
-                  <Eye size={13} /> View
-                </a>
+                <div className="sd-btn-row sd-justify-end">
+                  {onPreviewDoc && (
+                    <button
+                      type="button"
+                      className="sd-icon-btn"
+                      onClick={() => onPreviewDoc(s)}
+                      title="Quick preview Word document"
+                    >
+                      <FileText size={14} />
+                    </button>
+                  )}
+                  <a
+                    id={`btn-view-submission-${s.id}`}
+                    className="btn btn-secondary btn-xs"
+                    {...tabLinkProps(detailUrl, () => onOpen(s.id))}
+                    title="View submission details"
+                  >
+                    <Eye size={13} /> View
+                  </a>
+                </div>
               </td>
             </tr>
           );
@@ -101,11 +121,90 @@ const SubmissionTable = ({ rows, onOpen, showSubmitter = true, showDept = true, 
   </div>
 );
 
+const SubmissionPipelineCards = ({ rows, onOpen, onPreviewDoc, currentUserId }) => (
+  <div className="sd-pipeline-cards-grid">
+    {rows.map(s => {
+      const isOriginator = s.submittedById === currentUserId;
+      const hasObjection = s.status === 'OBJECTION_RAISED';
+      const detailUrl = buildAppUrl('approvals', { submission: s.id });
+
+      return (
+        <article
+          key={s.id}
+          className={`sd-card sd-pipeline-card ${hasObjection ? 'is-objected' : ''}`}
+          {...tabOpenProps(detailUrl, () => onOpen(s.id))}
+        >
+          <div className="sd-pipeline-card-top">
+            <div className="sd-pipeline-card-id">
+              <span className="sd-mono sd-font-medium">{s.uniqueNumber}</span>
+              <span className="sd-badge sd-badge-gray sd-badge-xs">v{s.version || 1}</span>
+              <span className="sd-badge sd-badge-gray sd-badge-xs">{s.department}</span>
+            </div>
+            <div className="sd-pipeline-card-status">
+              <SlaBadge createdAt={s.createdAt} expiryDate={s.expiryDate} status={s.status} />
+              <StatusBadge status={s.status} />
+            </div>
+          </div>
+
+          <h3 className="sd-pipeline-card-title">{s.title}</h3>
+
+          {hasObjection && s.objectionNotes && (
+            <div className="sd-pipeline-objection-callout">
+              <AlertTriangle size={13} />
+              <span><strong>Revision Note:</strong> {s.objectionNotes}</span>
+            </div>
+          )}
+
+          <div className="sd-pipeline-track-box">
+            <WorkflowTrack
+              workflow={s.workflow || []}
+              submitterLabel={isOriginator ? 'You' : (s.submittedByName || 'Submitter')}
+              compact={true}
+            />
+          </div>
+
+          <div className="sd-pipeline-card-footer">
+            <div className="sd-pipeline-submitter">
+              <UserAvatar name={s.submittedByName} size="xs" />
+              <span>
+                {s.submittedByName} {isOriginator && '(You)'} · {formatDate(s.createdAt)}
+              </span>
+            </div>
+            <div className="sd-btn-row" onClick={e => e.stopPropagation()}>
+              {onPreviewDoc && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-xs"
+                  onClick={() => onPreviewDoc(s)}
+                  title="Preview document"
+                >
+                  <FileText size={12} /> Doc
+                </button>
+              )}
+              <a
+                id={`btn-view-submission-${s.id}`}
+                className="btn btn-primary btn-xs"
+                {...tabLinkProps(detailUrl, () => onOpen(s.id))}
+              >
+                <Eye size={12} /> Open
+              </a>
+            </div>
+          </div>
+        </article>
+      );
+    })}
+  </div>
+);
+
 export const FormApprovals = () => {
-  const { isAdmin, isSuperAdmin, formSubmissions, myApprovalQueue, mySubmissions, departmentSubmissions, currentUser, addToast } = useApp();
+  const {
+    isAdmin, formSubmissions, myApprovalQueue, mySubmissions,
+    departmentSubmissions, currentUser, openDocumentPreview, addToast
+  } = useApp();
   const [tab, setTab] = useState(isAdmin && myApprovalQueue.length > 0 ? 'queue' : 'mine');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [viewMode, setViewMode] = useState('table'); // 'table' | 'cards'
   const [openId, setOpenId] = useState(null);
 
   // Deep link: /approvals?submission=<id> opens that submission's detail modal
@@ -164,6 +263,15 @@ export const FormApprovals = () => {
     return list;
   }, [baseRows, statusFilter, search]);
 
+  const handleQuickPreview = (s) => {
+    openDocumentPreview({
+      kind: 'submission',
+      id: s.id,
+      title: `${s.uniqueNumber} — ${s.title}`,
+      fileName: `${s.uniqueNumber}_v${s.version || 1}.docx`
+    });
+  };
+
   return (
     <div className="sd-page animate-fade-in">
       <PageHeader
@@ -189,7 +297,7 @@ export const FormApprovals = () => {
         ))}
       </div>
 
-      {/* Approvals Toolbar: Status Filter Chips + Search */}
+      {/* Approvals Toolbar: Status Filter Chips + Search + View Mode Switcher */}
       <div className="sd-approvals-toolbar">
         <div className="sd-status-chips-wrap" role="group" aria-label="Filter by submission status">
           {STATUS_OPTIONS.map(opt => {
@@ -210,24 +318,45 @@ export const FormApprovals = () => {
           })}
         </div>
 
-        <div className="sd-approvals-search">
-          <Search size={14} className="sd-text-muted" />
-          <input
-            type="text"
-            placeholder="Search by form #, title, user…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-          {search && (
+        <div className="sd-approvals-right-controls">
+          <div className="sd-approvals-search">
+            <Search size={14} className="sd-text-muted" />
+            <input
+              type="text"
+              placeholder="Search by form #, title, user…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+            {search && (
+              <button
+                type="button"
+                className="sd-approvals-search-clear"
+                onClick={() => setSearch('')}
+                title="Clear search"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+
+          <div className="sd-explorer-view-toggle" role="group" aria-label="Layout mode">
             <button
               type="button"
-              className="sd-approvals-search-clear"
-              onClick={() => setSearch('')}
-              title="Clear search"
+              className={`sd-icon-btn ${viewMode === 'table' ? 'is-active' : ''}`}
+              title="High-Density Table View"
+              onClick={() => setViewMode('table')}
             >
-              <X size={13} />
+              <List size={15} />
             </button>
-          )}
+            <button
+              type="button"
+              className={`sd-icon-btn ${viewMode === 'cards' ? 'is-active' : ''}`}
+              title="Visual Pipeline Cards View"
+              onClick={() => setViewMode('cards')}
+            >
+              <LayoutGrid size={15} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -262,10 +391,18 @@ export const FormApprovals = () => {
             ) : undefined
           }
         />
+      ) : viewMode === 'cards' ? (
+        <SubmissionPipelineCards
+          rows={filteredRows}
+          onOpen={id => setOpenId(id)}
+          onPreviewDoc={handleQuickPreview}
+          currentUserId={currentUser?.id}
+        />
       ) : (
         <SubmissionTable
           rows={filteredRows}
           onOpen={id => setOpenId(id)}
+          onPreviewDoc={handleQuickPreview}
           showSubmitter={tab !== 'mine'}
           showDept={tab === 'all'}
           currentUserId={currentUser?.id}

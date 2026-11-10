@@ -149,11 +149,14 @@ const DepartmentFormModal = ({ department, onClose }) => {
 
 export const SmartSettingsAdmin = () => {
   const {
-    users, departments, currentUser, isSuperAdmin, toggleUserStatus, deleteUser,
-    deleteDepartment, wipeAllData, wipeFormsOnly, openProfileModal, setActiveTab
+    users, departments, formTemplates, formSubmissions, currentUser, isSuperAdmin,
+    toggleUserStatus, deleteUser, deleteDepartment, wipeAllData, wipeFormsOnly,
+    openProfileModal, setActiveTab
   } = useApp();
   const [tab, setTab] = useState('users');
   const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState('ALL'); // 'ALL' | 'ADMINS' | 'USERS' | 'NO_SIG'
+  const [deptFilter, setDeptFilter] = useState('ALL');
   const [editUser, setEditUser] = useState(undefined); // undefined = closed, null = new
   const [editDept, setEditDept] = useState(undefined); // undefined = closed, null = new, object = edit
   const [confirm, setConfirm] = useState(null); // { title, text, action }
@@ -164,8 +167,22 @@ export const SmartSettingsAdmin = () => {
 
   const filteredUsers = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return users.filter(u => !q || [u.name, u.username, u.department].some(v => String(v || '').toLowerCase().includes(q)));
-  }, [users, search]);
+    return users.filter(u => {
+      if (deptFilter !== 'ALL' && u.department !== deptFilter) return false;
+      if (roleFilter === 'ADMINS' && u.systemRole === 'user') return false;
+      if (roleFilter === 'USERS' && u.systemRole !== 'user') return false;
+      if (roleFilter === 'NO_SIG' && u.hasSignature) return false;
+      return !q || [u.name, u.username, u.department, u.email].some(v => String(v || '').toLowerCase().includes(q));
+    });
+  }, [users, search, roleFilter, deptFilter]);
+
+  const adminStats = useMemo(() => {
+    const activeCount = users.filter(u => u.status !== 'SUSPENDED').length;
+    const adminsCount = users.filter(u => u.systemRole === 'admin' || u.systemRole === 'superadmin').length;
+    const sigCount = users.filter(u => u.hasSignature).length;
+    const sigPct = users.length > 0 ? Math.round((sigCount / users.length) * 100) : 0;
+    return { activeCount, adminsCount, sigCount, sigPct };
+  }, [users]);
 
   const openWipeEverythingModal = () => {
     setWipeInput('');
@@ -273,36 +290,101 @@ export const SmartSettingsAdmin = () => {
         </button>
       </div>
 
+      {tab !== 'system' && (
+        <div className="sd-admin-kpi-strip">
+          <div className="sd-card sd-admin-kpi-card">
+            <div className="sd-admin-kpi-icon sd-tone-blue"><Users size={17} /></div>
+            <div>
+              <div className="sd-admin-kpi-val">{adminStats.activeCount} <span className="sd-muted sd-xs">/ {users.length}</span></div>
+              <div className="sd-admin-kpi-lbl">Active Directory Users</div>
+            </div>
+          </div>
+          <div className="sd-card sd-admin-kpi-card">
+            <div className="sd-admin-kpi-icon sd-tone-violet"><ShieldCheck size={17} /></div>
+            <div>
+              <div className="sd-admin-kpi-val">{adminStats.adminsCount}</div>
+              <div className="sd-admin-kpi-lbl">Department &amp; Super Admins</div>
+            </div>
+          </div>
+          <div className="sd-card sd-admin-kpi-card">
+            <div className="sd-admin-kpi-icon sd-tone-green"><PenLine size={17} /></div>
+            <div>
+              <div className="sd-admin-kpi-val">{adminStats.sigPct}% <span className="sd-muted sd-xs">({adminStats.sigCount})</span></div>
+              <div className="sd-admin-kpi-lbl">PKI Signature Readiness</div>
+            </div>
+          </div>
+          <div className="sd-card sd-admin-kpi-card">
+            <div className="sd-admin-kpi-icon sd-tone-amber"><Building2 size={17} /></div>
+            <div>
+              <div className="sd-admin-kpi-val">{departments.length} <span className="sd-muted sd-xs">({(formTemplates || []).length} forms)</span></div>
+              <div className="sd-admin-kpi-lbl">Department Drives</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {tab === 'users' && (
         <>
-          <div className="sd-toolbar">
-            <div className="sd-search">
-              <Search size={15} />
-              <input
-                id="input-search-users"
-                type="text"
-                placeholder="Search users…"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
-              {search && (
+          <div className="sd-toolbar sd-admin-users-toolbar">
+            <div className="sd-status-chips-wrap">
+              {[
+                { id: 'ALL', label: 'All Users', count: users.length },
+                { id: 'ADMINS', label: 'Admins', count: adminStats.adminsCount },
+                { id: 'USERS', label: 'Standard Users', count: users.length - adminStats.adminsCount },
+                { id: 'NO_SIG', label: 'Missing Signature', count: users.length - adminStats.sigCount }
+              ].map(f => (
                 <button
+                  key={f.id}
                   type="button"
-                  onClick={() => setSearch('')}
-                  title="Clear search"
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--text-muted)',
-                    cursor: 'pointer',
-                    padding: '0 2px',
-                    fontSize: '1.1rem',
-                    lineHeight: 1
-                  }}
+                  className={`sd-status-chip ${roleFilter === f.id ? 'active' : ''}`}
+                  onClick={() => setRoleFilter(f.id)}
                 >
-                  ×
+                  <span>{f.label}</span>
+                  <span className="sd-status-chip-count">{f.count}</span>
                 </button>
-              )}
+              ))}
+            </div>
+
+            <div className="sd-btn-row">
+              <select
+                className="sd-input"
+                style={{ width: 'auto', minWidth: '150px', padding: '5px 10px', fontSize: '0.8rem' }}
+                value={deptFilter}
+                onChange={e => setDeptFilter(e.target.value)}
+                aria-label="Filter by department"
+              >
+                <option value="ALL">All Departments</option>
+                {departments.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+              </select>
+
+              <div className="sd-search">
+                <Search size={15} />
+                <input
+                  id="input-search-users"
+                  type="text"
+                  placeholder="Search users…"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch('')}
+                    title="Clear search"
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--text-muted)',
+                      cursor: 'pointer',
+                      padding: '0 2px',
+                      fontSize: '1.1rem',
+                      lineHeight: 1
+                    }}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
             </div>
           </div>
           <div className="sd-table-wrap sd-card">
@@ -362,12 +444,19 @@ export const SmartSettingsAdmin = () => {
           {departments.map(d => {
             const members = users.filter(u => u.department === d.name);
             const admins = members.filter(u => u.systemRole !== 'user');
+            const deptTemplatesCount = (formTemplates || []).filter(t => t.department === d.name).length;
+            const deptSubsCount = (formSubmissions || []).filter(s => s.department === d.name).length;
             return (
               <article key={d.id} className="sd-card sd-dept-card">
                 <div className="sd-dept-head">
-                  <div>
-                    <h3 className="sd-card-title">{d.name}</h3>
-                    <span className="sd-badge sd-badge-gray">{d.code}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div className="sd-admin-kpi-icon sd-tone-blue" style={{ width: '36px', height: '36px' }}>
+                      <Building2 size={18} />
+                    </div>
+                    <div>
+                      <h3 className="sd-card-title">{d.name}</h3>
+                      <span className="sd-badge sd-badge-gray sd-mono sd-badge-xs">{d.code}</span>
+                    </div>
                   </div>
                   <div className="sd-btn-row">
                     <button
@@ -391,9 +480,21 @@ export const SmartSettingsAdmin = () => {
                 {d.description && <p className="sd-card-text">{d.description}</p>}
                 <div className="sd-meta-row">
                   <span><Users size={13} /> {members.length} member{members.length === 1 ? '' : 's'}</span>
-                  <span>{admins.length} admin{admins.length === 1 ? '' : 's'}</span>
+                  <span><ShieldCheck size={13} /> {admins.length} admin{admins.length === 1 ? '' : 's'}</span>
+                  <span><FileText size={13} /> {deptTemplatesCount} template{deptTemplatesCount === 1 ? '' : 's'}</span>
+                  <span><Activity size={13} /> {deptSubsCount} submission{deptSubsCount === 1 ? '' : 's'}</span>
                 </div>
-                {admins.length > 0 && <p className="sd-muted sd-small">Admins: {admins.map(a => a.name).join(', ')}</p>}
+                {admins.length > 0 && (
+                  <div className="sd-dept-admin-chips">
+                    <span className="sd-muted sd-xs">Admins:</span>
+                    {admins.map(a => (
+                      <span key={a.id} className="sd-dept-admin-chip">
+                        <UserAvatar user={a} size="xs" />
+                        <span>{a.name}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </article>
             );
           })}

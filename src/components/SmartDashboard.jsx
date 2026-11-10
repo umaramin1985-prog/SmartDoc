@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useCallback } from 'react';
 import { useApp } from '../context/AppContext';
-import { PageHeader, StatusBadge, formatDate, EmptyState, UserAvatar } from './ui';
+import { PageHeader, StatusBadge, formatDate, EmptyState, UserAvatar, WorkflowMiniProgress, SlaBadge } from './ui';
 import { SubmissionDetailModal } from './SubmissionDetailModal';
 import { TrendChart, StatusDonut, DepartmentWorkload, TemplateLeaderboard } from './DashboardCharts';
 import { buildAppUrl, tabLinkProps, tabOpenProps } from '../utils/router';
@@ -403,6 +403,23 @@ export const SmartDashboard = () => {
         subtitle={`${currentUser.department} · ${formTemplates.length} form template${formTemplates.length === 1 ? '' : 's'} · ${formSubmissions.length} enterprise submission${formSubmissions.length === 1 ? '' : 's'}`}
         actions={
           <div className="sd-btn-row">
+            <div className="sd-pill-toggle sd-pill-toggle-sm" role="group" aria-label="Dashboard mode">
+              <a
+                className="sd-pill-btn active"
+                {...tabLinkProps(buildAppUrl('dashboard'), () => setActiveTab('dashboard'))}
+                title="Executive Cockpit View"
+              >
+                <span>Cockpit</span>
+              </a>
+              <a
+                className="sd-pill-btn"
+                {...tabLinkProps(buildAppUrl('dashboard-modern'), () => setActiveTab('dashboard-modern'))}
+                title="Switch to Kanban & Analytics Board"
+              >
+                <Sparkles size={12} />
+                <span>Kanban &amp; Analytics</span>
+              </a>
+            </div>
             <button
               type="button"
               className="btn btn-secondary btn-sm"
@@ -787,12 +804,20 @@ export const SmartDashboard = () => {
                     className={`sd-list-item ${item.isObjection ? 'sd-list-item-warn' : item.isUrgent ? 'sd-list-item-urgent' : ''}`}
                     {...tabOpenProps(buildAppUrl('approvals', { submission: s.id }), () => setSelectedSubmissionId(s.id))}
                   >
-                    <div style={{ flex: 1 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <div className="sd-list-title">
                         {s.title} <span className="sd-muted sd-mono">{s.uniqueNumber}</span>
                       </div>
                       <div className="sd-muted sd-xs">
                         {item.reason} {item.due && `· due ${formatDate(item.due)}`}
+                      </div>
+                      <div className="sd-row-meta-strip">
+                        <WorkflowMiniProgress
+                          workflow={s.workflow}
+                          currentStep={s.currentWorkflowStep}
+                          status={s.status}
+                        />
+                        <SlaBadge createdAt={s.createdAt} expiryDate={s.expiryDate} status={s.status} />
                       </div>
                     </div>
                     <div className="sd-flex-gap-xs">
@@ -953,6 +978,14 @@ export const SmartDashboard = () => {
                     <div className="sd-muted sd-xs">
                       v{s.version} · By {s.submittedByName} ({s.department}) · {formatDate(s.createdAt)}
                     </div>
+                    <div className="sd-row-meta-strip">
+                      <WorkflowMiniProgress
+                        workflow={s.workflow}
+                        currentStep={s.currentWorkflowStep}
+                        status={s.status}
+                      />
+                      <SlaBadge createdAt={s.createdAt} expiryDate={s.expiryDate} status={s.status} />
+                    </div>
                   </div>
                   <div className="sd-flex-gap-xs" style={{ flexShrink: 0 }}>
                     <StatusBadge status={s.status} />
@@ -1000,3 +1033,4 @@ export const SmartDashboard = () => {
     </div>
   );
 };
+

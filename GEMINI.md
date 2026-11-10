@@ -40,7 +40,7 @@ All cross-module state and mutations live in `AppContext.jsx` — do not duplica
 2. **Scope**: Keep it simple. Do not re-add removed modules (custom form designer, SurveyJS, Vault, Reviewer, E-Sign vault, AI Suite, Tasks, Reports, AD matrix) unless the user explicitly asks.
 3. **No mock data**: Never seed or display fake users, counts, or records. Only the super admin from `.env` is seeded.
 4. **Auth**: Username + password (not email).
-5. **Styling & Layout**: Vanilla CSS only (`src/App.css`, `src/index.css`) supporting both **Pure Black Dark Mode** (`#000000`) and **High-Contrast Light Mode** (`#f8fafc` / `#ffffff`) with 5 selectable accent themes (`green` / Electric Lime `#a4fb4f`, `red`, `orange`, `purple`, `blue`), and a `100vh` zero-scroll page viewport with pinned `<AppFooter />`. No TailwindCSS.
+5. **Styling & Layout**: Vanilla CSS only (`src/App.css`, `src/index.css`) supporting both **Crisp Enterprise Light Mode** (`#f8fafc` / `#ffffff`, default) and **Refined Slate Dark Mode** (`#0b0f19` / `#111827`) with 5 selectable enterprise accent themes (`blue` / Royal Blue `#2563eb` default, `green` / Emerald `#059669`, `purple` / Violet `#7c3aed`, `orange` / Amber `#ea580c`, `red` / Crimson `#e11d48`), and a `100vh` zero-scroll page viewport with pinned `<AppFooter />`. No TailwindCSS.
 6. **Build Verification**: Run `npm run build` after edits; must have 0 errors.
 7. **Context Maintenance**: Update [CONTEXT.md](file:///c:/Code/SmartDoc/CONTEXT.md) in the same change whenever components, state, routes, API, or rules change.
 8. **No Git Commands**: Never check, get status, or run any `git` commands unless explicitly requested by the user.

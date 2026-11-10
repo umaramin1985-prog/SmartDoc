@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { apiService, session } from '../services/apiService';
 import { getTabFromPath, getPathForTab, PATH_TITLES } from '../utils/router';
 import { initVersionWatcher, forceCacheClearReload, APP_VERSION } from '../utils/versionManager';
@@ -9,10 +9,10 @@ export const AppProvider = ({ children }) => {
   // ---------- Theme ('dark' | 'light') ----------
   const [theme, setThemeState] = useState(() => {
     try {
-      const saved = localStorage.getItem('smartdoc_theme');
-      return saved === 'light' ? 'light' : 'dark';
+      const saved = localStorage.getItem('smartdoc_theme_v2');
+      return saved === 'dark' ? 'dark' : 'light';
     } catch {
-      return 'dark';
+      return 'light';
     }
   });
 
@@ -20,7 +20,7 @@ export const AppProvider = ({ children }) => {
     const next = mode === 'light' ? 'light' : 'dark';
     setThemeState(next);
     try {
-      localStorage.setItem('smartdoc_theme', next);
+      localStorage.setItem('smartdoc_theme_v2', next);
     } catch {}
     if (typeof document !== 'undefined') {
       document.documentElement.setAttribute('data-theme', next);
@@ -32,7 +32,7 @@ export const AppProvider = ({ children }) => {
     setThemeState((prev) => {
       const next = prev === 'dark' ? 'light' : 'dark';
       try {
-        localStorage.setItem('smartdoc_theme', next);
+        localStorage.setItem('smartdoc_theme_v2', next);
       } catch {}
       if (typeof document !== 'undefined') {
         document.documentElement.setAttribute('data-theme', next);
@@ -87,18 +87,18 @@ export const AppProvider = ({ children }) => {
   // ---------- Accent Color ('green' | 'red' | 'orange' | 'purple' | 'blue') ----------
   const [accentColor, setAccentColorState] = useState(() => {
     try {
-      return localStorage.getItem('smartdoc_accent_color') || 'green';
+      return localStorage.getItem('smartdoc_accent_color_v2') || 'blue';
     } catch {
-      return 'green';
+      return 'blue';
     }
   });
 
   const setAccentColor = useCallback((color) => {
     const validColors = ['green', 'red', 'orange', 'purple', 'blue'];
-    const selected = validColors.includes(color) ? color : 'green';
+    const selected = validColors.includes(color) ? color : 'blue';
     setAccentColorState(selected);
     try {
-      localStorage.setItem('smartdoc_accent_color', selected);
+      localStorage.setItem('smartdoc_accent_color_v2', selected);
     } catch {}
     if (typeof document !== 'undefined') {
       document.documentElement.setAttribute('data-accent', selected);
@@ -255,6 +255,8 @@ export const AppProvider = ({ children }) => {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [profileModalTargetUser, setProfileModalTargetUser] = useState(null);
   const [profileModalInitialTab, setProfileModalInitialTab] = useState('signature');
+  const [isLoginBriefingOpen, setIsLoginBriefingOpen] = useState(false);
+  const pendingLoginBriefingRef = useRef(false);
 
   const refreshUsers = useCallback(async () => setUsers(await apiService.getUsers()), []);
   const refreshDepartments = useCallback(async () => setDepartments(await apiService.getDepartments()), []);
@@ -324,7 +326,12 @@ export const AppProvider = ({ children }) => {
   // Load data after sign-in, then keep approvals and notifications fresh
   useEffect(() => {
     if (!currentUser?.id) return;
-    refreshAll();
+    refreshAll().then(() => {
+      if (pendingLoginBriefingRef.current) {
+        pendingLoginBriefingRef.current = false;
+        setIsLoginBriefingOpen(true);
+      }
+    });
     const timer = setInterval(() => {
       refreshSubmissions().catch(() => {});
       refreshReviews().catch(() => {});
@@ -342,6 +349,7 @@ export const AppProvider = ({ children }) => {
         ? 'dashboard'
         : currentRequestedTab;
       setActiveTab(destTab, { replaceState: true });
+      pendingLoginBriefingRef.current = true;
       setCurrentUser(res.user);
       return { success: true };
     } catch (err) {
@@ -351,6 +359,8 @@ export const AppProvider = ({ children }) => {
 
   const logout = () => {
     session.clear();
+    pendingLoginBriefingRef.current = false;
+    setIsLoginBriefingOpen(false);
     setCurrentUser(null);
     setUsers([]);
     setFolders([]);
@@ -819,6 +829,9 @@ export const AppProvider = ({ children }) => {
     documentPreview,
     openDocumentPreview: (p) => setDocumentPreview(p),
     closeDocumentPreview: () => setDocumentPreview(null),
+    isLoginBriefingOpen,
+    openLoginBriefing: () => setIsLoginBriefingOpen(true),
+    closeLoginBriefing: () => setIsLoginBriefingOpen(false),
     createUser, updateUser, toggleUserStatus, deleteUser, createDepartment, updateDepartment, deleteDepartment,
     canManageDepartment, createFolder, updateFolder, deleteFolder,
     createTemplate, bulkImportTemplates, refreshTemplates, refreshFolders,

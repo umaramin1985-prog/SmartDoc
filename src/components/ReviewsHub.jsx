@@ -29,17 +29,29 @@ const PhaseBadge = ({ phase }) => {
 
 const ReviewerChips = ({ reviewers }) => (
   <div className="sd-rvl-chips">
-    {reviewers.map(v => (
-      <span
-        key={v.userId}
-        className={`sd-rvl-chip ${v.status === 'SUBMITTED' ? 'done' : ''}`}
-        title={`${v.name} · ${v.department} — ${v.status === 'SUBMITTED' ? (v.hasChanges ? 'submitted with changes' : 'submitted, no changes') : 'has not submitted yet'}`}
-      >
-        <span className="sd-rvl-chip-avatar">{initials(v.name)}</span>
-        {v.name}
-        {v.status === 'SUBMITTED' ? <Check size={11} /> : <Clock size={11} />}
-      </span>
-    ))}
+    {reviewers.map(v => {
+      const isSubmitted = v.status === 'SUBMITTED';
+      const chipState = isSubmitted ? (v.hasChanges ? 'done has-diff' : 'done') : '';
+      return (
+        <span
+          key={v.userId}
+          className={`sd-rvl-chip ${chipState}`}
+          title={`${v.name} · ${v.department} — ${isSubmitted ? (v.hasChanges ? 'submitted with redline changes' : 'submitted, approved as-is') : 'has not submitted yet'}`}
+        >
+          <span className="sd-rvl-chip-avatar">{initials(v.name)}</span>
+          <span>{v.name}</span>
+          {isSubmitted ? (
+            v.hasChanges ? (
+              <span className="sd-rvl-diff-tag">Edited</span>
+            ) : (
+              <Check size={11} />
+            )
+          ) : (
+            <Clock size={11} />
+          )}
+        </span>
+      );
+    })}
   </div>
 );
 
@@ -289,7 +301,20 @@ export const ReviewsHub = () => {
                   <ReviewerChips reviewers={r.reviewers} />
                 </div>
                 <div className="sd-rvl-side">
-                  <span className="sd-muted sd-rvl-progress">{submitted} / {r.reviewers.length} submitted</span>
+                  <div className="sd-rvl-progress-box">
+                    <div className="sd-rvl-progress-head">
+                      <span className="sd-muted sd-rvl-progress">{submitted} / {r.reviewers.length} submitted</span>
+                      <span className="sd-rvl-pct">
+                        {r.reviewers.length > 0 ? Math.round((submitted / r.reviewers.length) * 100) : 0}%
+                      </span>
+                    </div>
+                    <div className="sd-rvl-progress-track">
+                      <div
+                        className="sd-rvl-progress-fill"
+                        style={{ width: `${r.reviewers.length > 0 ? Math.round((submitted / r.reviewers.length) * 100) : 0}%` }}
+                      />
+                    </div>
+                  </div>
                   {renderAction(r)}
                 </div>
               </article>

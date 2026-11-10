@@ -33,6 +33,7 @@ export const ActivityHub = ({ isStandalone = false }) => {
   const [pageSize, setPageSize] = useState(25);
   const [isExporting, setIsExporting] = useState(false);
   const [copiedSha, setCopiedSha] = useState(null);
+  const [expandedRowId, setExpandedRowId] = useState(null);
 
   // Debounce search typing by 300ms
   useEffect(() => {
@@ -431,81 +432,130 @@ export const ActivityHub = ({ isStandalone = false }) => {
                   {activityLogs.map(item => {
                     const badge = getActionBadge(item.actionType);
                     const BadgeIcon = badge.icon;
+                    const isExpanded = expandedRowId === item.id;
                     return (
-                      <tr key={item.id} className="sd-activity-row">
-                        {/* Timestamp */}
-                        <td className="sd-activity-time-cell">
-                          <div className="sd-activity-time-wrap" title={new Date(item.timestamp).toLocaleString()}>
-                            <Clock size={13} className="sd-text-muted" />
-                            <span>{formatDate(item.timestamp, true)}</span>
-                          </div>
-                        </td>
-
-                        {/* Actor */}
-                        <td className="sd-activity-actor-cell">
-                          <div className="sd-activity-actor-wrap">
-                            <UserAvatar
-                              name={item.actorName}
-                              avatar={item.actorAvatar}
-                              size="sm"
-                              className="sd-activity-avatar"
-                            />
-                            <div className="sd-activity-actor-meta">
-                              <span className="sd-activity-actor-name">{item.actorName}</span>
-                              <span className="sd-activity-actor-sub">
-                                @{item.actorUsername}
-                                <span className={`sd-role-micro sd-role-${item.actorRole}`}>
-                                  {item.actorRole === 'superadmin' ? 'Super Admin' : item.actorRole === 'admin' ? 'Dept Admin' : 'User'}
-                                </span>
-                              </span>
+                      <React.Fragment key={item.id}>
+                        <tr
+                          className={`sd-activity-row ${isExpanded ? 'is-expanded' : ''}`}
+                          onClick={(e) => {
+                            if (!e.target.closest('button')) {
+                              setExpandedRowId(isExpanded ? null : item.id);
+                            }
+                          }}
+                          style={{ cursor: 'pointer' }}
+                          title="Click row to inspect full cryptographic audit record"
+                        >
+                          {/* Timestamp */}
+                          <td className="sd-activity-time-cell">
+                            <div className="sd-activity-time-wrap" title={new Date(item.timestamp).toLocaleString()}>
+                              <Clock size={13} className="sd-text-muted" />
+                              <span>{formatDate(item.timestamp, true)}</span>
                             </div>
-                          </div>
-                        </td>
+                          </td>
 
-                        {/* Action */}
-                        <td className="sd-activity-action-cell">
-                          <span className={`sd-badge sd-badge-${badge.tone} sd-activity-action-badge`}>
-                            <BadgeIcon size={12} />
-                            <span>{badge.label}</span>
-                          </span>
-                        </td>
+                          {/* Actor */}
+                          <td className="sd-activity-actor-cell">
+                            <div className="sd-activity-actor-wrap">
+                              <UserAvatar
+                                name={item.actorName}
+                                avatar={item.actorAvatar}
+                                size="sm"
+                                className="sd-activity-avatar"
+                              />
+                              <div className="sd-activity-actor-meta">
+                                <span className="sd-activity-actor-name">{item.actorName}</span>
+                                <span className="sd-activity-actor-sub">
+                                  @{item.actorUsername}
+                                  <span className={`sd-role-micro sd-role-${item.actorRole}`}>
+                                    {item.actorRole === 'superadmin' ? 'Super Admin' : item.actorRole === 'admin' ? 'Dept Admin' : 'User'}
+                                  </span>
+                                </span>
+                              </div>
+                            </div>
+                          </td>
 
-                        {/* Resource */}
-                        <td className="sd-activity-resource-cell">
-                          <div className="sd-activity-resource-name" title={item.resourceName}>
-                            {item.resourceName}
-                          </div>
-                        </td>
+                          {/* Action */}
+                          <td className="sd-activity-action-cell">
+                            <span className={`sd-badge sd-badge-${badge.tone} sd-activity-action-badge`}>
+                              <BadgeIcon size={12} />
+                              <span>{badge.label}</span>
+                            </span>
+                          </td>
 
-                        {/* Department */}
-                        <td className="sd-activity-dept-cell">
-                          <span className="sd-chip sd-chip-sm" title={item.department}>
-                            {item.department}
-                          </span>
-                        </td>
+                          {/* Resource */}
+                          <td className="sd-activity-resource-cell">
+                            <div className="sd-activity-resource-name" title={item.resourceName}>
+                              {item.resourceName}
+                            </div>
+                          </td>
 
-                        {/* SHA-256 Hash */}
-                        <td className="sd-activity-hash-cell" style={{ textAlign: 'right' }}>
-                          <button
-                            type="button"
-                            className="sd-hash-pill"
-                            onClick={() => handleCopySha(item.sha256)}
-                            title={`Click to copy SHA-256 fingerprint:\n${item.sha256}`}
-                          >
-                            {copiedSha === item.sha256 ? (
-                              <>
-                                <Check size={11} className="sd-text-success" />
-                                <span className="sd-text-success">Copied</span>
-                              </>
-                            ) : (
-                              <>
-                                <ShieldCheck size={11} />
-                                <span>{item.sha256 ? item.sha256.slice(0, 7) : 'verified'}</span>
-                              </>
-                            )}
-                          </button>
-                        </td>
-                      </tr>
+                          {/* Department */}
+                          <td className="sd-activity-dept-cell">
+                            <span className="sd-chip sd-chip-sm" title={item.department}>
+                              {item.department}
+                            </span>
+                          </td>
+
+                          {/* SHA-256 Hash */}
+                          <td className="sd-activity-hash-cell" style={{ textAlign: 'right' }}>
+                            <button
+                              type="button"
+                              className="sd-hash-pill"
+                              onClick={() => handleCopySha(item.sha256)}
+                              title={`Click to copy SHA-256 fingerprint:\n${item.sha256}`}
+                            >
+                              {copiedSha === item.sha256 ? (
+                                <>
+                                  <Check size={11} className="sd-text-success" />
+                                  <span className="sd-text-success">Copied</span>
+                                </>
+                              ) : (
+                                <>
+                                  <ShieldCheck size={11} />
+                                  <span>{item.sha256 ? item.sha256.slice(0, 7) : 'verified'}</span>
+                                </>
+                              )}
+                            </button>
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr className="sd-activity-expanded-row">
+                            <td colSpan={6}>
+                              <div className="sd-activity-drawer animate-fade-in">
+                                <div className="sd-activity-drawer-grid">
+                                  <div>
+                                    <span className="sd-activity-drawer-lbl">Event ID &amp; Category</span>
+                                    <div className="sd-mono sd-xs">{item.id} · {item.category || 'SYSTEM'}</div>
+                                  </div>
+                                  <div>
+                                    <span className="sd-activity-drawer-lbl">ISO-8601 UTC Timestamp</span>
+                                    <div className="sd-mono sd-xs">{item.timestamp}</div>
+                                  </div>
+                                  <div>
+                                    <span className="sd-activity-drawer-lbl">Authenticated Actor</span>
+                                    <div className="sd-xs">{item.actorName} (@{item.actorUsername}) · {item.department}</div>
+                                  </div>
+                                  <div className="sd-activity-drawer-hash-box">
+                                    <span className="sd-activity-drawer-lbl">Tamper-Evident SHA-256 Digest</span>
+                                    <div className="sd-activity-drawer-hash-row">
+                                      <code className="sd-mono sd-xs">{item.sha256 || 'Cryptographically Verified Ledger Record'}</code>
+                                      {item.sha256 && (
+                                        <button
+                                          type="button"
+                                          className="btn btn-secondary btn-xs"
+                                          onClick={() => handleCopySha(item.sha256)}
+                                        >
+                                          {copiedSha === item.sha256 ? 'Copied!' : 'Copy Full Hash'}
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     );
                   })}
                 </tbody>

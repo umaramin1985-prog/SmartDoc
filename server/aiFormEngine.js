@@ -2,8 +2,9 @@
 // 1. Built-in Instant NLP & Semantic Synthesizer (<15ms, 23+ Enterprise Blueprints + Dynamic Custom Field Extractor)
 // 2. Local Ollama LLM Integration (http://127.0.0.1:11434 — 100% Offline, Free Local Generative AI)
 
-const DEFAULT_OLLAMA_URL = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
-const DEFAULT_OLLAMA_MODEL = process.env.OLLAMA_MODEL || '';
+const ENV = (typeof process !== 'undefined' && process?.env) ? process.env : {};
+const DEFAULT_OLLAMA_URL = ENV.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
+const DEFAULT_OLLAMA_MODEL = ENV.OLLAMA_MODEL || '';
 
 // In-memory ring buffer for Ollama & AI request/response diagnostic logs
 const OLLAMA_LOG_BUFFER = [];
@@ -80,7 +81,7 @@ function toTitleCase(str) {
  * Returns { online, baseUrl, models, defaultModel }
  */
 export async function getOllamaStatus() {
-  const baseUrl = (process.env.OLLAMA_BASE_URL || DEFAULT_OLLAMA_URL).replace(/\/+$/, '');
+  const baseUrl = (ENV.OLLAMA_BASE_URL || DEFAULT_OLLAMA_URL).replace(/\/+$/, '');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 1800);
 
@@ -108,7 +109,7 @@ export async function getOllamaStatus() {
       ? generativeModels
       : rawModels.map(m => m.name || m.model).filter(Boolean);
 
-    const envModel = process.env.OLLAMA_MODEL || DEFAULT_OLLAMA_MODEL;
+    const envModel = ENV.OLLAMA_MODEL || DEFAULT_OLLAMA_MODEL;
     const defaultModel = (envModel && models.includes(envModel))
       ? envModel
       : (models[0] || envModel || 'llama3.2:latest');
@@ -125,7 +126,7 @@ export async function getOllamaStatus() {
       online: false,
       baseUrl,
       models: [],
-      defaultModel: process.env.OLLAMA_MODEL || ''
+      defaultModel: ENV.OLLAMA_MODEL || ''
     };
   }
 }

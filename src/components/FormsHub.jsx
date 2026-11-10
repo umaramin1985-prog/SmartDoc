@@ -19,7 +19,7 @@ import {
   Upload, Eye, Trash2, Search, PenSquare, Building2,
   ShieldCheck, Lock, LayoutGrid, List, Plus,
   CheckCircle2, HardDrive, Edit2, Edit3, History, Image as ImageIcon, Shield,
-  AlertTriangle, Send, Printer, FileEdit, Sparkles, Download, FileDown, Loader2
+  AlertTriangle, Send, Printer, FileEdit, Sparkles, Download, FileDown, Loader2, X, Layers
 } from 'lucide-react';
 
 export const FormsHub = () => {
@@ -47,6 +47,13 @@ export const FormsHub = () => {
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('smartdoc_explorer_view') || 'grid');
   const [filterType, setFilterType] = useState('all'); // 'all' | 'templates' | 'submissions'
   const [search, setSearch] = useState('');
+  const [inspectedTemplateId, setInspectedTemplateId] = useState(null);
+  const [showInspector, setShowInspector] = useState(true);
+
+  const inspectedTemplate = useMemo(
+    () => formTemplates.find(t => t.id === inspectedTemplateId) || null,
+    [formTemplates, inspectedTemplateId]
+  );
 
   // Modals state
   const [showUpload, setShowUpload] = useState(false);
@@ -609,7 +616,16 @@ export const FormsHub = () => {
     const canManageTpl = isSuperAdmin || (t.department && canManageDepartment(t.department));
 
     return (
-      <article key={t.id} className="sd-card sd-template-card">
+      <article
+        key={t.id}
+        className={`sd-card sd-template-card ${inspectedTemplateId === t.id ? 'is-inspected' : ''}`}
+        onClick={(e) => {
+          if (!e.target.closest('a, button')) {
+            setInspectedTemplateId(t.id);
+            setShowInspector(true);
+          }
+        }}
+      >
         <div className="sd-template-head">
           <div className={`sd-template-icon ${isNonEditable ? (isPdf ? 'sd-icon-pdf' : 'sd-icon-img') : 'sd-icon-word'}`}>
             {isPdf ? (
@@ -823,7 +839,16 @@ export const FormsHub = () => {
     const canManageTpl = isSuperAdmin || (t.department && canManageDepartment(t.department));
 
     return (
-      <tr key={t.id} className="sd-tr-template">
+      <tr
+        key={t.id}
+        className={`sd-tr-template ${inspectedTemplateId === t.id ? 'is-inspected' : ''}`}
+        onClick={(e) => {
+          if (!e.target.closest('a, button')) {
+            setInspectedTemplateId(t.id);
+            setShowInspector(true);
+          }
+        }}
+      >
         <td>
           <div className="sd-table-name-cell">
             {isPdf ? (
@@ -1185,6 +1210,22 @@ export const FormsHub = () => {
                 onClick={() => toggleViewMode('details')}
               >
                 <List size={16} />
+              </button>
+              <button
+                id="btn-toggle-explorer-inspector"
+                type="button"
+                className={`sd-icon-btn ${showInspector && inspectedTemplate ? 'is-active' : ''}`}
+                title="Toggle Right-Hand Document Inspector"
+                onClick={() => {
+                  if (!inspectedTemplate && filteredTemplates.length > 0) {
+                    setInspectedTemplateId(filteredTemplates[0].id);
+                    setShowInspector(true);
+                  } else {
+                    setShowInspector(v => !v);
+                  }
+                }}
+              >
+                <Layers size={16} />
               </button>
             </div>
           </div>
@@ -1670,6 +1711,184 @@ export const FormsHub = () => {
               </div>
             )}
           </main>
+
+          {/* Right-Hand Live Document & Workflow Inspector Drawer */}
+          {showInspector && inspectedTemplate && (() => {
+            const t = inspectedTemplate;
+            const isNonEditable = t.isEditable === false;
+            const canManageTpl = isSuperAdmin || (t.department && canManageDepartment(t.department));
+            const tplSubmissions = formSubmissions.filter(
+              s => s.templateId === t.id || s.title === t.title
+            );
+            const approvedCount = tplSubmissions.filter(s => s.status === 'APPROVED').length;
+            const inReviewCount = tplSubmissions.filter(s => s.status === 'IN_REVIEW').length;
+
+            return (
+              <aside className="sd-explorer-inspector-pane animate-fade-in" aria-label="Document Inspector">
+                <header className="sd-inspector-head">
+                  <div className="sd-inspector-head-title">
+                    <Layers size={14} className="sd-text-accent" />
+                    <span>Document Inspector</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="sd-icon-btn sd-icon-btn-xs"
+                    onClick={() => setShowInspector(false)}
+                    title="Close inspector"
+                  >
+                    <X size={14} />
+                  </button>
+                </header>
+
+                <div className="sd-inspector-scroll">
+                  <div className="sd-inspector-hero">
+                    <div className="sd-inspector-doc-icon">
+                      <FileText size={22} />
+                    </div>
+                    <div className="sd-inspector-doc-titles">
+                      <h4>{t.title}</h4>
+                      <div className="sd-inspector-badges">
+                        <span className="sd-badge sd-badge-accent sd-badge-xs">v{t.version || 1}</span>
+                        <span className="sd-badge sd-badge-gray sd-badge-xs sd-mono">{t.code}</span>
+                        <span className="sd-badge sd-badge-gray sd-badge-xs">{formatSize(t.fileSize)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {t.description && (
+                    <p className="sd-inspector-desc">{t.description}</p>
+                  )}
+
+                  {/* Quick Primary Actions */}
+                  <div className="sd-inspector-actions-stack">
+                    {!isNonEditable && !t.isDraft && (t.workflow?.length > 0) && (
+                      <a
+                        className="btn btn-primary btn-sm"
+                        {...tabLinkProps(tplUrl('fill', t), () => handleStartFill(t))}
+                      >
+                        <PenSquare size={14} /> Fill &amp; Submit Form
+                      </a>
+                    )}
+                    <div className="sd-inspector-actions-row">
+                      <a
+                        className="btn btn-secondary btn-xs"
+                        {...tabLinkProps(tplUrl('view', t), () => openPreview(t))}
+                      >
+                        <Eye size={13} /> Preview
+                      </a>
+                      <a
+                        className="btn btn-secondary btn-xs"
+                        {...tabLinkProps(tplUrl('history', t), () => setVersionHistoryTarget(t))}
+                      >
+                        <History size={13} /> History
+                      </a>
+                      {canManageTpl && !isNonEditable && (
+                        <a
+                          className="btn btn-secondary btn-xs"
+                          {...tabLinkProps(tplUrl('edit', t), () => openEditor(t))}
+                        >
+                          <Edit3 size={13} /> Studio
+                        </a>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Live Usage Telemetry */}
+                  <div className="sd-inspector-section">
+                    <div className="sd-inspector-section-title">Live Usage Telemetry</div>
+                    <div className="sd-inspector-kpi-row">
+                      <div className="sd-inspector-kpi">
+                        <strong>{tplSubmissions.length}</strong>
+                        <span>Total Filled</span>
+                      </div>
+                      <div className="sd-inspector-kpi">
+                        <strong className="sd-text-good">{approvedCount}</strong>
+                        <span>Approved</span>
+                      </div>
+                      <div className="sd-inspector-kpi">
+                        <strong className="sd-text-accent">{inReviewCount}</strong>
+                        <span>In Review</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Multi-Stage Approval Pipeline */}
+                  {!isNonEditable && (
+                    <div className="sd-inspector-section">
+                      <div className="sd-inspector-section-title">
+                        Approval Chain ({(t.workflow || []).length} stage{(t.workflow || []).length === 1 ? '' : 's'})
+                      </div>
+                      {(!t.workflow || t.workflow.length === 0) ? (
+                        <div className="sd-inspector-empty-note">
+                          <AlertTriangle size={13} className="sd-text-warn" />
+                          <span>No approval stages configured yet.</span>
+                        </div>
+                      ) : (
+                        <ol className="sd-inspector-wf-list">
+                          {t.workflow.map((st, idx) => {
+                            const deptName = typeof st === 'string' ? st : st?.department;
+                            return (
+                              <li key={idx} className="sd-inspector-wf-step">
+                                <span className="sd-inspector-wf-num">{idx + 1}</span>
+                                <div className="sd-inspector-wf-info">
+                                  <strong>{deptName}</strong>
+                                  <span>Department Sign-off &amp; PKI Stamp</span>
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ol>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Interactive Fields List */}
+                  {!isNonEditable && (t.fields || []).length > 0 && (
+                    <div className="sd-inspector-section">
+                      <div className="sd-inspector-section-title">
+                        Interactive Fields ({t.fields.length})
+                      </div>
+                      <div className="sd-inspector-field-chips">
+                        {t.fields.slice(0, 12).map((f, idx) => (
+                          <span key={f.name || idx} className="sd-inspector-field-chip" title={`Field type: ${f.type || 'text'}`}>
+                            {f.label || f.name}
+                          </span>
+                        ))}
+                        {t.fields.length > 12 && (
+                          <span className="sd-inspector-field-chip is-more">
+                            +{t.fields.length - 12} more
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Metadata Summary */}
+                  <div className="sd-inspector-section">
+                    <div className="sd-inspector-section-title">Properties</div>
+                    <dl className="sd-inspector-dl">
+                      <div>
+                        <dt>Department</dt>
+                        <dd>{t.department}</dd>
+                      </div>
+                      <div>
+                        <dt>Access Scope</dt>
+                        <dd>{t.accessType === 'ALL' ? 'Everyone' : t.accessType === 'USERS' ? `${(t.allowedUsers || []).length} Users` : 'Department Scoped'}</dd>
+                      </div>
+                      <div>
+                        <dt>Default SLA</dt>
+                        <dd>{t.defaultExpiryDays || 14} Days</dd>
+                      </div>
+                      <div>
+                        <dt>Published</dt>
+                        <dd>{formatDate(t.createdAt)}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                </div>
+              </aside>
+            );
+          })()}
         </div>
 
         {/* Explorer Bottom Status Bar */}

@@ -3,6 +3,7 @@
 export const ROUTE_MAP = {
   login: '/login',
   dashboard: '/',
+  'dashboard-modern': '/dashboard-modern',
   forms: '/forms',
   approvals: '/approvals',
   reviews: '/reviews',
@@ -14,6 +15,7 @@ export const ROUTE_MAP = {
 export const PATH_TITLES = {
   login: 'SmartDoc | Sign In',
   dashboard: 'SmartDoc | Dashboard',
+  'dashboard-modern': 'SmartDoc | Modern Dashboard',
   forms: 'SmartDoc | Forms & Templates',
   approvals: 'SmartDoc | Submissions & Approvals',
   reviews: 'SmartDoc | Pre-Publication Reviews',
@@ -31,6 +33,7 @@ export const getTabFromPath = (pathname = window.location.pathname) => {
 
   if (clean === '/login' || clean === '/signin' || clean === '/sign-in') return 'login';
   if (clean === '' || clean === '/' || clean === '/dashboard') return 'dashboard';
+  if (clean === '/dashboard-modern' || clean === '/modern') return 'dashboard-modern';
   if (clean === '/forms' || clean === '/templates' || clean === '/forms-templates') return 'forms';
   if (clean === '/approvals' || clean === '/submissions' || clean === '/submissions-approvals') return 'approvals';
   if (clean === '/reviews') return 'reviews';

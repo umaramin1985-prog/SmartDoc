@@ -1051,7 +1051,7 @@ export const ProfileAndSignatureModal = () => {
             </p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               {[
-                { id: 'dark', label: 'Dark Mode', desc: 'Pure Black OLED Workspace', icon: Moon },
+                { id: 'dark', label: 'Dark Mode', desc: 'Refined Slate Dark Workspace', icon: Moon },
                 { id: 'light', label: 'Light Mode', desc: 'Crisp Daylight Paper Workspace', icon: Sun }
               ].map((m) => {
                 const isSelected = theme === m.id;
@@ -1107,7 +1107,7 @@ export const ProfileAndSignatureModal = () => {
               Choose App Accent Color
             </h3>
             <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-              Select your personalized accent color. Current green is active by default.
+              Select your personalized accent color. Royal Blue is active by default.
             </p>
           </div>
 
@@ -1147,7 +1147,7 @@ export const ProfileAndSignatureModal = () => {
                   <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
                     <span style={{ fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
                       {c.label}
-                      {c.id === 'green' && (
+                      {c.id === 'blue' && (
                         <span style={{ fontSize: '0.62rem', padding: '1px 5px', borderRadius: '4px', background: 'var(--border-color)', color: 'var(--text-dim)' }}>
                           Default
                         </span>
