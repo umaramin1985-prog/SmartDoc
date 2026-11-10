@@ -6,7 +6,7 @@ import { buildAppUrl, getPathForTab, tabLinkProps } from '../utils/router';
 import {
   Search, LayoutGrid, Sparkles, FolderOpen, CheckCircle2, ClipboardCheck,
   MessageSquare, History, Settings, FileText, ArrowRight, Sun, Moon,
-  UserCheck, Building2, Shield, Command, CornerDownLeft, X, BellRing
+  UserCheck, Building2, Shield, Command, CornerDownLeft, X, BellRing, GitBranch
 } from 'lucide-react';
 
 const TAB_META = {
@@ -14,6 +14,7 @@ const TAB_META = {
   'dashboard-modern': { section: 'Workspace', label: 'Modern Kanban & Analytics', icon: Sparkles },
   forms: { section: 'Workspace', label: 'Forms & Templates Drive', icon: FolderOpen },
   approvals: { section: 'Workflows', label: 'Submissions & Approvals', icon: CheckCircle2 },
+  workflows: { section: 'Workflows', label: 'Visual Workflow Graph Studio', icon: GitBranch },
   reviews: { section: 'Workflows', label: 'Pre-Publication Reviews', icon: ClipboardCheck },
   'dept-messaging': { section: 'Workflows', label: 'Team Messaging', icon: MessageSquare },
   activity: { section: 'Governance', label: 'Activity & Audit Ledger', icon: History },
@@ -227,6 +228,15 @@ export const CommandPalette = ({ isOpen, onClose }) => {
         icon: CheckCircle2,
         url: getPathForTab('approvals'),
         action: () => { onClose(); setActiveTab('approvals'); }
+      },
+      {
+        id: 'nav-workflows',
+        group: 'NAVIGATION',
+        title: 'Open Visual Workflow Graph Studio',
+        subtitle: 'Workflows · Node-based workflow graph builder, conditional rules & blueprints',
+        icon: GitBranch,
+        url: getPathForTab('workflows'),
+        action: () => { onClose(); setActiveTab('workflows'); }
       },
       {
         id: 'nav-reviews',

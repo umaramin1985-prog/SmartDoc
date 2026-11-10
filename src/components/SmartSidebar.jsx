@@ -9,7 +9,7 @@ import {
   LayoutGrid, FolderOpen, CheckCircle2, MessageSquare, Settings,
   LogOut, ClipboardCheck, Camera, Search,
   ChevronLeft, ChevronRight, History, UserCheck,
-  Sun, Moon, Sparkles
+  Sun, Moon, Sparkles, GitBranch
 } from 'lucide-react';
 
 export const SmartSidebar = ({ onOpenCommandPalette }) => {
@@ -33,6 +33,7 @@ export const SmartSidebar = ({ onOpenCommandPalette }) => {
       title: 'Workflows',
       items: [
         { id: 'approvals', label: 'Submissions & Approvals', icon: CheckCircle2, badge: myApprovalQueue.length },
+        { id: 'workflows', label: 'Workflow Studio', icon: GitBranch },
         { id: 'reviews', label: 'Reviews', icon: ClipboardCheck, badge: reviewsNeedingMe.length },
         { id: 'dept-messaging', label: 'Team Messaging', icon: MessageSquare },
       ]

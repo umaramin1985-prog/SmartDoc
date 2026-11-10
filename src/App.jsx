@@ -7,6 +7,7 @@ import { SmartDashboardModern } from './components/SmartDashboardModern';
 import { FormsHub } from './components/FormsHub';
 import { FormApprovals } from './components/FormApprovals';
 import { ReviewsHub } from './components/ReviewsHub';
+import { WorkflowGraphStudio } from './components/WorkflowGraphStudio';
 import { DepartmentMessaging } from './components/DepartmentMessaging';
 import { ActivityHub } from './components/ActivityHub';
 import { SmartSettingsAdmin } from './components/SmartSettingsAdmin';
@@ -76,6 +77,7 @@ const MainLayout = () => {
           {activeTab === 'dashboard-modern' && <SmartDashboardModern />}
           {activeTab === 'forms' && <FormsHub />}
           {activeTab === 'approvals' && <FormApprovals />}
+          {activeTab === 'workflows' && <WorkflowGraphStudio />}
           {activeTab === 'reviews' && <ReviewsHub />}
           {activeTab === 'dept-messaging' && <DepartmentMessaging />}
           {activeTab === 'activity' && <ActivityHub />}

@@ -6,6 +6,7 @@ export const ROUTE_MAP = {
   'dashboard-modern': '/dashboard-modern',
   forms: '/forms',
   approvals: '/approvals',
+  workflows: '/workflows',
   reviews: '/reviews',
   'dept-messaging': '/dept-messaging',
   activity: '/activity',
@@ -18,6 +19,7 @@ export const PATH_TITLES = {
   'dashboard-modern': 'SmartDoc | Modern Dashboard',
   forms: 'SmartDoc | Forms & Templates',
   approvals: 'SmartDoc | Submissions & Approvals',
+  workflows: 'SmartDoc | Visual Workflow Graph Studio',
   reviews: 'SmartDoc | Pre-Publication Reviews',
   'dept-messaging': 'SmartDoc | Team Messaging',
   activity: 'SmartDoc | Activity Log & Audit Trail',
@@ -36,6 +38,7 @@ export const getTabFromPath = (pathname = window.location.pathname) => {
   if (clean === '/dashboard-modern' || clean === '/modern') return 'dashboard-modern';
   if (clean === '/forms' || clean === '/templates' || clean === '/forms-templates') return 'forms';
   if (clean === '/approvals' || clean === '/submissions' || clean === '/submissions-approvals') return 'approvals';
+  if (clean === '/workflows' || clean === '/workflow-studio' || clean === '/workflow-builder') return 'workflows';
   if (clean === '/reviews') return 'reviews';
   if (clean === '/dept-messaging' || clean === '/messaging' || clean === '/messages' || clean === '/chat') return 'dept-messaging';
   if (clean === '/activity' || clean === '/audit' || clean === '/audit-log' || clean === '/activity-log') return 'activity';
