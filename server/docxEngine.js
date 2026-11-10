@@ -386,7 +386,7 @@ export function renderFilledDocument(templateBase64, { values = {}, system = {},
 
         // If not blank, but field is unfilled when printed:
         return isDirect
-          ? `${fieldLabel}: —`
+          ? `${fieldLabel}: `
           : '—';
       }
     })

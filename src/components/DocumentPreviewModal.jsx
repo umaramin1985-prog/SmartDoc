@@ -11,7 +11,7 @@ import { SubmissionDetailModal } from './SubmissionDetailModal';
 
 // Renders .docx, .pdf, or image in the browser, with download & authentic Word print
 export const DocumentPreviewModal = () => {
-  const { documentPreview, closeDocumentPreview, addToast, formSubmissions, formTemplates } = useApp();
+  const { documentPreview, closeDocumentPreview, addToast, formSubmissions, formTemplates, archivedTemplates } = useApp();
   const containerRef = useRef(null);
   const blobRef = useRef(null);
   const [objectUrl, setObjectUrl] = useState(null);
@@ -22,7 +22,7 @@ export const DocumentPreviewModal = () => {
   const [pdfProgressText, setPdfProgressText] = useState('');
 
   const previewTemplate = documentPreview?.kind === 'template'
-    ? formTemplates?.find(t => String(t.id) === String(documentPreview.id))
+    ? (formTemplates?.find(t => String(t.id) === String(documentPreview.id)) || archivedTemplates?.find(t => String(t.id) === String(documentPreview.id)))
     : null;
   const isEditableWordTemplate = Boolean(
     previewTemplate &&

@@ -67,17 +67,17 @@ No mock data is ever seeded — only the super admin.
     - **Word Form Studio (`SmartWordStudio.jsx`)**: Validates against duplicate document titles in the active folder before publishing or saving drafts; highlights conflict badge in the editor header.
     - **Move Template (`FormsHub.jsx`)**: Validates destination folder before moving; displays `Name Conflict` badge on conflicting destination folder items in the Move dialog and blocks execution.
     - **Backend API & Database**: `findDuplicateTemplateInFolder()` enforces uniqueness on `POST /api/forms/templates`, `POST /api/forms/templates/bulk-import`, `PUT /api/forms/templates/:id`, and `PUT /api/forms/templates/:id/move`, returning HTTP 409 Conflict with descriptive messages.
-- **Submission-Aware Deletion vs. Archival Rule**:
-  - **Zero Submissions on Record**: If no user has ever filled or submitted a form against the template (`COUNT(form_submissions WHERE template_id = $1) === 0`), clicking Remove **permanently deletes** the template:
-    - Removes the physical document file from disk storage (`deleteTemplateFile(t.id, t.file_path)`).
-    - Unlinks any `published_template_id` references in `template_reviews`.
-    - Permanently deletes the record from PostgreSQL (`DELETE FROM form_templates WHERE id = $1`).
-    - Writes `TEMPLATE_DELETED` to the audit log.
+- **Submission-Aware Deletion vs. Archival & Restore Rule**:
+  - **Zero Submissions on Record**: If no user has ever filled or submitted a form against the template (`COUNT(form_submissions WHERE template_id = $1) === 0`), admins can either **Move to Archive** (`DELETE /api/forms/templates/:id?mode=archive`) or **Permanently Delete** (`DELETE /api/forms/templates/:id?mode=delete`) the template:
+    - Permanent deletion removes the physical document file from disk storage (`deleteTemplateFile(t.id, t.file_path)`), unlinks any `published_template_id` references in `template_reviews`, deletes the record from PostgreSQL (`DELETE FROM form_templates WHERE id = $1`), and writes `TEMPLATE_DELETED` to the audit log.
   - **Submissions Exist on Record**: If one or more users have filled or submitted forms against the template (`COUNT > 0`), the template is **soft-archived** (`status = 'ARCHIVED'`):
     - The physical document file is preserved on disk so that past submissions can still render the original Word document, be printed, and verify cryptographic PKI RSA-2048 digital signatures.
     - The database record is updated to `status = 'ARCHIVED'`, hiding it from active drive folders while preserving historical audit non-repudiation.
     - Writes `TEMPLATE_ARCHIVED` to the audit log.
-  - **Dynamic UI Confirmation Modal (`FormsHub.jsx`)**: The confirmation dialog checks `formSubmissions` in real time, displaying "Delete template?" with permanent deletion details when count is 0, or "Archive template?" with the submission count and audit explanation when submissions exist.
+  - **Archived Files Explorer & Restore (`FormsHub.jsx`, `PUT /api/forms/templates/:id/restore`)**:
+    - Archived templates and files are accessible inside **Forms & Templates Explorer** (`FormsHub.jsx`) via both the **`Archived Files`** node in the left navigation tree (`#tree-node-archived-files`) and the **`Archived (N)`** filter pill (`#btn-filter-archived-files`) in the Explorer toolbar (scoped to the selected department when inside a department drive, or across all accessible departments at the root level).
+    - Users can **Preview**, **Download**, and inspect **Version History** of archived files; department admins and superadmins can click **`Restore to Drive`** (`restoreTemplate(id)`) to restore an archived file back to its active department drive (`ACTIVE` or `DRAFT`), or permanently delete archived files that have 0 submissions.
+  - **Dynamic UI Confirmation Modal (`FormsHub.jsx`)**: The confirmation dialog checks `formSubmissions` in real time, offering both `Move to Archive` and `Delete permanently` when count is 0 (or permanent deletion when already archived with 0 submissions), or `Archive template` with the submission count and audit explanation when submissions exist.
 
 ---
 
@@ -190,9 +190,9 @@ SmartDoc uses native HTML5 History API client-side routing (`src/utils/router.js
   - HTML sanitizer (`sanitizeHtml`) preventing XSS while keeping layout and form pill widgets intact.
 - `FormsHub.jsx` — Windows Explorer interface:
   - Header actions: `+ New Folder` and `Word Form Studio` persistently accessible for admins (department selector dialog at root for superadmin).
-  - Left pane: Hierarchical tree view (Departments -> Folders -> Subfolders) with expand/collapse, item counts with storage space tooltips, "+" quick button, Rename (`Edit2`), and Delete (`Trash2`) on hover for admins.
-  - Top bar: Explorer address bar / breadcrumbs (e.g. `SmartDoc Drive > Human Resources > Recruitment`), Back/Forward/Up buttons, Search bar, New Folder button in toolbar, contextual "Rename" and "Delete Folder" buttons when inside a folder, View toggle (Details/Table vs Grid/Tiles), Filter pills (All, Templates, Submissions), Rights badge.
-  - Main pane: Department drive cards at root with direct `+ New Folder` button and total storage indicators; folder tiles with item counts and recursive storage sizes, Word template cards with file size badges and Print action (which opens the live form sheet and triggers the identical print engine as Fill Form's Print Form option), and submitted documents cards.
+  - Left pane: Hierarchical tree view (Departments -> Folders -> Subfolders) with expand/collapse, item counts with storage space tooltips, "+" quick button, Rename (`Edit2`), and Delete (`Trash2`) on hover for admins, plus a dedicated **`Archived Files`** node (`#tree-node-archived-files`) at the bottom of the navigation tree showing the count of archived forms & files.
+  - Top bar: Explorer address bar / breadcrumbs (e.g. `SmartDoc Drive > Human Resources > Recruitment`), Back/Forward/Up buttons, Search bar, New Folder button in toolbar, contextual "Rename" and "Delete Folder" buttons when inside a folder, View toggle (Details/Table vs Grid/Tiles), Filter pills (`All`, `Word Forms`, `Drafts`, `Archived (N)` `#btn-filter-archived-files`), Rights badge.
+  - Main pane: Department drive cards at root with direct `+ New Folder` button and total storage indicators; folder tiles with item counts and recursive storage sizes, Word template cards with file size badges and Print action (which opens the live form sheet and triggers the identical print engine as Fill Form's Print Form option), submitted documents cards, and an **`Archived Forms & Files`** Explorer view (`filterType === 'archived'`) supporting both Grid/Tiles and Details/Table views with Preview, Download, Version History, **`Restore to Drive`** (`restoreTemplate`), and Permanent Delete (for 0-submission archives).
   - Details/Table view: Dedicated "Size" / "Storage Size" columns for templates, folders (recursive cumulative size), and department drives; row-level action buttons for Rename and Delete folders.
   - Bottom status bar: Displays dynamic `Total Storage: X KB/MB` for the current explorer view.
   - Contextual modals: Create folder (with target department selector if at root), Rename folder, Delete folder (with safe re-parenting of sub-items), Move template to folder.
@@ -228,7 +228,7 @@ SmartDoc uses native HTML5 History API client-side routing (`src/utils/router.js
     - **Input Field Placeholders Removed**: All input field placeholders (e.g. `Enter First Name…`, `YYYY-MM-DD`) are automatically stripped during print and PDF download, leaving clean, empty input boxes for unentered fields.
     - **Empty Placeholders Replaced with Dash**: Any unfilled in-text legal/contract placeholders (e.g. `{{Contract Amount}}`) are automatically replaced with a clean typographic dash (`—`), preventing raw tags or curly braces from appearing in printed or downloaded documents.
     - **Header Actions**: Dedicated **Download PDF** (`#btn-download-live-form-pdf`) alongside **Print Form** and **Print Blank** in the action ribbon.
-    - **Dual-Mode Canvas (`isViewOnly`)**: Supports read-only viewing of both completed submissions and blank form templates. In view-only mode (as well as Print and PDF Download), form inputs are marked `disabled` and `readOnly` with clean white backgrounds, all unfilled fields (both direct input boxes and in-text placeholders) display a typographic dash (`—`) instead of placeholders (`Enter {Label}…`, `YYYY-MM-DD`, `-- Select {Label} --`, `{{Field *}}`), the right-side rail is hidden, and top controls display a simple Close button alongside Print and Download PDF.
+    - **Dual-Mode Canvas (`isViewOnly`)**: Supports read-only viewing of both completed submissions and blank form templates. In view-only mode (as well as Print and PDF Download), form inputs are marked `disabled` and `readOnly` with clean white backgrounds, unfilled direct input boxes (`mode: 'input'`) remain clean and empty without placeholder text (`Enter {Label}…`, `YYYY-MM-DD`, `-- Select {Label} --`), unfilled In-Text tags (`mode: 'placeholder'`) display a typographic dash (`—`) instead of `{{Field *}}`, the right-side rail is hidden, and top controls display a simple Close button alongside Print and Download PDF.
 - `SubmissionDetailModal.jsx` — directly renders the authentic filled A4 Form Sheet (`<FillFormModal isViewOnly={true} />`) with all actual form controls in a locked state (`disabled`/`readOnly` with `<Lock />` indicator) and stamped signatures:
   - **Reviewer Mode (`isReviewerView`)**: Displays a dedicated right-side **Reviewer Decision & Notes Rail** alongside the locked form sheet so reviewers can click any locked field on the sheet to target it, add **Change Requests**, **Objections**, **Suggestions**, or **General Notes**, accept/reject comments, verify PKI seals, and **Approve & Sign**, **Raise Objection**, or **Reject** the form directly while viewing the form sheet.
   - **Submitter Mode (`!isReviewerView`)**: If no decision or objections have come (`IN_REVIEW` with no comments/objections), the submitter views the form strictly as a clean **read-only** locked form sheet without any comment inputs or reviewer controls. When a reviewer raises an objection (`OBJECTION_RAISED`), the submitter can view all reviewer change requests and click **Unlock & Modify Form** to edit the fields directly on the sheet and resubmit.
@@ -246,7 +246,7 @@ SmartDoc uses native HTML5 History API client-side routing (`src/utils/router.js
 
 ## 4. Global State (`src/context/AppContext.jsx`)
 
-State: `theme`, `accentColor` (`'green' | 'red' | 'orange' | 'purple' | 'blue'`), `toasts`, `currentUser`, `authLoading`, `activeTab`, `users`, `departments`, `folders`, `formTemplates`,
+State: `theme`, `accentColor` (`'green' | 'red' | 'orange' | 'purple' | 'blue'`), `toasts`, `currentUser`, `authLoading`, `activeTab`, `users`, `departments`, `folders`, `formTemplates`, `archivedTemplates`,
 `formSubmissions`, `departmentMessages`, `documentPreview` (`{kind:'submission'|'template', id, title, fileName}`),
 `isSignatureModalOpen`, `isProfileModalOpen`, `profileModalTargetUser`, `templateReviews`, `isReviewChangesModalOpen`, `activeReviewDetail`, `notifications`, `unreadNotificationsCount`,
 `activityLogs`, `activityLogsLoading`, `activityLogsMeta` (`{ totalCount, page, pageSize, totalPages, from, to, hasNextPage, hasPrevPage }`).
@@ -255,7 +255,7 @@ Derived: `myApprovalQueue`, `mySubmissions`, `reviewsNeedingMe`.
 
 Actions: `login`, `logout`, `refreshAll`/`refreshUsers`/`refreshDepartments`/`refreshFolders`/`refreshTemplates`/`refreshSubmissions`/`refreshReviews`/`refreshNotifications`,
 `setTheme(mode)`, `toggleTheme()`, `setAccentColor(color)`, `saveSignature`, `saveAvatar`, `openProfileModal`, `closeProfileModal`, `canManageDepartment(deptName)`, `createFolder`, `updateFolder`, `deleteFolder`,
-`createTemplate`, `bulkImportTemplates`, `updateTemplate`, `updateTemplatePermissions`, `addTemplateComment`, `updateTemplateComment`, `moveTemplate`, `archiveTemplate`,
+`createTemplate`, `bulkImportTemplates`, `updateTemplate`, `updateTemplateSubforms`, `updateTemplatePermissions`, `addTemplateComment`, `updateTemplateComment`, `moveTemplate`, `archiveTemplate`, `restoreTemplate`,
 `submitForm`, `resubmitForm`, `workflowAction(id, 'APPROVE'|'OBJECTION'|'REJECT', notes)`, `addSubmissionComment`, `updateSubmissionComment`,
 `sendTemplateForReview`, `submitReviewChanges`, `saveReviewDecisions`, `finalizeReview`, `cancelReview`,
 `markNotificationRead`, `markAllNotificationsRead`, `wipeAllData`, `wipeFormsOnly`,
@@ -287,24 +287,26 @@ handles blob downloads, `parseDocx`, `htmlToDocx`, notification endpoints, and t
 | `POST /api/forms/templates/html-to-docx` | HTML → OpenXML-compliant `.docx` buffer via `compileHtmlToValidDocx` (`html-to-docx` + `repairDocxBuffer`) |
 | `GET /api/ai/ollama-status` | probes local Ollama daemon (`127.0.0.1:11434/api/tags`) → `{ online, baseUrl, models, defaultModel }` |
 | `POST /api/ai/generate-form` | `{ prompt, department, style, complexity, sections, engineMode, ollamaModel }` → `{ title, department, description, style, complexity, htmlContent, fields, workflow, source }` — synthesizes complete form template offline via Instant Built-in NLP (<15ms) or Local Ollama LLM |
-| `GET /api/forms/templates`, `GET /:id/file` | visibility: own dept or audience `ALL`; superadmin all. For Word templates, `?download=1` renders a Filling-Form-style `.docx` (`renderTemplateAsWordDocx`) with matching typography, header mark, resolved system tags, field labels, and `—` instead of placeholders; raw fetches pass through `repairDocxBuffer` |
+| `GET /api/forms/templates`, `GET /:id/file` | visibility strictly enforced via `canSeeTemplate(actor, t)`: superadmin sees all; `DRAFT` restricted to `isDeptAdmin(actor, t.department)`; `USERS` restricted to `allowed_users` (`id`/`username`); `DEPARTMENTS` restricted to `allowed_departments` (`t.department` fallback); `ALL` visible to all authenticated users. For Word templates, `?download=1` renders a Filling-Form-style `.docx` (`renderTemplateAsWordDocx`) with matching typography, header mark, resolved system tags, field labels, and `—` instead of placeholders; raw fetches pass through `repairDocxBuffer` |
 | `POST /api/forms/templates/:id/render-print-document` | `{ values, blank, customHtml }` → `.docx` buffer formatted for authentic Word printing (filled or pristine blank with handwriting lines) |
-| `POST /api/forms/templates` | admin (forced to own dept) / superadmin; supports `htmlContent`, `folderId`, `reviewId`, `isDraft: boolean`, and `status: 'DRAFT'` bypassing mandatory workflow requirement |
+| `POST /api/forms/templates` | admin (forced to own dept) / superadmin; supports `htmlContent`, `folderId`, `reviewId`, `subforms`, `isDraft: boolean`, and `status: 'DRAFT'` bypassing mandatory workflow requirement; syncs tagged subforms on publish |
 | `POST /api/forms/templates/bulk-import` | `{ department, folderId, audience, defaultExpiryDays, files }` — bulk intake of docx/doc/pdf/images; all imported files are strictly saved as unpublished drafts (`status: 'DRAFT'`, `workflow: []`) |
-| `PUT /api/forms/templates/:id` | admin of owning dept / superadmin; updates template in-place with Git-style version commit; sequentially indexes parameters `$1` through `$22` without omissions; supports transitioning from `DRAFT` to `ACTIVE` (validates workflow on publish) or saving draft updates |
+| `PUT /api/forms/templates/:id` | admin of owning dept / superadmin; updates template in-place with Git-style version commit; sequentially indexes parameters `$1` through `$23` without omissions; supports `subforms` and transitioning from `DRAFT` to `ACTIVE` (validates workflow on publish and syncs tagged subforms) or saving draft updates |
+| `PUT /api/forms/templates/:id/subforms` | `{ subforms: [templateId, ...] }` — tags/untags subform templates to a Main Form and immediately syncs the Main Form's approval workflow and published status across all tagged subforms |
 | `PUT /api/forms/templates/:id/move` | `{ folderId }` — moves template within department; requires dept admin |
-| `DELETE /api/forms/templates/:id` | soft archive |
+| `DELETE /api/forms/templates/:id` | `?mode=archive\|delete` — soft-archives (`status = 'ARCHIVED'`) when `mode=archive` or when submissions exist; permanently deletes when `mode=delete` and 0 submissions exist |
+| `PUT /api/forms/templates/:id/restore` | restores an `'ARCHIVED'` template back to its department drive (`'ACTIVE'` or `'DRAFT'`), falling back to department root if the original folder was deleted and appending ` (Restored)` on duplicate title conflicts |
 | `GET /api/template-reviews` | reviews involving current user (as initiator or reviewer) |
-| `GET /api/template-reviews/:id` | review detail (initiator gets all reviewer submissions + decisions; reviewer gets own copy) |
-| `POST /api/template-reviews` | initiate review with `{ templateId, title, department, folderId, htmlContent, fields, workflow, reviewerUserIds, notes }` |
+| `GET /api/template-reviews/:id` | review detail (initiator gets all reviewer submissions + decisions; reviewer gets own copy; includes `subforms` and `subformSnapshots`) |
+| `POST /api/template-reviews` | initiate review with `{ templateId, title, department, folderId, htmlContent, fields, workflow, subforms, reviewerUserIds, notes }` |
 | `POST /api/template-reviews/:id/submit` | reviewer submits modified HTML `{ modifiedHtml, comments, hasChanges }` |
 | `PUT /api/template-reviews/:id/decisions` | initiator updates accept/reject choices `{ decisions }` |
 | `POST /api/template-reviews/:id/finalize` | initiator commits decisions and produces merged HTML `{ mergedHtml }` |
 | `POST /api/template-reviews/:id/cancel` | initiator cancels review |
-| `GET/POST /api/forms/submissions` | submit requires saved signature, mandatory fields, future expiry; inherits `folder_id` |
-| `PUT /api/forms/submissions/:id/modify` | submitter only, only when `OBJECTION_RAISED`; bumps version (1.0→1.1), restarts chain at step 1 |
+| `GET/POST /api/forms/submissions` | submit requires saved signature, mandatory fields across Main Form + tagged subforms (`subformsData`), future expiry; inherits `folder_id` |
+| `PUT /api/forms/submissions/:id/modify` | submitter only, only when `OBJECTION_RAISED`; accepts `formData` and `subformsData`, bumps version (1.0→1.1), restarts chain at step 1 |
 | `POST /api/forms/submissions/:id/workflow-action` | `APPROVE`/`OBJECTION`/`REJECT`; dept admin of current step or superadmin; blocked if expired |
-| `GET /api/forms/submissions/:id/document` | filled docx with signatures |
+| `GET /api/forms/submissions/:id/document` | filled docx with signatures (supports optional `?subformId=<id>` for bundled subforms) |
 | `GET /api/users/:id/pki-certificate` | retrieves user's X.509 certificate and parsed cryptographic metadata |
 | `POST /api/users/:id/pki-certificate/generate` | re-issues / renews user's RSA-2048 keypair and X.509 certificate |
 | `GET /api/users/:id/pki-certificate/download` | downloads public X.509 certificate file (`.crt`) |
@@ -331,7 +333,7 @@ Audit entries are written server-side to `audit_logs` with SHA-256 verification 
 - **Microsoft Word OpenXML & OPC Repair Engine (`repairDocxBuffer`, `compileHtmlToValidDocx`, `renderTemplateAsWordDocx` in `server/docxEngine.js`)**:
   - `compileHtmlToValidDocx` normalizes HTML (converting `<td>`/`<th>` percentage widths into pixel widths so `html-to-docx` never writes `undefined` attribute values) and passes explicit integer `margins` (`top`, `right`, `bottom`, `left`, `header: 720`, `footer: 720`, `gutter: 0`) with `header: false, footer: false`.
   - `repairDocxBuffer` post-processes every `.docx` archive to guarantee 100% Microsoft Word desktop compatibility: strips invalid ZIP directory entries (`_rels/`, `word/`, `docProps/`), removes illegal `<Override>` entries for `.rels` parts from `[Content_Types].xml`, removes broken empty `header*.xml`/`footer*.xml` parts, fixes any `"undefined"`/`"NaN"` attribute values in `<w:pgMar>`, moves `<w:sectPr>` to the end of `<w:body>`, and enforces strict ECMA-376 child element sequence ordering inside `<w:tblPr>`, `<w:tblBorders>`, `<w:tblCellMar>`, `<w:tcPr>`, `<w:tcBorders>`, `<w:pPr>`, and `<w:rPr>`.
-  - `renderTemplateAsWordDocx` renders a Word template `.docx` (`GET /api/forms/templates/:id/file?download=1`) that visually matches the Filling Form (same `fontFamily` and `fontSize`, header mark, resolved system tags, field labels, descriptions, bordered input boxes with `—` instead of placeholders, and unsigned signature blocks).
+  - `renderTemplateAsWordDocx` renders a Word template `.docx` (`GET /api/forms/templates/:id/file?download=1`) that visually matches the Filling Form (same `fontFamily` and `fontSize`, header mark, resolved system tags, field labels, descriptions, clean bordered input boxes, `—` for unfilled In-Text tags, and unsigned signature blocks).
 
 ---
 
@@ -354,6 +356,20 @@ Audit entries are written server-side to `audit_logs` with SHA-256 verification 
   - Statuses: `PENDING_REVIEW` (waiting for reviewer submissions) → `READY_FOR_DECISION` (all reviewers submitted) → `DECIDED` (initiator accepted/rejected changes and finalized merge) → `PUBLISHED` (template saved into folder) or `CANCELLED`.
   - Reviewers can modify the document layout, text, tables, and form fields in SmartWordStudio, and submit with comments.
   - The initiator receives granular block/word diffs, accepts or rejects individual changes from each reviewer (with automatic conflict detection if multiple reviewers touched the same block), previews the live merged document, and resumes in Word Form Studio to publish.
+- **Main Form + Tagged Subforms Bundle & Combined Approval Process**:
+  - **Same-Department & Multi-Format Subform Tagging (`SmartWordStudio.jsx`, `FormsHub.jsx`, `PUT /api/forms/templates/:id/subforms`)**:
+    - Main Forms and their tagged Subforms must strictly belong to the **same department** (`sf.department === mainForm.department`).
+    - Subforms can be **anything uploaded to that department**: editable Word Form templates (`.docx`, `.doc`), static PDF documents (`.pdf`), or Image attachments (`.png`, `.jpg`, `.jpeg`, `.webp`).
+    - Admins can tag/untag subforms via either the **Workflow & Approvals** ribbon tab in `SmartWordStudio.jsx` (`+ Tag Subforms…`) or the **`Tag / Link Subforms`** quick-action button (`Layers` icon) on cards/rows in `FormsHub.jsx`.
+  - **Combined Pre-Publication & Publishing Governance (`syncTaggedSubforms`, `getGoverningMainForm` in `server/server.js`)**:
+    - The Main Form's sequential department approval chain (`workflow`) overrides and governs all tagged Subforms.
+    - When a Main Form is sent for Pre-Publication Review (`POST /api/template-reviews`), its same-department tagged subforms and their snapshots are included in the review package (`ReviewsHub.jsx` displays a `+N Subform(s)` badge).
+    - When the Main Form is published (`ACTIVE`), all tagged draft subforms (Word forms, PDFs, or Images) are automatically published (`ACTIVE`) and Word subform workflows are synchronized to match the Main Form's `workflow`.
+  - **Combined Multi-Tab Filling & Approval Process (`FillFormModal.jsx`, `SubmissionDetailModal.jsx`, `POST /api/forms/submissions`, `PUT /api/forms/submissions/:id/modify`)**:
+    - Opening a Main Form with tagged subforms in `FillFormModal.jsx` renders a **Multi-Tab Document Switcher Bar** above the A4 sheet allowing the filer to switch between **`Main Form: {Title}`** and **`Subform 1..N: {Title}`** (rendering interactive Word form sheets for Word subforms, embedded PDF viewers for `.pdf` subforms, and image viewers for image subforms), fill fields across all sheets, sign once, and submit as a single combined package (`formData` + `subformsData`).
+    - Mandatory fields are validated across the Main Form and every tagged Subform before submission; clicking `Fill Now →` in the Missing Mandatory Fields prompt automatically switches to the corresponding document tab and focuses the field.
+    - Reviewers and originators viewing the submission in `SubmissionDetailModal.jsx` use the same **Multi-Tab Document Switcher Bar** to inspect the Main Form and all Subform sheets, target fields on any sheet for review notes/objections, verify PKI signatures (which cover both `formData` and `subformsData`), and **Approve & Sign / Raise Objection / Reject** the entire bundle together.
+    - Tagged subforms can also be filled standalone in `FormsHub.jsx`, governed by the Main Form's synced approval chain.
 
 ---
 
@@ -363,8 +379,8 @@ Tables in use:
 - `users` (incl. `signature_image`, `pki_certificate_pem`, `pki_public_key_pem`, `pki_private_key_pem`, `pki_serial_number`, `pki_fingerprint`, `pki_issued_at`, `pki_expires_at`)
 - `departments`
 - `folders` (`id`, `name`, `department`, `parent_id`, `created_by_id`, `created_by_name`, `created_at`, `updated_at`)
-- `form_templates` (`id`, `unique_code`, `title`, `department`, `description`, `folder_id`, `status`, `file_type`, `file_size`, `file_path`, `file_hash`, `mime_type`, `docx_filename`, `is_editable`, `access_type`, `allowed_departments`, `allowed_users`, `version`, `version_history`, `comments`, `audience`, `fields`, `workflow`, `signature_slots`, `system_tags`, `html_content`, `font_family`, `font_size`, `docx_base64` [migrated to disk & released as NULL])
-- `form_submissions` (`folder_id`, workflow, version history, signatures, comments, `pki_signature` JSONB envelope)
+- `form_templates` (`id`, `unique_code`, `title`, `department`, `description`, `folder_id`, `status`, `file_type`, `file_size`, `file_path`, `file_hash`, `mime_type`, `docx_filename`, `is_editable`, `access_type`, `allowed_departments`, `allowed_users`, `version`, `version_history`, `comments`, `audience`, `fields`, `workflow`, `subforms`, `signature_slots`, `system_tags`, `html_content`, `font_family`, `font_size`, `docx_base64` [migrated to disk & released as NULL])
+- `form_submissions` (`folder_id`, `form_data`, `subforms_data`, workflow, version history, signatures, comments, `pki_signature` JSONB envelope)
 - `notifications` (`id`, `user_id`, `title`, `message`, `type`, `link_type`, `link_id`, `is_read`, `created_at`)
 - `template_reviews` (`id`, `title`, `department`, `folder_id`, `base_html`, `base_fields`, `base_workflow`, `status`, `decisions`, `merged_html`, `notes`, `initiator_id`, `initiator_name`, `published_template_id`)
 - `template_review_reviewers` (`id`, `review_id`, `user_id`, `user_name`, `user_department`, `status`, `modified_html`, `comments`, `has_changes`, `submitted_at`)
@@ -397,13 +413,36 @@ SmartDoc decouples binary files from PostgreSQL into a high-performance native d
 
 ## 10. Revision Log
 
-- **2026-10-29** — Unified Preview Form & Download Form Parity with Filling Form (Dashes Instead of Placeholders):
+- **2026-11-09 (`v1.5.0`)** — Main Form + Tagged Subforms Bundle, Multi-Format Same-Department Subforms & Strict Access Rights Enforcement:
+  - **Same-Department & Multi-Format Subform Tagging (`SmartWordStudio.jsx`, `FormsHub.jsx`, `ReviewsHub.jsx`, `AppContext.jsx`, `apiService.js`, `server/server.js`)**:
+    * Added ability to tag Subforms to a Main Form inside `SmartWordStudio.jsx` (Workflow & Approvals ribbon tab + Main Form Bundle Bar above the A4 sheet with Subform Preview modal supporting Word forms, PDFs, and Images) and directly from `FormsHub.jsx` (`Tag / Link Subforms` action button + modal on grid cards and table rows).
+    * Enforced that Main Forms and Tagged Subforms must belong to the **same department** (`sf.department === mainForm.department`) and allowed **any uploaded file type** in that department (editable Word Form templates `.docx`/`.doc`, static PDF documents `.pdf`, or Image files `.png`/`.jpg`/`.jpeg`/`.webp`) to be tagged as a subform.
+    * Added `PUT /api/forms/templates/:id/subforms` (`updateTemplateSubforms`) and backend `syncTaggedSubforms` / `getGoverningMainForm` helpers so the Main Form's approval workflow overrides and governs all tagged subforms, automatically publishing any tagged draft subforms (Word, PDF, or Image) when the Main Form is published.
+    * Included `subforms` and `subformSnapshots` in Pre-Publication Reviews (`POST /api/template-reviews`, `ReviewsHub.jsx`).
+  - **Combined Multi-Tab Form Filling & Submission Approval (`FillFormModal.jsx`, `SubmissionDetailModal.jsx`, `server/server.js`)**:
+    * Added a **Multi-Tab Document Switcher Bar** in `FillFormModal.jsx` so users filling a Main Form with tagged subforms can switch between the Main Form and each Subform tab (rendering interactive Word form sheets for Word subforms, embedded PDF viewers with Download PDF for `.pdf` subforms, and image viewers with Download Image for image subforms), fill fields across all bundled documents, validate mandatory fields across all sheets, sign once, and submit as a single package (`formData` + `subformsData`).
+    * Enabled reviewers and submitters in `SubmissionDetailModal.jsx` to switch across the locked Main Form and Subform tabs, target fields on any bundled sheet for review comments/objections, verify PKI signatures covering `subformsData`, and approve/object/reject the entire package together.
+  - **Strict Access & Permissions Enforcement (`server/server.js`, `AppContext.jsx`, `FillFormModal.jsx`)**:
+    * Updated `canSeeTemplate(actor, t)` (`server/server.js`) and added `canUserAccessTemplate(u, t)` (`src/context/AppContext.jsx`) so `Specific Persons` (`accessType === 'USERS'`), `Departments` (`accessType === 'DEPARTMENTS'`), and `All Employees` (`accessType === 'ALL'`) are strictly enforced across both backend API queries and client state for all non-superadmin users (including department admins and tagged subforms).
+    * Fixed `logout()` in `src/context/AppContext.jsx` to reset `setAllTemplates([])` so switching user accounts immediately clears the previous user's template state.
+
+- **2026-11-06 (`v1.5.0`)** — Archived Forms & Files Explorer View, Restore to Drive & Clean Empty Input Boxes:
+  - **Archived Forms & Files Explorer View & Restore (`FormsHub.jsx`, `AppContext.jsx`, `apiService.js`, `server/server.js`, `DocumentPreviewModal.jsx`, `SubmissionDetailModal.jsx`)**:
+    * Added **`Archived Files`** navigation node (`#tree-node-archived-files`) in the left Explorer tree and **`Archived (N)`** filter pill (`#btn-filter-archived-files`) in `.sd-explorer-filters` inside `FormsHub.jsx`.
+    * Split fetched templates in `AppContext.jsx` into `formTemplates` (`status !== 'ARCHIVED'`) and `archivedTemplates` (`status === 'ARCHIVED'`) so active template counts on the Dashboard and department drives stay accurate while archived files remain accessible in Explorer, `DocumentPreviewModal.jsx`, and `SubmissionDetailModal.jsx`.
+    * Added `PUT /api/forms/templates/:id/restore` (`restoreTemplate(id)`) to restore archived templates back to their department drive (`ACTIVE` or `DRAFT`), automatically falling back to department root if the original folder was deleted and appending ` (Restored)` if a duplicate title exists.
+    * Updated `DELETE /api/forms/templates/:id` (`archiveTemplate(id, mode)`) and the Confirm Remove modal in `FormsHub.jsx` to support both **Move to Archive** (`?mode=archive`) and **Delete permanently** (`?mode=delete`) when a template has 0 submissions.
+  - **Dashes Restricted Strictly to In-Text Tags (`SmartWordStudio.jsx`, `FillFormModal.jsx`, `src/utils/pdfExportEngine.js`, `server/docxEngine.js`)**:
+    * Updated `SmartWordStudio.jsx` (`fillerInputHtml`), `FillFormModal.jsx` (`renderInputControl`, `handlePrint`, `beforeprint`), `src/utils/pdfExportEngine.js` (`deepCloneFormSheet`), and `server/docxEngine.js` (`renderFilledDocument`) so direct input fields (`mode: 'input'` — text, textarea, date, number, dropdown) render clean, empty input boxes without `'—'` dashes when unfilled in Studio Preview, Read-Only Preview, Print, and PDF/DOCX exports.
+    * Unfilled In-Text tags (`mode: 'placeholder'`) continue to render typographic em-dashes (`—`) inline within document sentences in Preview, View-Only, Print, and PDF/DOCX exports.
+
+- **2026-10-29** — Unified Preview Form & Download Form Parity with Filling Form:
   - **Template Preview Parity (`DocumentPreviewModal.jsx`, `FillFormModal.jsx`, `SmartWordStudio.jsx`)**:
     * Updated `DocumentPreviewModal.jsx` so previewing any editable Word form template (`kind === 'template'`) mounts `<FillFormModal template={previewTemplate} isViewOnly={true} />`, rendering the exact same A4 sheet, template typography (`fontFamily`, `fontSize`), header mark, labels, descriptions, and input boxes as Filling Form.
-    * Updated `FillFormModal.jsx` (`renderInputControl`, `renderPlaceholderInput`, `renderSignatureSlot`) and `SmartWordStudio.jsx` (`fillerInputHtml`, `buildPreviewHtml`) so all unfilled fields in Preview / View-Only mode display a typographic dash (`—`) instead of placeholders (`Enter {Label}…`, `YYYY-MM-DD`, `-- Select {Label} --`, or `{{Field *}}`).
+    * Updated `FillFormModal.jsx` (`renderPlaceholderInput`) and `SmartWordStudio.jsx` (`buildPreviewHtml`) so unfilled In-Text tags (`mode: 'placeholder'`) in Preview / View-Only mode display a typographic dash (`—`) instead of `{{Field *}}` tokens, while direct input boxes (`mode: 'input'`) remain clean and empty.
   - **Template PDF Download & Print Parity (`FormsHub.jsx`, `FillFormModal.jsx`, `src/utils/pdfExportEngine.js`)**:
     * Updated `handleDownloadPdfFromModal` and `handlePrintTemplate` in `FormsHub.jsx` so downloading or printing a form template uses `<FillFormModal isViewOnly={true} initialDownload={...} initialPrint={...} />` (`exportFormSheetToPdf`), producing a PDF/printout with the exact same fonts, layout, and input boxes as Filling Form.
-    * Updated `deepCloneFormSheet` in `src/utils/pdfExportEngine.js` to preserve the template's `fontFamily` and `fontSize` on the cloned sheet and populate `'—'` into any unfilled `<input>`, `<textarea>`, or `<select>` control.
+    * Updated `deepCloneFormSheet` in `src/utils/pdfExportEngine.js` to preserve the template's `fontFamily` and `fontSize` on the cloned sheet, keep unfilled `<input>`, `<textarea>`, and `<select>` boxes clean and empty, and display `'—'` only for unfilled In-Text tags.
 
 - **2026-10-28** — Customizable Signature Block Widths, High-Contrast Checkboxes, Multi-Line Leader Connector & Widescreen 2-Pane AI Studio:
   - **Customizable Signature Block Widths (`SmartWordStudio.jsx`, `FillFormModal.jsx`, `src/App.css`)**:

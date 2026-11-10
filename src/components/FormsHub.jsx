@@ -19,15 +19,16 @@ import {
   Upload, Eye, Trash2, Search, PenSquare, Building2,
   ShieldCheck, Lock, LayoutGrid, List, Plus,
   CheckCircle2, HardDrive, Edit2, Edit3, History, Image as ImageIcon, Shield,
-  AlertTriangle, Send, Printer, FileEdit, Sparkles, Download, FileDown, Loader2, X, Layers
+  AlertTriangle, Send, Printer, FileEdit, Sparkles, Download, FileDown, Loader2,
+  Archive, RotateCcw, Layers, Link2, Check, X, 
 } from 'lucide-react';
 
 export const FormsHub = () => {
   const {
-    departments, folders, formTemplates, formSubmissions,
+    departments, folders, formTemplates, archivedTemplates, formSubmissions,
     currentUser, isAdmin, isSuperAdmin, canManageDepartment,
-    createFolder, updateFolder, deleteFolder, moveTemplate,
-    archiveTemplate, openDocumentPreview, startReview, addToast,
+    createFolder, updateFolder, deleteFolder, moveTemplate, updateTemplateSubforms,
+    archiveTemplate, restoreTemplate, openDocumentPreview, startReview, addToast,
     refreshTemplates, refreshFolders
   } = useApp();
 
@@ -75,6 +76,44 @@ export const FormsHub = () => {
   const [downloadTarget, setDownloadTarget] = useState(null);
   const [downloadingFormat, setDownloadingFormat] = useState(null);
   const [downloadPdfProgress, setDownloadPdfProgress] = useState('');
+  const [subformsModalTarget, setSubformsModalTarget] = useState(null);
+  const [subformsSelection, setSubformsSelection] = useState([]);
+  const [subformsSearch, setSubformsSearch] = useState('');
+  const [savingSubforms, setSavingSubforms] = useState(false);
+
+  const parentMainFormBySubformId = useMemo(() => {
+    const map = new Map();
+    (formTemplates || []).forEach(main => {
+      if (main.status === 'ARCHIVED') return;
+      (main.subforms || []).forEach(sf => {
+        const sfId = typeof sf === 'string' ? sf : sf?.id;
+        if (sfId && sfId !== main.id && !map.has(sfId)) {
+          map.set(sfId, main);
+        }
+      });
+    });
+    return map;
+  }, [formTemplates]);
+
+  const openSubformsManager = (t) => {
+    const initial = (t.subforms || []).map(sf => (typeof sf === 'string' ? sf : sf?.id)).filter(Boolean);
+    setSubformsSelection(initial);
+    setSubformsSearch('');
+    setSubformsModalTarget(t);
+  };
+
+  const handleSaveSubformsModal = async () => {
+    if (!subformsModalTarget || savingSubforms) return;
+    setSavingSubforms(true);
+    try {
+      const res = await updateTemplateSubforms(subformsModalTarget.id, subformsSelection);
+      if (res) {
+        setSubformsModalTarget(null);
+      }
+    } finally {
+      setSavingSubforms(false);
+    }
+  };
 
   const handleDirectDownload = async (t) => {
     try {
@@ -164,6 +203,7 @@ export const FormsHub = () => {
       defaultExpiryDays: sendForReviewTarget.defaultExpiryDays || 14,
       workflow: sendForReviewTarget.workflow,
       fields: sendForReviewTarget.fields || [],
+      subforms: sendForReviewTarget.subforms || [],
       htmlContent: html,
       reviewerIds,
       message
@@ -307,7 +347,10 @@ export const FormsHub = () => {
   };
 
   // Navigate to location with history tracking
-  const navigateTo = (dept, folderId = null) => {
+  const navigateTo = (dept, folderId = null, keepFilter = false) => {
+    if (!keepFilter && filterType === 'archived') {
+      setFilterType('all');
+    }
     if (dept === currentDept && folderId === currentFolderId) return;
     const nextLoc = { dept, folderId };
     const nextHist = navHistory.slice(0, historyIdx + 1);
@@ -403,6 +446,12 @@ export const FormsHub = () => {
     return formTemplates.filter(t => t.department === currentDept && (t.folderId || null) === (currentFolderId || null));
   }, [formTemplates, currentDept, currentFolderId]);
 
+  const currentArchivedTemplates = useMemo(() => {
+    const list = archivedTemplates || [];
+    if (!currentDept) return list;
+    return list.filter(t => t.department === currentDept && (!currentFolderId || (t.folderId || null) === (currentFolderId || null)));
+  }, [archivedTemplates, currentDept, currentFolderId]);
+
   // Filter & search applied
   const q = search.trim().toLowerCase();
 
@@ -414,22 +463,31 @@ export const FormsHub = () => {
   }, [departments, q]);
 
   const filteredFolders = useMemo(() => {
-    if (filterType === 'templates') return [];
+    if (filterType === 'templates' || filterType === 'archived') return [];
     if (!q) return currentFolders;
     return currentFolders.filter(f => f.name.toLowerCase().includes(q));
   }, [currentFolders, filterType, q]);
 
   const filteredTemplates = useMemo(() => {
-    if (filterType === 'folders') return [];
+    if (filterType === 'folders' || filterType === 'archived') return [];
     if (!q) return currentTemplates;
     return currentTemplates.filter(t =>
       [t.title, t.code, t.description, t.department].some(v => String(v || '').toLowerCase().includes(q))
     );
   }, [currentTemplates, filterType, q]);
 
-  const totalItemsCount = (currentDept === null)
-    ? (filterType === 'templates' ? filteredTemplates.length : filteredDepartments.length)
-    : (filteredFolders.length + filteredTemplates.length);
+  const filteredArchivedTemplates = useMemo(() => {
+    if (!q) return currentArchivedTemplates;
+    return currentArchivedTemplates.filter(t =>
+      [t.title, t.code, t.description, t.department].some(v => String(v || '').toLowerCase().includes(q))
+    );
+  }, [currentArchivedTemplates, q]);
+
+  const totalItemsCount = filterType === 'archived'
+    ? filteredArchivedTemplates.length
+    : (currentDept === null)
+      ? (filterType === 'templates' ? filteredTemplates.length : filteredDepartments.length)
+      : (filteredFolders.length + filteredTemplates.length);
 
   // Descendant folders (recursive)
   const getDescendantFolderIds = useMemo(() => {
@@ -613,7 +671,13 @@ export const FormsHub = () => {
     const isNonEditable = t.isEditable === false;
     const isPdf = t.fileType === 'pdf';
     const isImage = t.fileType === 'image';
+    const isArchived = t.status === 'ARCHIVED';
     const canManageTpl = isSuperAdmin || (t.department && canManageDepartment(t.department));
+    const subCount = isArchived ? (formSubmissions || []).filter(s => s.templateId === t.id).length : 0;
+    const taggedSubformsList = (t.subforms || [])
+      .map(sf => (typeof sf === 'string' ? (formTemplates || []).find(x => x.id === sf) : sf))
+      .filter(Boolean);
+    const parentMain = parentMainFormBySubformId.get(t.id) || null;
 
     return (
       <article
@@ -643,6 +707,11 @@ export const FormsHub = () => {
                 <HardDrive size={10} style={{ marginRight: '3px' }} />
                 {formatSize(t.fileSize)}
               </span>
+              {isArchived && (
+                <span className="sd-badge sd-badge-warn sd-badge-xs" title="Archived document">
+                  <Archive size={10} style={{ marginRight: '3px' }} /> Archived
+                </span>
+              )}
               {isNonEditable ? (
                 <span className="sd-badge sd-badge-gray sd-badge-xs">
                   <Lock size={10} /> {t.fileType?.toUpperCase()}
@@ -656,20 +725,44 @@ export const FormsHub = () => {
                   >
                     v{t.version || 1}
                   </a>
-                  {t.isDraft && (
+                  {!isArchived && t.isDraft && (
                     <span className="sd-badge sd-badge-warn sd-badge-xs" style={{ background: 'rgba(234, 179, 8, 0.15)', color: '#fbbf24', borderColor: 'rgba(234, 179, 8, 0.4)' }} title="Unpublished Draft: Not available for regular users to fill.">
                       <FileEdit size={10} style={{ marginRight: '3px' }} /> Draft
                     </span>
                   )}
-                  {!t.isDraft && (!t.workflow || t.workflow.length === 0) && (
+                  {!isArchived && !t.isDraft && (!t.workflow || t.workflow.length === 0) && (
                     <span className="sd-badge sd-badge-warn sd-badge-xs" title="No approval workflow configured. An admin must configure the approval chain before this form can be filled.">
                       <AlertTriangle size={10} /> No Approvers
+                    </span>
+                  )}
+                  {taggedSubformsList.length > 0 && (
+                    <span
+                      className="sd-badge sd-badge-purple sd-badge-xs"
+                      style={{ cursor: canManageTpl && !isArchived ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                      title={`Main Form Bundle (${taggedSubformsList.length} tagged subform${taggedSubformsList.length === 1 ? '' : 's'}): ${taggedSubformsList.map(s => s.title).join(', ')}`}
+                      onClick={(e) => {
+                        if (canManageTpl && !isArchived) {
+                          e.stopPropagation();
+                          openSubformsManager(t);
+                        }
+                      }}
+                    >
+                      <Layers size={10} /> {taggedSubformsList.length} Subform{taggedSubformsList.length === 1 ? '' : 's'}
+                    </span>
+                  )}
+                  {parentMain && (
+                    <span
+                      className="sd-badge sd-badge-gray sd-badge-xs"
+                      title={`Subform linked to Main Form "${parentMain.title}" (${parentMain.code}) — Governed by Main Form's approval chain`}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                    >
+                      <Link2 size={10} /> Subform of {parentMain.title}
                     </span>
                   )}
                 </div>
               )}
             </div>
-            <span className="sd-muted sd-mono">{t.code}</span>
+            <span className="sd-muted sd-mono">{t.code}{currentDept === null ? ` · ${t.department}` : ''}</span>
           </div>
         </div>
 
@@ -692,7 +785,7 @@ export const FormsHub = () => {
 
         <div className="sd-template-footer">
           <div className="sd-template-footer-meta">
-            <span className="sd-muted">Added {formatDate(t.createdAt)}</span>
+            <span className="sd-muted">{isArchived ? `Archived · ${t.department}` : `Added ${formatDate(t.createdAt)}`}</span>
             <div className="sd-template-quick-tools">
               <a
                 className="sd-icon-btn-sm"
@@ -724,16 +817,26 @@ export const FormsHub = () => {
               >
                 <History size={14} />
               </a>
-              {canManageTpl && (
+              {canManageTpl && !isArchived && (
                 <>
                   {!isNonEditable && (
-                    <button
-                      className="sd-icon-btn-sm"
-                      title="Send for review"
-                      onClick={() => setSendForReviewTarget(t)}
-                    >
-                      <Send size={14} />
-                    </button>
+                    <>
+                      <button
+                        id={`btn-tpl-subforms-${t.id}`}
+                        className="sd-icon-btn-sm"
+                        title="Tag / Link Subforms (Combined Approval & Bundle)"
+                        onClick={() => openSubformsManager(t)}
+                      >
+                        <Layers size={14} />
+                      </button>
+                      <button
+                        className="sd-icon-btn-sm"
+                        title="Send for review"
+                        onClick={() => setSendForReviewTarget(t)}
+                      >
+                        <Send size={14} />
+                      </button>
+                    </>
                   )}
                   <button
                     className="sd-icon-btn-sm"
@@ -751,80 +854,113 @@ export const FormsHub = () => {
                   </button>
                   <button
                     className="sd-icon-btn-sm sd-danger-hover"
-                    title="Remove template"
+                    title="Archive or delete template"
                     onClick={() => setConfirmRemoveTemplate(t)}
                   >
                     <Trash2 size={14} />
                   </button>
                 </>
               )}
+              {canManageTpl && isArchived && subCount === 0 && (
+                <button
+                  className="sd-icon-btn-sm sd-danger-hover"
+                  title="Delete permanently"
+                  onClick={() => setConfirmRemoveTemplate(t)}
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
             </div>
           </div>
 
           <div className="sd-template-footer-actions">
-            {canManageTpl && !isNonEditable && (
-              <a
-                id={`btn-tpl-edit-${t.id}`}
-                className="btn btn-secondary btn-sm sd-btn-flex"
-                title="Edit template definition in Word Studio"
-                {...tabLinkProps(tplUrl('edit', t), () => openEditor(t))}
-              >
-                <Edit3 size={13} /> Edit template
-              </a>
-            )}
-            {!isNonEditable ? (
+            {isArchived ? (
               <>
                 <a
-                  id={`btn-tpl-print-${t.id}`}
                   className="btn btn-secondary btn-sm sd-btn-flex"
-                  {...tabLinkProps(tplUrl('print', t), () => handlePrintTemplate(t))}
-                  title="Print form (filled or blank)"
+                  {...tabLinkProps(tplUrl('view', t), () => openPreview(t))}
                 >
-                  <Printer size={13} /> Print
+                  <Eye size={13} /> Preview
                 </a>
-                {t.isDraft ? (
-                  canManageTpl ? (
-                    <a
-                      className="btn btn-primary btn-sm sd-btn-flex"
-                      {...tabLinkProps(tplUrl('edit', t), () => openEditor(t))}
-                      title="Open in Word Studio to configure approval chain and publish"
-                    >
-                      <Sparkles size={13} /> Edit &amp; Publish
-                    </a>
-                  ) : (
-                    <button
-                      className="btn btn-secondary btn-sm sd-btn-flex"
-                      disabled
-                      title="Draft document — pending configuration &amp; publishing by department admin"
-                    >
-                      <FileEdit size={13} style={{ color: '#fbbf24' }} /> Unpublished Draft
-                    </button>
-                  )
-                ) : (t.workflow && t.workflow.length > 0) ? (
-                  <a
-                    id={`btn-tpl-fill-${t.id}`}
-                    className="btn btn-primary btn-sm sd-btn-flex"
-                    {...tabLinkProps(tplUrl('fill', t), () => handleStartFill(t))}
-                  >
-                    <PenSquare size={13} /> Fill form
-                  </a>
-                ) : (
+                {canManageTpl && (
                   <button
-                    className="btn btn-secondary btn-sm sd-btn-flex"
-                    disabled
-                    title="Cannot fill: No approval workflow configured for this form. An admin must configure the approval chain before this form can be submitted."
+                    id={`btn-tpl-restore-${t.id}`}
+                    type="button"
+                    className="btn btn-primary btn-sm sd-btn-flex"
+                    onClick={() => restoreTemplate(t.id)}
+                    title="Restore this document back to its active department drive"
                   >
-                    <AlertTriangle size={13} className="sd-text-warn" /> No Workflow
+                    <RotateCcw size={13} /> Restore to Drive
                   </button>
                 )}
               </>
             ) : (
-              <a
-                className="btn btn-primary btn-sm sd-btn-flex"
-                {...tabLinkProps(tplUrl('view', t), () => openPreview(t))}
-              >
-                <Eye size={13} /> View doc
-              </a>
+              <>
+                {canManageTpl && !isNonEditable && (
+                  <a
+                    id={`btn-tpl-edit-${t.id}`}
+                    className="btn btn-secondary btn-sm sd-btn-flex"
+                    title="Edit template definition in Word Studio"
+                    {...tabLinkProps(tplUrl('edit', t), () => openEditor(t))}
+                  >
+                    <Edit3 size={13} /> Edit template
+                  </a>
+                )}
+                {!isNonEditable ? (
+                  <>
+                    <a
+                      id={`btn-tpl-print-${t.id}`}
+                      className="btn btn-secondary btn-sm sd-btn-flex"
+                      {...tabLinkProps(tplUrl('print', t), () => handlePrintTemplate(t))}
+                      title="Print form (filled or blank)"
+                    >
+                      <Printer size={13} /> Print
+                    </a>
+                    {t.isDraft ? (
+                      canManageTpl ? (
+                        <a
+                          className="btn btn-primary btn-sm sd-btn-flex"
+                          {...tabLinkProps(tplUrl('edit', t), () => openEditor(t))}
+                          title="Open in Word Studio to configure approval chain and publish"
+                        >
+                          <Sparkles size={13} /> Edit &amp; Publish
+                        </a>
+                      ) : (
+                        <button
+                          className="btn btn-secondary btn-sm sd-btn-flex"
+                          disabled
+                          title="Draft document — pending configuration &amp; publishing by department admin"
+                        >
+                          <FileEdit size={13} style={{ color: '#fbbf24' }} /> Unpublished Draft
+                        </button>
+                      )
+                    ) : (t.workflow && t.workflow.length > 0) ? (
+                      <a
+                        id={`btn-tpl-fill-${t.id}`}
+                        className="btn btn-primary btn-sm sd-btn-flex"
+                        {...tabLinkProps(tplUrl('fill', t), () => handleStartFill(t))}
+                      >
+                        <PenSquare size={13} /> Fill form
+                      </a>
+                    ) : (
+                      <button
+                        className="btn btn-secondary btn-sm sd-btn-flex"
+                        disabled
+                        title="Cannot fill: No approval workflow configured for this form. An admin must configure the approval chain before this form can be submitted."
+                      >
+                        <AlertTriangle size={13} className="sd-text-warn" /> No Workflow
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <a
+                    className="btn btn-primary btn-sm sd-btn-flex"
+                    {...tabLinkProps(tplUrl('view', t), () => openPreview(t))}
+                  >
+                    <Eye size={13} /> View doc
+                  </a>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -836,7 +972,13 @@ export const FormsHub = () => {
     const isNonEditable = t.isEditable === false;
     const isPdf = t.fileType === 'pdf';
     const isImage = t.fileType === 'image';
+    const isArchived = t.status === 'ARCHIVED';
     const canManageTpl = isSuperAdmin || (t.department && canManageDepartment(t.department));
+    const subCount = isArchived ? (formSubmissions || []).filter(s => s.templateId === t.id).length : 0;
+    const taggedSubformsList = (t.subforms || [])
+      .map(sf => (typeof sf === 'string' ? (formTemplates || []).find(x => x.id === sf) : sf))
+      .filter(Boolean);
+    const parentMain = parentMainFormBySubformId.get(t.id) || null;
 
     return (
       <tr
@@ -862,7 +1004,11 @@ export const FormsHub = () => {
           </div>
         </td>
         <td>
-          {t.isDraft ? (
+          {isArchived ? (
+            <span className="sd-badge sd-badge-warn" title="Archived document">
+              <Archive size={10} /> Archived ({t.department})
+            </span>
+          ) : t.isDraft ? (
             <span className="sd-badge sd-badge-warn" style={{ background: 'rgba(234, 179, 8, 0.15)', color: '#fbbf24', borderColor: 'rgba(234, 179, 8, 0.4)' }} title="Unpublished Draft: Workflow not yet configured">
               <FileEdit size={10} /> Draft (Unpublished)
             </span>
@@ -882,6 +1028,30 @@ export const FormsHub = () => {
               {(!t.workflow || t.workflow.length === 0) && (
                 <span className="sd-badge sd-badge-warn" title="No approval workflow configured">
                   <AlertTriangle size={10} /> No Approvers
+                </span>
+              )}
+              {taggedSubformsList.length > 0 && (
+                <span
+                  className="sd-badge sd-badge-purple"
+                  style={{ cursor: canManageTpl && !isArchived ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                  title={`Main Form Bundle (${taggedSubformsList.length} subforms): ${taggedSubformsList.map(s => s.title).join(', ')}`}
+                  onClick={(e) => {
+                    if (canManageTpl && !isArchived) {
+                      e.stopPropagation();
+                      openSubformsManager(t);
+                    }
+                  }}
+                >
+                  <Layers size={10} /> {taggedSubformsList.length} Subform{taggedSubformsList.length === 1 ? '' : 's'}
+                </span>
+              )}
+              {parentMain && (
+                <span
+                  className="sd-badge sd-badge-gray"
+                  title={`Subform of "${parentMain.title}" (${parentMain.code})`}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                >
+                  <Link2 size={10} /> Subform of {parentMain.title}
                 </span>
               )}
             </div>
@@ -930,100 +1100,137 @@ export const FormsHub = () => {
             >
               <History size={15} />
             </a>
-            {canManageTpl && (
+            {isArchived ? (
               <>
-                {!isNonEditable && (
+                {canManageTpl && subCount === 0 && (
                   <button
-                    className="sd-icon-btn"
-                    title="Send for review"
-                    onClick={() => setSendForReviewTarget(t)}
+                    className="sd-icon-btn sd-danger-hover"
+                    title="Delete permanently"
+                    onClick={() => setConfirmRemoveTemplate(t)}
                   >
-                    <Send size={15} />
+                    <Trash2 size={15} />
                   </button>
                 )}
-                <button
-                  className="sd-icon-btn"
-                  title="Assign Rights / Permissions"
-                  onClick={() => setRightsTemplate(t)}
-                >
-                  <ShieldCheck size={15} />
-                </button>
-                <button
-                  className="sd-icon-btn"
-                  title="Move template"
-                  onClick={() => setMoveTemplateTarget(t)}
-                >
-                  <FolderInput size={15} />
-                </button>
-                <button
-                  className="sd-icon-btn sd-danger-hover"
-                  title="Remove template"
-                  onClick={() => setConfirmRemoveTemplate(t)}
-                >
-                  <Trash2 size={15} />
-                </button>
-                {!isNonEditable && (
-                  <a
-                    className="btn btn-secondary btn-xs"
-                    title="Edit template definition in Word Studio"
-                    {...tabLinkProps(tplUrl('edit', t), () => openEditor(t))}
-                  >
-                    <Edit3 size={13} /> Edit template
-                  </a>
-                )}
-              </>
-            )}
-            {!isNonEditable ? (
-              <>
-                <a
-                  className="btn btn-secondary btn-xs"
-                  {...tabLinkProps(tplUrl('print', t), () => handlePrintTemplate(t))}
-                  title="Print form (filled or blank)"
-                >
-                  <Printer size={12} /> Print
-                </a>
-                {t.isDraft ? (
-                  canManageTpl ? (
-                    <a
-                      className="btn btn-primary btn-xs"
-                      {...tabLinkProps(tplUrl('edit', t), () => openEditor(t))}
-                      title="Open in Word Studio to configure approval chain and publish"
-                    >
-                      <Sparkles size={12} /> Publish
-                    </a>
-                  ) : (
-                    <button
-                      className="btn btn-secondary btn-xs"
-                      disabled
-                      title="Draft form — pending publishing by department admin"
-                    >
-                      <FileEdit size={11} style={{ color: '#fbbf24' }} /> Draft
-                    </button>
-                  )
-                ) : (t.workflow && t.workflow.length > 0) ? (
-                  <a
-                    className="btn btn-primary btn-xs"
-                    {...tabLinkProps(tplUrl('fill', t), () => handleStartFill(t))}
-                  >
-                    <PenSquare size={13} /> Fill
-                  </a>
-                ) : (
+                {canManageTpl && (
                   <button
-                    className="btn btn-secondary btn-xs"
-                    disabled
-                    title="Cannot fill: No approval workflow configured. Approval steps must be added before filling."
+                    id={`btn-tbl-tpl-restore-${t.id}`}
+                    type="button"
+                    className="btn btn-primary btn-xs"
+                    onClick={() => restoreTemplate(t.id)}
+                    title="Restore this document back to its active department drive"
                   >
-                    <AlertTriangle size={11} className="sd-text-warn" /> No Route
+                    <RotateCcw size={12} /> Restore
                   </button>
                 )}
               </>
             ) : (
-              <a
-                className="btn btn-primary btn-xs"
-                {...tabLinkProps(tplUrl('view', t), () => openPreview(t))}
-              >
-                <Eye size={13} /> View
-              </a>
+              <>
+                {canManageTpl && (
+                  <>
+                    {!isNonEditable && (
+                      <>
+                        <button
+                          id={`btn-tbl-tpl-subforms-${t.id}`}
+                          className="sd-icon-btn"
+                          title="Tag / Link Subforms (Combined Approval & Bundle)"
+                          onClick={() => openSubformsManager(t)}
+                        >
+                          <Layers size={15} />
+                        </button>
+                        <button
+                          className="sd-icon-btn"
+                          title="Send for review"
+                          onClick={() => setSendForReviewTarget(t)}
+                        >
+                          <Send size={15} />
+                        </button>
+                      </>
+                    )}
+                    <button
+                      className="sd-icon-btn"
+                      title="Assign Rights / Permissions"
+                      onClick={() => setRightsTemplate(t)}
+                    >
+                      <ShieldCheck size={15} />
+                    </button>
+                    <button
+                      className="sd-icon-btn"
+                      title="Move template"
+                      onClick={() => setMoveTemplateTarget(t)}
+                    >
+                      <FolderInput size={15} />
+                    </button>
+                    <button
+                      className="sd-icon-btn sd-danger-hover"
+                      title="Archive or delete template"
+                      onClick={() => setConfirmRemoveTemplate(t)}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                    {!isNonEditable && (
+                      <a
+                        className="btn btn-secondary btn-xs"
+                        title="Edit template definition in Word Studio"
+                        {...tabLinkProps(tplUrl('edit', t), () => openEditor(t))}
+                      >
+                        <Edit3 size={13} /> Edit template
+                      </a>
+                    )}
+                  </>
+                )}
+                {!isNonEditable ? (
+                  <>
+                    <a
+                      className="btn btn-secondary btn-xs"
+                      {...tabLinkProps(tplUrl('print', t), () => handlePrintTemplate(t))}
+                      title="Print form (filled or blank)"
+                    >
+                      <Printer size={12} /> Print
+                    </a>
+                    {t.isDraft ? (
+                      canManageTpl ? (
+                        <a
+                          className="btn btn-primary btn-xs"
+                          {...tabLinkProps(tplUrl('edit', t), () => openEditor(t))}
+                          title="Open in Word Studio to configure approval chain and publish"
+                        >
+                          <Sparkles size={12} /> Publish
+                        </a>
+                      ) : (
+                        <button
+                          className="btn btn-secondary btn-xs"
+                          disabled
+                          title="Draft form — pending publishing by department admin"
+                        >
+                          <FileEdit size={11} style={{ color: '#fbbf24' }} /> Draft
+                        </button>
+                      )
+                    ) : (t.workflow && t.workflow.length > 0) ? (
+                      <a
+                        className="btn btn-primary btn-xs"
+                        {...tabLinkProps(tplUrl('fill', t), () => handleStartFill(t))}
+                      >
+                        <PenSquare size={13} /> Fill
+                      </a>
+                    ) : (
+                      <button
+                        className="btn btn-secondary btn-xs"
+                        disabled
+                        title="Cannot fill: No approval workflow configured. Approval steps must be added before filling."
+                      >
+                        <AlertTriangle size={11} className="sd-text-warn" /> No Route
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <a
+                    className="btn btn-primary btn-xs"
+                    {...tabLinkProps(tplUrl('view', t), () => openPreview(t))}
+                  >
+                    <Eye size={13} /> View
+                  </a>
+                )}
+              </>
             )}
           </div>
         </td>
@@ -1194,6 +1401,15 @@ export const FormsHub = () => {
               >
                 Templates ({currentTemplates.length})
               </button>
+              <button
+                id="btn-filter-archived-files"
+                className={`sd-filter-pill ${filterType === 'archived' ? 'active' : ''}`}
+                onClick={() => setFilterType('archived')}
+                title="View archived forms and documents"
+              >
+                <Archive size={12} style={{ marginRight: '4px', verticalAlign: '-1px' }} />
+                Archived ({currentArchivedTemplates.length})
+              </button>
             </div>
 
             <div className="sd-explorer-view-toggle">
@@ -1239,8 +1455,8 @@ export const FormsHub = () => {
 
             {/* Quick Access Root */}
             <div
-              className={`sd-tree-item ${currentDept === null ? 'active' : ''}`}
-              {...tabOpenProps(locUrl(null, null), () => navigateTo(null, null))}
+              className={`sd-tree-item ${currentDept === null && filterType !== 'archived' ? 'active' : ''}`}
+              {...tabOpenProps(locUrl(null, null), () => { setFilterType('all'); navigateTo(null, null); })}
             >
               <span className="sd-tree-icon"><HardDrive size={15} /></span>
               <span className="sd-tree-label">All Departments</span>
@@ -1250,7 +1466,7 @@ export const FormsHub = () => {
             {/* Department Nodes */}
             <div className="sd-tree-group">
               {departments.map(dept => {
-                const isDeptSelected = currentDept === dept.name && currentFolderId === null;
+                const isDeptSelected = currentDept === dept.name && currentFolderId === null && filterType !== 'archived';
                 const isExpanded = !!expandedDepts[dept.name];
                 const deptRootFolders = folders.filter(f => f.department === dept.name && !f.parentId);
                 const hasFolders = deptRootFolders.length > 0;
@@ -1304,12 +1520,73 @@ export const FormsHub = () => {
                 );
               })}
             </div>
+
+            {/* Archived Files Node */}
+            <div className="sd-tree-section-title" style={{ marginTop: '12px' }}>Archive</div>
+            <div
+              id="tree-node-archived-files"
+              className={`sd-tree-item ${filterType === 'archived' ? 'active' : ''}`}
+              onClick={() => {
+                navigateTo(null, null, true);
+                setFilterType('archived');
+              }}
+              title="View archived forms and documents across your departments"
+            >
+              <span className="sd-tree-icon"><Archive size={15} /></span>
+              <span className="sd-tree-label">Archived Files</span>
+              <span className="sd-tree-badge">{(archivedTemplates || []).length}</span>
+            </div>
           </aside>
 
           {/* Right Main Content Pane */}
           <main className="sd-explorer-main-pane">
-            {/* VIEW A: DRIVE ROOT (ALL DEPARTMENTS) */}
-            {currentDept === null ? (
+            {/* VIEW 0: ARCHIVED FILES VIEW */}
+            {filterType === 'archived' ? (
+              <div className="sd-explorer-root-view">
+                <div className="sd-explorer-section-header">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Archive size={18} className="sd-text-accent" />
+                    <h3>Archived Forms &amp; Files{currentDept ? ` — ${currentDept}` : ''}</h3>
+                  </div>
+                  <span className="sd-muted">
+                    {filteredArchivedTemplates.length} archived item{filteredArchivedTemplates.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+
+                {filteredArchivedTemplates.length === 0 ? (
+                  <EmptyState
+                    icon={Archive}
+                    title="No archived forms or files"
+                    text={q
+                      ? `No archived items matched "${q}".`
+                      : 'Forms and documents that are archived remain preserved here so you can preview, download, or restore them to your drive at any time.'}
+                  />
+                ) : viewMode === 'grid' ? (
+                  <div className="sd-card-grid">
+                    {filteredArchivedTemplates.map(renderTemplateCard)}
+                  </div>
+                ) : (
+                  <div className="sd-table-wrap">
+                    <table className="sd-table sd-table-explorer">
+                      <thead>
+                        <tr>
+                          <th>Name</th>
+                          <th>Type</th>
+                          <th>Size</th>
+                          <th>Details / Status</th>
+                          <th>Identifier</th>
+                          <th>Date</th>
+                          <th style={{ textAlign: 'right' }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredArchivedTemplates.map(renderTemplateRow)}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ) : currentDept === null ? (
               <div className="sd-explorer-root-view">
                 {filterType === 'templates' ? (
                   <>
@@ -2169,41 +2446,57 @@ export const FormsHub = () => {
         </div>
       )}
 
-      {/* 7. Confirm Remove / Delete Template Modal */}
+      {/* 7. Confirm Remove / Archive Template Modal */}
       {confirmRemoveTemplate && (() => {
         const submissionCount = (formSubmissions || []).filter(s => s.templateId === confirmRemoveTemplate.id).length;
         const hasSubmissions = submissionCount > 0;
+        const isAlreadyArchived = confirmRemoveTemplate.status === 'ARCHIVED';
         return (
           <div className="sd-modal-backdrop">
             <div className="sd-modal sd-modal-sm" role="alertdialog">
               <header className="sd-modal-header">
                 <h2 className="sd-modal-title">
-                  {hasSubmissions ? 'Archive template?' : 'Delete template?'}
+                  {isAlreadyArchived ? 'Delete archived document permanently?' : hasSubmissions ? 'Archive template?' : 'Archive or delete template?'}
                 </h2>
               </header>
               <div className="sd-modal-body">
-                {hasSubmissions ? (
+                {isAlreadyArchived ? (
+                  <p>
+                    Are you sure you want to permanently delete <strong>{confirmRemoveTemplate.title}</strong> from physical storage and the database? This cannot be undone.
+                  </p>
+                ) : hasSubmissions ? (
                   <p>
                     <strong>{confirmRemoveTemplate.title}</strong> has <strong>{submissionCount}</strong> filled submission{submissionCount === 1 ? '' : 's'} on record.
-                    It will be <strong>archived</strong> so existing submissions and audit records remain intact, but it will be removed from your active drive.
+                    It will be moved to <strong>Archived Files</strong> so existing submissions and audit records remain intact, and you can restore it at any time.
                   </p>
                 ) : (
                   <p>
                     No user has filled or submitted a form for <strong>{confirmRemoveTemplate.title}</strong> yet.
-                    It will be <strong>permanently deleted</strong> from your drive and physical storage.
+                    You can move it to <strong>Archived Files</strong> (so you can view or restore it later) or <strong>permanently delete</strong> it from storage.
                   </p>
                 )}
               </div>
               <footer className="sd-modal-footer">
                 <button className="btn btn-secondary" onClick={() => setConfirmRemoveTemplate(null)}>Cancel</button>
+                {!isAlreadyArchived && !hasSubmissions && (
+                  <button
+                    className="btn btn-secondary"
+                    onClick={async () => {
+                      await archiveTemplate(confirmRemoveTemplate.id, 'archive');
+                      setConfirmRemoveTemplate(null);
+                    }}
+                  >
+                    <Archive size={14} /> Move to Archive
+                  </button>
+                )}
                 <button
-                  className="btn btn-danger"
+                  className={hasSubmissions && !isAlreadyArchived ? 'btn btn-primary' : 'btn btn-danger'}
                   onClick={async () => {
-                    await archiveTemplate(confirmRemoveTemplate.id);
+                    await archiveTemplate(confirmRemoveTemplate.id, hasSubmissions && !isAlreadyArchived ? 'archive' : 'delete');
                     setConfirmRemoveTemplate(null);
                   }}
                 >
-                  {hasSubmissions ? 'Archive' : 'Delete permanently'}
+                  {hasSubmissions && !isAlreadyArchived ? 'Move to Archive' : 'Delete permanently'}
                 </button>
               </footer>
             </div>
@@ -2284,6 +2577,160 @@ export const FormsHub = () => {
                   <span>{downloadingFormat === 'pdf' ? (downloadPdfProgress || 'Generating PDF…') : 'Save as PDF'}</span>
                 </button>
               </div>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 10. Tag / Manage Subforms Modal */}
+      {subformsModalTarget && (
+        <Modal
+          id="modal-manage-subforms"
+          size="md"
+          title={`Tag Subforms to "${subformsModalTarget.title}"`}
+          subtitle={`${subformsModalTarget.department} · ${subformsModalTarget.code} — Combined Pre-Publication Review, Publishing & Multi-Tab Filling`}
+          onClose={() => {
+            if (!savingSubforms) setSubformsModalTarget(null);
+          }}
+          footer={
+            <>
+              <span className="sd-muted" style={{ marginRight: 'auto', fontSize: '0.82rem' }}>
+                {subformsSelection.length} subform{subformsSelection.length === 1 ? '' : 's'} selected
+              </span>
+              {subformsSelection.length > 0 && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  disabled={savingSubforms}
+                  onClick={() => setSubformsSelection([])}
+                >
+                  Clear All
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={savingSubforms}
+                onClick={() => setSubformsModalTarget(null)}
+              >
+                Cancel
+              </button>
+              <button
+                id="btn-save-tagged-subforms"
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={savingSubforms}
+                onClick={handleSaveSubformsModal}
+              >
+                {savingSubforms ? <Loader2 size={14} className="sd-spin" /> : <Check size={14} />}
+                <span>{savingSubforms ? 'Syncing Bundle…' : 'Save & Sync Approval Chain'}</span>
+              </button>
+            </>
+          }
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div className="sd-alert sd-alert-info" style={{ fontSize: '0.82rem' }}>
+              <Layers size={16} />
+              <div>
+                <strong>Same-Department Bundle (Forms, PDFs &amp; Images):</strong> Subforms must belong to <strong>{subformsModalTarget.department}</strong> and can be any uploaded item (Word Form, PDF, or Image). Tagging subforms syncs <strong>{subformsModalTarget.title}</strong>&apos;s sequential approval chain ({(subformsModalTarget.workflow || []).map(w => typeof w === 'string' ? w : w.department).join(' → ') || 'None'}) across all selected subforms.
+              </div>
+            </div>
+
+            <div className="sd-search">
+              <Search size={14} />
+              <input
+                type="text"
+                placeholder={`Search forms, PDFs, or images in ${subformsModalTarget.department}…`}
+                value={subformsSearch}
+                onChange={e => setSubformsSearch(e.target.value)}
+                autoFocus
+              />
+            </div>
+
+            <div style={{ maxHeight: '340px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {(() => {
+                const sameDeptCandidates = (formTemplates || []).filter(c => {
+                  if (c.id === subformsModalTarget.id) return false;
+                  if (c.status === 'ARCHIVED') return false;
+                  if (c.department !== subformsModalTarget.department) return false;
+                  const q = subformsSearch.trim().toLowerCase();
+                  if (!q) return true;
+                  return (
+                    (c.title || '').toLowerCase().includes(q) ||
+                    (c.code || '').toLowerCase().includes(q) ||
+                    (c.fileName || '').toLowerCase().includes(q)
+                  );
+                });
+
+                if (sameDeptCandidates.length === 0) {
+                  return (
+                    <p className="sd-muted" style={{ textAlign: 'center', padding: '20px 0' }}>
+                      No other forms, PDFs, or images found in {subformsModalTarget.department}.
+                    </p>
+                  );
+                }
+
+                return sameDeptCandidates.map(c => {
+                  const isTagged = subformsSelection.includes(c.id);
+                  const orderIdx = subformsSelection.indexOf(c.id);
+                  const fType = (c.fileType || 'docx').toLowerCase();
+                  const isPdf = fType === 'pdf';
+                  const isImage = fType === 'image';
+                  const typeBadgeLabel = isPdf ? 'PDF' : isImage ? 'IMAGE' : 'WORD FORM';
+                  return (
+                    <div
+                      key={c.id}
+                      className="sd-card"
+                      onClick={() => {
+                        setSubformsSelection(prev =>
+                          prev.includes(c.id) ? prev.filter(id => id !== c.id) : [...prev, c.id]
+                        );
+                      }}
+                      style={{
+                        padding: '10px 14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        cursor: 'pointer',
+                        borderColor: isTagged ? 'var(--primary)' : 'var(--border-subtle)',
+                        background: isTagged ? 'var(--primary-soft)' : 'var(--bg-surface)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div
+                          style={{
+                            width: '28px',
+                            height: '28px',
+                            borderRadius: '6px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background: isTagged ? 'var(--primary)' : 'var(--bg-elevated)',
+                            color: isTagged ? '#000' : 'var(--text-muted)',
+                            fontWeight: 700,
+                            fontSize: '0.75rem'
+                          }}
+                        >
+                          {isTagged ? `S${orderIdx + 1}` : isImage ? <ImageIcon size={14} /> : <FileText size={14} />}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                            {c.title}
+                            <span className="sd-badge sd-badge-gray sd-badge-xs">{typeBadgeLabel}</span>
+                            {c.isDraft && <span className="sd-badge sd-badge-warn sd-badge-xs">Draft</span>}
+                          </div>
+                          <div className="sd-muted" style={{ fontSize: '0.76rem' }}>
+                            {c.department} · {c.code} · {isPdf ? 'Static PDF Document' : isImage ? 'Static Image Attachment' : `${(c.fields || []).length} field${(c.fields || []).length === 1 ? '' : 's'}`}
+                          </div>
+                        </div>
+                      </div>
+                      <span className={`sd-badge ${isTagged ? 'sd-badge-green' : 'sd-badge-gray'}`}>
+                        {isTagged ? `Tagged (#${orderIdx + 1})` : '+ Tag'}
+                      </span>
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </div>
         </Modal>

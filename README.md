@@ -19,7 +19,9 @@
 - **Draft Documents & Direct Staging**: Department admins can upload documents and templates purely as unpublished drafts (`status = 'DRAFT'`) without defining an approval chain. Drafts are private to department admins and can be promoted to active forms at any time.
 - **Dual View Modes**: Switch seamlessly between Grid (Card/Tiles) and Details (Table) views with dedicated Size columns.
 - **Safe Re-Parenting**: Deleting a folder automatically re-parents its contents to the parent folder to prevent data loss.
-- **Submission-Aware Deletion vs. Archival**: Deleting a document or template checks if any user has filled or submitted a form against it. If zero submissions exist, the file is permanently erased from the server disk drive (`storage/templates/`) and PostgreSQL database. If submissions exist, it is soft-archived to protect the audit trail and allow completed forms to continue rendering and verifying PKI signatures.
+- **Submission-Aware Deletion vs. Archival & Restore**: Deleting a document or template checks if any user has filled or submitted a form against it. If zero submissions exist, admins can choose to either **Move to Archive** or **Delete permanently** from the server disk drive (`storage/templates/`) and PostgreSQL database. If submissions exist, it is soft-archived (`status = 'ARCHIVED'`) to protect the audit trail and allow completed forms to continue rendering and verifying PKI signatures.
+- **Archived Forms & Files Explorer (`Archived Files`)**: Dedicated **`Archived Files`** node in the left Explorer tree and **`Archived (N)`** filter pill in the Explorer toolbar allow viewing, previewing, downloading, inspecting version history, and **Restoring** archived files back to their active department drive (`PUT /api/forms/templates/:id/restore`).
+- **Main Form + Tagged Subforms Bundle (`Tag / Link Subforms`)**: Department admins can tag any uploaded file from the **same department** — editable Word Forms (`.docx`, `.doc`), static PDFs (`.pdf`), or Images (`.png`, `.jpg`, `.jpeg`, `.webp`) — as Subforms to a Main Form. The Main Form's approval chain governs all tagged subforms, automatically publishes any draft subforms when the Main Form is published, and bundles them for combined pre-publication review, multi-tab filling, and single-click submission approval.
 
 ### 2. Microsoft Word & Form Creation Studio (`SmartWordStudio.jsx`)
 - **Full Union of Word Processor + Custom Form Creator**: Design professional documents and interactive forms on an authentic A4 sheet canvas.
@@ -57,7 +59,7 @@
     - Drag and reorder any existing form field pill (`.sd-doc-field-pill`), signature block (`.sd-doc-sig-block`), system tag (`.sd-doc-system-tag`), or image wrapper (`.sd-doc-image-wrap`) anywhere on the canvas — onto the same horizontal row before/after another control, onto a different line, or inside/outside table cells — with a live visual drop caret indicator (`.sd-drop-caret-indicator`).
     - Drag form control buttons directly from the **Home** and **Insert Elements** ribbon tabs onto the document canvas at any target drop location.
   - **Page Layout Tab & MS Word-Style Page Zoom (`50%`–`200%`)**: Margins (Normal, Narrow, Wide), Page sizes (A4, Letter), Orientation (Portrait, Landscape), and interactive **Page Zoom** controls (`50%` to `200%` via header stepper, bottom status bar slider, and `75%` / `100%` / `125%` / `150%` preset pills).
-  - **Workflow & Approvals Tab**: Target department, destination folder, target audience (All Users vs Department Only), decision deadline in days, and ordered department approval chains (auto-synced with department signature slots).
+  - **Workflow & Approvals Tab & Subform Bundling**: Target department, destination folder, target audience (All Users vs Department Only), decision deadline in days, ordered department approval chains (auto-synced with department signature slots), and **`+ Tag Subforms…`** selector to bundle same-department Word forms, PDFs, or Images with a live **Main Form Bundle Bar** and Subform Preview modal above the A4 sheet.
 - **Authentic Microsoft Word Print Engine**: Dedicated print pipeline (`printWordDocument` and `POST /api/forms/render-print-document`) that renders genuine Word documents (`.docx`) for printing with authentic Word margins, headers, tables, and page layout rather than basic browser HTML print.
 - **Save as Draft Option**: Dedicated `[ Save Draft ]` action allows saving work directly into folders without configuring an approval chain until ready to publish.
 - **In-Document Interactive Widgets & Universal Element Removal**: Clickable field pills (`.sd-doc-field-pill`), signature blocks (`.sd-doc-sig-block`), and system tags open customization modals directly inside the document canvas for:
@@ -69,7 +71,7 @@
   - **Staging & Clean Cancellation**: Inserting a placeholder stages the field and opens the customizer; canceling or closing the dialog cleanly removes the draft field from the document canvas without leaving orphan tags.
 - **Strict Manual-Mode Parity**: Both Word Upload (`server/docxEngine.js`) and AI Form Generation (`server/aiFormEngine.js`) strictly produce clean Manual-Mode HTML (`<p>`, `<p><br/></p>` line breaks, `<h1>`, `<h3>`, `<table>`, `hr`) without injecting custom padding, inline margins, or non-manual attributes.
 - **Backdrop Outside-Click Protection**: All dialogs, popovers, and modals in Word Form Studio and across the app feature outside-click protection so accidental clicks on the dark backdrop never discard unsaved changes.
-- **Live Form Preview & Download Parity**: Header toggle (Edit / Side by side / Preview), template Preview (`DocumentPreviewModal.jsx`), and exported `.docx` / `.pdf` files render the exact Filling Form layout (same fonts, multi-column rows, labels, field instructions, input boxes, and signature cards) — the only difference is that unfilled fields and in-text placeholders display a clean dash (`—`) instead of placeholder text or raw `{{tags}}`.
+- **Live Form Preview & Download Parity**: Header toggle (Edit / Side by side / Preview), template Preview (`DocumentPreviewModal.jsx`), and exported `.docx` / `.pdf` files render the exact Filling Form layout (same fonts, multi-column rows, labels, field instructions, input boxes, and signature cards) — unfilled direct input boxes remain clean and empty while unfilled in-text tags (`mode: 'placeholder'`) display a clean dash (`—`) instead of raw `{{tags}}`.
 - **Full `.docx` & `.doc` Roundtrip with OpenXML/OPC Repair Engine**: Import existing `.docx` and legacy `.doc` (Word 97-2004) files, edit directly in the studio, or start with a clean blank canvas; compile and export 100% Microsoft Word desktop-compliant `.docx` files via `compileHtmlToValidDocx`, `repairDocxBuffer`, and `renderTemplateAsWordDocx` (`server/docxEngine.js`).
 
 ### 3. Cross-Department Pre-Publication Review & Diff/Merge Workflow (`ReviewsHub.jsx`)
@@ -117,6 +119,7 @@
 
 ### 5. Form Submissions & Fill Workflow (`FillFormModal.jsx`)
 - **Dynamic Form Filling**: Auto-generates form controls from detected template placeholders and Word Form Studio widgets.
+- **Multi-Tab Main Form + Subforms Bundle Switcher**: When a Main Form has tagged subforms (same-department Word forms, PDFs, or Images), a **Multi-Tab Document Switcher Bar** appears above the document sheet so the user can seamlessly switch between **`Main Form`** and **`Subform 1..N`** (interactive Word sheets, embedded PDF viewer, or Image viewer), complete mandatory fields across all sheets, sign once, and submit as a single combined package (`formData` + `subformsData`).
 - **Dedicated Right-Side Interactive Form Rail**: Docked panel containing clean input cards for all placeholders and form fields, complete with live completion counters, mandatory indicators, field index tags, and type-specific controls (date shortcuts, number, dropdown, textarea).
 - **Field Descriptions & Guidance**: Interactive fields display rich multi-line instructional guidance in the right rail cards, single-field dialogs, and canvas tooltips to help users complete complex forms accurately.
 - **Zero-Highlight Natural Text & Baseline Alignment**: In-text placeholders blend seamlessly into document prose with zero colored boxes or borders (`border: none; background: transparent;`), sitting directly on the typographic baseline (`line-height: inherit !important`) with zero line displacement.
@@ -182,8 +185,8 @@
 - **Three-Tier Scope Control**:
   - **All Users (`ALL`)**: Public access across the entire organization.
   - **Specific Departments (`DEPARTMENTS`)**: Restricted to designated department drives and their members.
-  - **Specific Persons Only (`USERS`)**: Individual-level access whitelist for confidential executive forms.
-- **Strict Query Filtering**: Backend enforces access checks on template listing and file access to prevent unauthorized viewing.
+  - **Specific Persons Only (`USERS`)**: Individual-level access whitelist (`allowedUsers`) for confidential executive forms and files.
+- **Strict Dual-Layer Enforcement**: Both the backend (`canSeeTemplate` in `server/server.js`) and client state (`canUserAccessTemplate` in `src/context/AppContext.jsx`) strictly enforce `USERS`, `DEPARTMENTS`, and `ALL` permissions across template listings, tagged subforms, and file downloads so unauthorized users never discover or open restricted items.
 
 ### 12. Real-Time Enterprise Notification System & Interactive Actionable Toasts (`NotificationBell.jsx`, `ToastContainer.jsx`)
 - **Instant Alerts Drawer**: Notification bell in sidebar with live unread counter badge and 15s background polling.
@@ -228,10 +231,10 @@
 - **Search, Filtering & CSV Export**: Real-time debounced keyword search, category pills, and complete CSV ledger export.
 - **Cryptographic Fingerprinting**: Every event is recorded with a verified SHA-256 integrity hash.
 
-### 18. Theme System, `100vh` Zero-Scroll Viewport & Version Tracking (`v1.4.0`)
+### 18. Theme System, `100vh` Zero-Scroll Viewport & Version Tracking (`v1.5.0`)
 - **Dark Mode & Light Mode + 5 Accent Themes**: Switch instantly between **Pure Black Dark Mode** (`#000000`) and **High-Contrast Light Mode** (`#f8fafc` / `#ffffff`), paired with 5 accent themes (**Electric Lime / Green**, **Crimson Red**, **Sunset Orange**, **Royal Purple**, **Ocean Blue**) from the Login top bar, Sidebar footer, or Profile & Signature modal (`App Theme` tab).
-- **`100vh` Zero-Scroll Viewport & Pinned Footer**: Every page across the application (except the full-screen `Word Form Studio` overlay) is locked to `100vh` with zero page-level vertical scrolling and `<AppFooter />` (`Powered by prynivo.com • v1.4.0`) permanently visible at the bottom.
-- **Live Footer Version Badge & Automated Cache Clearing ("Ctrl + F5")**: The footer (`AppFooter.jsx`) displays the real-time application version (`v1.4.0`) with a pulsing status dot and manual cache-clear action. Automatically purges `CacheStorage` and service workers with cache-busting reload whenever a new build version is detected.
+- **`100vh` Zero-Scroll Viewport & Pinned Footer**: Every page across the application (except the full-screen `Word Form Studio` overlay) is locked to `100vh` with zero page-level vertical scrolling and `<AppFooter />` (`Powered by prynivo.com • v1.5.0`) permanently visible at the bottom.
+- **Live Footer Version Badge & Automated Cache Clearing ("Ctrl + F5")**: The footer (`AppFooter.jsx`) displays the real-time application version (`v1.5.0`) with a pulsing status dot and manual cache-clear action. Automatically purges `CacheStorage` and service workers with cache-busting reload whenever a new build version is detected.
 - **Universal Backdrop Click Immunity**: All dialogs, popovers, and modals (folder CRUD, field customizers, single-field dialogs, missing fields alerts, commit modals) feature backdrop outside-click protection to safeguard against accidental data loss.
 
 ### 19. Native Disk / Object Storage Engine (`server/storageEngine.js`)

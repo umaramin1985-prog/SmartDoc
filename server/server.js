@@ -47,7 +47,7 @@ app.use(express.json({ limit: '50mb' }));
 // ============================================================
 // Application Version & Cache Invalidation
 // ============================================================
-let appVersion = '1.4.0';
+let appVersion = '1.5.0';
 try {
   const pkgData = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
   if (pkgData && pkgData.version) appVersion = pkgData.version;
@@ -174,6 +174,7 @@ function mapTemplate(t) {
     versionHistory: parseJson(t.version_history, []),
     comments: parseJson(t.comments, []),
     fields: parseJson(t.fields, []),
+    subforms: parseJson(t.subforms, []),
     signatureSlots: Array.isArray(rawSigSlots) ? rawSigSlots.map(s => decodeHtmlAmp(String(s || ''))) : [],
     systemTags: parseJson(t.system_tags, []),
     workflow: parseJson(t.workflow, []),
@@ -214,6 +215,7 @@ function mapSubmission(s) {
     versionHistory: parseJson(s.version_history, []),
     comments: parseJson(s.comments, []),
     formData: parseJson(s.form_data, {}),
+    subformsData: parseJson(s.subforms_data, {}),
     expiryDate: s.expiry_date,
     status,
     currentWorkflowStep: s.current_workflow_step,
@@ -229,24 +231,25 @@ function mapSubmission(s) {
 }
 
 function canSeeTemplate(actor, t) {
+  if (!actor || !t) return false;
   if (isSuper(actor)) return true;
-  if (isDeptAdmin(actor, t.department)) return true;
   // If it's an unpublished DRAFT, only admins of that department (or superadmin) can view/manage it
-  if (t.status === 'DRAFT') return false;
+  if (t.status === 'DRAFT') return isDeptAdmin(actor, t.department);
+
   const accessType = t.access_type || (t.audience === 'ALL' ? 'ALL' : 'DEPARTMENTS');
-  if (accessType === 'ALL') return true;
-  if (accessType === 'DEPARTMENTS') {
-    const allowedDepts = parseJson(t.allowed_departments, []);
-    if (allowedDepts.length === 0) return t.department === actor.department;
-    return allowedDepts.includes(actor.department) || t.department === actor.department;
-  }
   if (accessType === 'USERS') {
     const allowedUsers = parseJson(t.allowed_users, []);
     return allowedUsers.some(u => {
-      if (typeof u === 'string') return u === actor.id || u.toLowerCase() === (actor.username || '').toLowerCase();
-      return u.id === actor.id || (u.username && u.username.toLowerCase() === (actor.username || '').toLowerCase());
+      if (typeof u === 'string') return String(u) === String(actor.id) || u.toLowerCase() === (actor.username || '').toLowerCase();
+      return String(u.id) === String(actor.id) || (u.username && u.username.toLowerCase() === (actor.username || '').toLowerCase());
     });
   }
+  if (accessType === 'DEPARTMENTS') {
+    const allowedDepts = parseJson(t.allowed_departments, []);
+    if (allowedDepts.length === 0) return t.department === actor.department;
+    return allowedDepts.includes(actor.department);
+  }
+  if (accessType === 'ALL') return true;
   return t.department === actor.department;
 }
 
@@ -1081,9 +1084,10 @@ app.get('/api/forms/templates', async (req, res) => {
     const actor = await requireActor(req, res);
     if (!actor) return;
     const r = await query(
-      `SELECT * FROM form_templates WHERE status IN ('ACTIVE', 'DRAFT') ORDER BY created_at DESC`
+      `SELECT * FROM form_templates WHERE status IN ('ACTIVE', 'DRAFT', 'ARCHIVED') ORDER BY created_at DESC`
     );
-    res.json(r.rows.filter(t => canSeeTemplate(actor, t)).map(mapTemplate));
+    const finalRows = r.rows.filter(t => canSeeTemplate(actor, t));
+    res.json(finalRows.map(mapTemplate));
   } catch (err) {
     console.error('[GET templates]', err);
     res.status(500).json({ error: 'Failed to load templates' });
@@ -1302,6 +1306,83 @@ async function findDuplicateTemplateInFolder({ department, folderId, title, file
   return res.rows[0] || null;
 }
 
+// Helper: Find if a template is governed as a tagged subform of a Main Form
+async function getGoverningMainForm(templateId) {
+  if (!templateId) return null;
+  try {
+    const r = await query(
+      `SELECT id, title, unique_code, department, workflow, status, subforms
+       FROM form_templates
+       WHERE status IN ('ACTIVE', 'DRAFT') AND subforms @> $1::jsonb
+       ORDER BY updated_at DESC LIMIT 1`,
+      [JSON.stringify([String(templateId)])]
+    );
+    return r.rows[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+// Helper: Sync tagged subforms with Main Form's approval workflow and publishing status
+async function syncTaggedSubforms(mainId, rawSubforms, cleanWorkflow, finalStatus, mainDepartment = null) {
+  let resolvedMainDept = mainDepartment;
+  if (!resolvedMainDept && mainId) {
+    const mRes = await query('SELECT department FROM form_templates WHERE id = $1', [mainId]);
+    resolvedMainDept = mRes.rows[0]?.department || null;
+  }
+
+  const candidateIds = Array.from(new Set(
+    (Array.isArray(rawSubforms) ? rawSubforms : [])
+      .map(s => (typeof s === 'string' ? s : s?.id))
+      .filter(id => id && String(id) !== String(mainId))
+      .map(String)
+  ));
+
+  if (candidateIds.length === 0) {
+    await query('UPDATE form_templates SET subforms = $1::jsonb WHERE id = $2', ['[]', mainId]);
+    return [];
+  }
+
+  const sfRes = await query(
+    `SELECT * FROM form_templates WHERE id = ANY($1) AND status != 'ARCHIVED'`,
+    [candidateIds]
+  );
+  const sfMap = new Map(sfRes.rows.map(r => [r.id, r]));
+  const validSubformIds = candidateIds.filter(id => {
+    const row = sfMap.get(id);
+    if (!row) return false;
+    // Enforce that Main Form and Subforms belong to the same department
+    if (resolvedMainDept && String(row.department || '').trim() !== String(resolvedMainDept).trim()) {
+      return false;
+    }
+    return true;
+  });
+
+  await query('UPDATE form_templates SET subforms = $1::jsonb WHERE id = $2', [JSON.stringify(validSubformIds), mainId]);
+
+  const hasValidWorkflow = Array.isArray(cleanWorkflow) && cleanWorkflow.length > 0;
+  for (const sfId of validSubformIds) {
+    const sfRow = sfMap.get(sfId);
+    if (!sfRow) continue;
+    const sfOwnSubforms = parseJson(sfRow.subforms, []).filter(id => String(typeof id === 'string' ? id : id?.id) !== String(mainId));
+    const fType = sfRow.file_type || 'docx';
+    const isWordForm = sfRow.is_editable !== false && (fType === 'docx' || fType === 'doc');
+    const nextSfWorkflow = (isWordForm && hasValidWorkflow) ? cleanWorkflow : parseJson(sfRow.workflow, []);
+    const nextSfStatus = (finalStatus === 'ACTIVE' && sfRow.status === 'DRAFT' && (!isWordForm || nextSfWorkflow.length > 0))
+      ? 'ACTIVE'
+      : sfRow.status;
+
+    await query(
+      `UPDATE form_templates
+       SET workflow = $1::jsonb, status = $2, subforms = $3::jsonb, updated_at = NOW()
+       WHERE id = $4`,
+      [JSON.stringify(nextSfWorkflow), nextSfStatus, JSON.stringify(sfOwnSubforms), sfId]
+    );
+  }
+
+  return validSubformIds;
+}
+
 app.post('/api/forms/templates', async (req, res) => {
   try {
     const actor = await requireActor(req, res);
@@ -1511,6 +1592,10 @@ app.post('/api/forms/templates', async (req, res) => {
     );
 
     await audit(isDraft ? 'TEMPLATE_DRAFT_CREATED' : 'TEMPLATE_CREATED', actor.username, `${code} ${title.trim()}`, dept);
+
+    if (Array.isArray(req.body.subforms) && req.body.subforms.length > 0) {
+      await syncTaggedSubforms(id, req.body.subforms, cleanWorkflow, finalStatus);
+    }
 
     // Publishing the outcome of a finished review closes that review
     if (req.body.reviewId) {
@@ -1870,7 +1955,12 @@ app.put('/api/forms/templates/:id', async (req, res) => {
       cleanFields = fields.map(f => mapSingleField(f.key, f));
     }
 
-    const steps = (Array.isArray(workflow) ? workflow : parseJson(t.workflow, []))
+    const governingMain = await getGoverningMainForm(t.id);
+    const governingWf = governingMain ? parseJson(governingMain.workflow, []) : [];
+
+    const steps = (governingWf.length > 0
+      ? governingWf
+      : (Array.isArray(workflow) ? workflow : parseJson(t.workflow, [])))
       .map(w => (typeof w === 'string' ? w : w?.department))
       .filter(Boolean);
     const cleanWorkflow = steps.map((department, i) => ({ step: i + 1, department }));
@@ -1979,6 +2069,9 @@ app.put('/api/forms/templates/:id', async (req, res) => {
       : (nextStatus === 'DRAFT' ? 'TEMPLATE_DRAFT_SAVED' : 'TEMPLATE_EDITED');
     await audit(auditAction, actor.username, `${t.unique_code} v${nextVersion}`, t.department);
 
+    const nextSubforms = req.body.subforms !== undefined ? req.body.subforms : parseJson(t.subforms, []);
+    await syncTaggedSubforms(t.id, nextSubforms, cleanWorkflow, nextStatus);
+
     // Publishing the outcome of a finished review closes that review
     if (req.body.reviewId) {
       await query(
@@ -1993,6 +2086,30 @@ app.put('/api/forms/templates/:id', async (req, res) => {
   } catch (err) {
     console.error('[PUT edit template]', err);
     res.status(400).json({ error: err.message || 'Failed to update template' });
+  }
+});
+
+// Tag or untag subforms on a Main Form (syncs combined approval workflow & publishing state)
+app.put('/api/forms/templates/:id/subforms', async (req, res) => {
+  try {
+    const actor = await requireActor(req, res);
+    if (!actor) return;
+    const r = await query('SELECT * FROM form_templates WHERE id = $1', [req.params.id]);
+    const t = r.rows[0];
+    if (!t) return res.status(404).json({ error: 'Template not found' });
+    if (!isDeptAdmin(actor, t.department)) {
+      return res.status(403).json({ error: 'Only admins of the owning department can tag subforms' });
+    }
+
+    const mainWorkflow = parseJson(t.workflow, []);
+    const validSubformIds = await syncTaggedSubforms(t.id, req.body.subforms, mainWorkflow, t.status, t.department);
+    await audit('TEMPLATE_SUBFORMS_UPDATED', actor.username, `${t.unique_code} (${validSubformIds.length} subforms)`, t.department);
+
+    const updated = await query('SELECT * FROM form_templates WHERE id = $1', [t.id]);
+    res.json(mapTemplate(updated.rows[0]));
+  } catch (err) {
+    console.error('[PUT template subforms]', err);
+    res.status(400).json({ error: err.message || 'Failed to update tagged subforms' });
   }
 });
 
@@ -2198,25 +2315,27 @@ app.put('/api/forms/templates/:id/move', async (req, res) => {
 });
 
 // Delete or archive template:
-// If ANY user has filled or submitted a form against this template (count > 0),
+// If ANY user has filled or submitted a form against this template (count > 0), or if ?mode=archive is specified,
 // preserve it as ARCHIVED so existing submissions, signatures, and audit trails remain intact.
-// If NO user has filled or submitted a form (count === 0), permanently delete the file
+// If NO user has filled or submitted a form (count === 0) and ?mode=archive is not requested, permanently delete the file
 // from disk storage and delete the record from PostgreSQL.
 app.delete('/api/forms/templates/:id', async (req, res) => {
   try {
     const actor = await requireActor(req, res);
     if (!actor) return;
-    const r = await query('SELECT id, title, department, file_path FROM form_templates WHERE id = $1', [req.params.id]);
+    const r = await query('SELECT id, title, department, file_path, status FROM form_templates WHERE id = $1', [req.params.id]);
     const t = r.rows[0];
     if (!t) return res.status(404).json({ error: 'Template not found' });
     if (!isDeptAdmin(actor, t.department)) return res.status(403).json({ error: 'Only admins of the owning department can remove this template' });
+
+    const requestedMode = String(req.query.mode || '').toLowerCase();
 
     // Check if any user has filled or submitted a form for this template
     const subRes = await query('SELECT COUNT(*)::int AS count FROM form_submissions WHERE template_id = $1', [t.id]);
     const submissionCount = subRes.rows[0]?.count || 0;
 
-    if (submissionCount > 0) {
-      // Submissions exist on record: soft-archive so past submissions can still render and verify PKI signatures
+    if (submissionCount > 0 || (requestedMode === 'archive' && t.status !== 'ARCHIVED')) {
+      // Soft-archive so past submissions can still render and verify PKI signatures (or when admin explicitly archives)
       await query(`UPDATE form_templates SET status = 'ARCHIVED', updated_at = NOW() WHERE id = $1`, [t.id]);
       await audit('TEMPLATE_ARCHIVED', actor.username, t.title, t.department);
       return res.json({
@@ -2224,7 +2343,9 @@ app.delete('/api/forms/templates/:id', async (req, res) => {
         id: t.id,
         action: 'archived',
         submissionCount,
-        message: `Template has ${submissionCount} submission(s) on record and was archived to preserve audit integrity.`
+        message: submissionCount > 0
+          ? `Template has ${submissionCount} submission(s) on record and was archived to preserve audit integrity.`
+          : `"${t.title}" was moved to Archived Files.`
       });
     }
 
@@ -2244,6 +2365,55 @@ app.delete('/api/forms/templates/:id', async (req, res) => {
   } catch (err) {
     console.error('[DELETE templates]', err);
     res.status(500).json({ error: 'Failed to remove template' });
+  }
+});
+
+// Restore an archived template back to active/draft status in its department drive
+app.put('/api/forms/templates/:id/restore', async (req, res) => {
+  try {
+    const actor = await requireActor(req, res);
+    if (!actor) return;
+    const r = await query('SELECT * FROM form_templates WHERE id = $1', [req.params.id]);
+    const t = r.rows[0];
+    if (!t) return res.status(404).json({ error: 'Template not found' });
+    if (!isDeptAdmin(actor, t.department)) {
+      return res.status(403).json({ error: 'Only admins of the owning department can restore this template' });
+    }
+
+    // Verify target folder still exists; if deleted, restore to department root
+    let targetFolderId = t.folder_id || null;
+    if (targetFolderId) {
+      const fCheck = await query('SELECT id FROM folders WHERE id = $1 AND department = $2', [targetFolderId, t.department]);
+      if (fCheck.rowCount === 0) targetFolderId = null;
+    }
+
+    // Check for duplicate active/draft name in target folder
+    let restoredTitle = t.title;
+    const dup = await findDuplicateTemplateInFolder({
+      department: t.department,
+      folderId: targetFolderId,
+      title: restoredTitle,
+      fileName: t.docx_filename,
+      excludeId: t.id
+    });
+    if (dup) {
+      restoredTitle = `${t.title} (Restored)`;
+    }
+
+    const wf = parseJson(t.workflow, []);
+    const nextStatus = (t.is_editable !== false && wf.length === 0) ? 'DRAFT' : 'ACTIVE';
+
+    await query(
+      `UPDATE form_templates SET status = $1, title = $2, folder_id = $3, updated_at = NOW() WHERE id = $4`,
+      [nextStatus, restoredTitle, targetFolderId, t.id]
+    );
+    await audit('TEMPLATE_RESTORED', actor.username, `${t.unique_code} ${restoredTitle}`, t.department);
+
+    const updated = await query('SELECT * FROM form_templates WHERE id = $1', [t.id]);
+    res.json(mapTemplate(updated.rows[0]));
+  } catch (err) {
+    console.error('[PUT restore template]', err);
+    res.status(400).json({ error: err.message || 'Failed to restore archived template' });
   }
 });
 
@@ -2286,7 +2456,7 @@ app.post('/api/forms/submissions', async (req, res) => {
   try {
     const actor = await requireActor(req, res);
     if (!actor) return;
-    const { templateId, formData, expiryDate } = req.body;
+    const { templateId, formData, subformsData, expiryDate } = req.body;
 
     const tr = await query(`SELECT * FROM form_templates WHERE id = $1`, [templateId]);
     const t = tr.rows[0];
@@ -2303,6 +2473,30 @@ app.post('/api/forms/submissions', async (req, res) => {
 
     const { data, error } = validateFormData(parseJson(t.fields, []), formData);
     if (error) return res.status(400).json({ error });
+
+    // Validate all active tagged subforms when submitting a Main Form bundle
+    const subformIds = parseJson(t.subforms, [])
+      .map(x => (typeof x === 'string' ? x : x?.id))
+      .filter(Boolean);
+    const cleanSubformsData = {};
+    if (subformIds.length > 0) {
+      const sfRows = await query(
+        `SELECT * FROM form_templates WHERE id = ANY($1)`,
+        [subformIds]
+      );
+      const sfMap = new Map(sfRows.rows.map(r => [r.id, r]));
+      const rawSfData = (subformsData && typeof subformsData === 'object') ? subformsData : {};
+      for (const sfId of subformIds) {
+        const sf = sfMap.get(sfId);
+        if (!sf || sf.status === 'ARCHIVED' || !canSeeTemplate(actor, sf)) continue;
+        const sfFields = parseJson(sf.fields, []);
+        const { data: sfClean, error: sfErr } = validateFormData(sfFields, rawSfData[sfId] || {});
+        if (sfErr) {
+          return res.status(400).json({ error: `[Subform "${sf.title}"] ${sfErr}` });
+        }
+        cleanSubformsData[sfId] = sfClean;
+      }
+    }
 
     const tmplWorkflow = parseJson(t.workflow, []);
     if (tmplWorkflow.length === 0) return res.status(400).json({ error: 'This template has no approval workflow' });
@@ -2324,12 +2518,14 @@ app.post('/api/forms/submissions', async (req, res) => {
       submitter = await getUserById(actor.id);
     }
 
+    const hasSubformsPayload = Object.keys(cleanSubformsData).length > 0;
     const payloadToSign = {
       templateId: t.id,
       uniqueNumber,
       title: t.title,
       department: t.department,
       formData: data,
+      ...(hasSubformsPayload ? { subformsData: cleanSubformsData } : {}),
       expiryDate
     };
 
@@ -2346,7 +2542,9 @@ app.post('/api/forms/submissions', async (req, res) => {
       version: '1.0',
       timestamp: new Date().toISOString(),
       modifiedBy: actor.name,
-      summary: 'Submitted for approval (PKI Digitally Sealed)',
+      summary: hasSubformsPayload
+        ? `Submitted bundle (${Object.keys(cleanSubformsData).length} subform${Object.keys(cleanSubformsData).length === 1 ? '' : 's'} included) for approval (PKI Digitally Sealed)`
+        : 'Submitted for approval (PKI Digitally Sealed)',
       pkiFingerprint: submitter.pki_fingerprint
     }];
 
@@ -2354,9 +2552,9 @@ app.post('/api/forms/submissions', async (req, res) => {
       `INSERT INTO form_submissions (id, template_id, unique_number, title, department, submitted_by_id, submitted_by_name,
          submitted_by_username, version, version_history, form_data, subforms_data, signature, signed_at, expiry_date,
          status, current_workflow_step, workflow, objection_notes, folder_id, comments, pki_signature)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '1.0', $9::jsonb, $10::jsonb, '{}'::jsonb, $11, NOW(), $12, 'IN_REVIEW', 1, $13::jsonb, NULL, $14, '[]'::jsonb, $15::jsonb)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '1.0', $9::jsonb, $10::jsonb, $11::jsonb, $12, NOW(), $13, 'IN_REVIEW', 1, $14::jsonb, NULL, $15, '[]'::jsonb, $16::jsonb)`,
       [id, t.id, uniqueNumber, t.title, t.department, actor.id, actor.name, actor.username,
-        JSON.stringify(history), JSON.stringify(data), actor.signature_image, expiryDate, JSON.stringify(freshWorkflow(tmplWorkflow)), t.folder_id || null, JSON.stringify(pkiSignature)]
+        JSON.stringify(history), JSON.stringify(data), JSON.stringify(cleanSubformsData), actor.signature_image, expiryDate, JSON.stringify(freshWorkflow(tmplWorkflow)), t.folder_id || null, JSON.stringify(pkiSignature)]
     );
     await audit('FORM_SUBMITTED', actor.username, `${uniqueNumber} ${t.title}`, t.department);
 
@@ -2393,12 +2591,39 @@ app.put('/api/forms/submissions/:id/modify', async (req, res) => {
     if (s.status !== 'OBJECTION_RAISED') return res.status(403).json({ error: 'This form is locked. You cannot modify it unless a reviewer has explicitly raised an objection requesting changes.' });
     if (!actor.signature_image) return res.status(400).json({ error: 'Please save your signature before resubmitting' });
 
-    const { formData, changeSummary, expiryDate } = req.body;
-    const tr = await query('SELECT fields, workflow FROM form_templates WHERE id = $1', [s.template_id]);
+    const { formData, subformsData, changeSummary, expiryDate } = req.body;
+    const tr = await query('SELECT fields, subforms, workflow FROM form_templates WHERE id = $1', [s.template_id]);
     const t = tr.rows[0];
     if (!t) return res.status(404).json({ error: 'The template for this form no longer exists' });
     const { data, error } = validateFormData(parseJson(t.fields, []), formData);
     if (error) return res.status(400).json({ error });
+
+    // Validate all active tagged subforms on resubmission
+    const subformIds = parseJson(t.subforms, [])
+      .map(x => (typeof x === 'string' ? x : x?.id))
+      .filter(Boolean);
+    const prevSubformsData = parseJson(s.subforms_data, {});
+    const cleanSubformsData = {};
+    const sfTitleMap = new Map();
+    if (subformIds.length > 0) {
+      const sfRows = await query(
+        `SELECT * FROM form_templates WHERE id = ANY($1)`,
+        [subformIds]
+      );
+      const sfMap = new Map(sfRows.rows.map(r => [r.id, r]));
+      const rawSfData = (subformsData && typeof subformsData === 'object') ? subformsData : prevSubformsData;
+      for (const sfId of subformIds) {
+        const sf = sfMap.get(sfId);
+        if (!sf || sf.status === 'ARCHIVED' || !canSeeTemplate(actor, sf)) continue;
+        sfTitleMap.set(sfId, sf.title);
+        const sfFields = parseJson(sf.fields, []);
+        const { data: sfClean, error: sfErr } = validateFormData(sfFields, rawSfData[sfId] || {});
+        if (sfErr) {
+          return res.status(400).json({ error: `[Subform "${sf.title}"] ${sfErr}` });
+        }
+        cleanSubformsData[sfId] = sfClean;
+      }
+    }
 
     const newExpiry = expiryDate && /^\d{4}-\d{2}-\d{2}$/.test(expiryDate) ? expiryDate : s.expiry_date;
     if (newExpiry <= todayStr()) return res.status(400).json({ error: 'Please choose a decision deadline in the future' });
@@ -2412,12 +2637,14 @@ app.put('/api/forms/submissions/:id/modify', async (req, res) => {
       submitter = await getUserById(actor.id);
     }
 
+    const hasSubformsPayload = Object.keys(cleanSubformsData).length > 0;
     const payloadToSign = {
       templateId: s.template_id,
       uniqueNumber: s.unique_number,
       title: s.title,
       department: s.department,
       formData: data,
+      ...(hasSubformsPayload ? { subformsData: cleanSubformsData } : {}),
       expiryDate: newExpiry
     };
 
@@ -2442,6 +2669,20 @@ app.put('/api/forms/submissions/:id/modify', async (req, res) => {
         });
       }
     }
+    for (const [sfId, sfClean] of Object.entries(cleanSubformsData)) {
+      const oldSf = prevSubformsData[sfId] || {};
+      const sfTitle = sfTitleMap.get(sfId) || sfId;
+      for (const [k, newVal] of Object.entries(sfClean || {})) {
+        const oldVal = oldSf[k];
+        if (String(oldVal ?? '') !== String(newVal ?? '')) {
+          changedAnswers.push({
+            field: `[${sfTitle}] ${k}`,
+            from: oldVal !== undefined && oldVal !== null && oldVal !== '' ? String(oldVal) : '(empty)',
+            to: newVal !== undefined && newVal !== null && newVal !== '' ? String(newVal) : '(empty)'
+          });
+        }
+      }
+    }
 
     const newVersion = bumpVersion(s.version);
     const history = [...parseJson(s.version_history, []), {
@@ -2455,15 +2696,16 @@ app.put('/api/forms/submissions/:id/modify', async (req, res) => {
       objectionAddressed: s.objection_notes,
       pkiFingerprint: submitter.pki_fingerprint,
       changedAnswers,
-      formData: data
+      formData: data,
+      ...(hasSubformsPayload ? { subformsData: cleanSubformsData } : {})
     }];
     const wf = freshWorkflow(parseJson(s.workflow, []));
 
     await query(
-      `UPDATE form_submissions SET form_data = $1::jsonb, version = $2, version_history = $3::jsonb, status = 'IN_REVIEW',
-         objection_notes = NULL, workflow = $4::jsonb, current_workflow_step = 1, signature = $5, signed_at = NOW(),
-         expiry_date = $6, pki_signature = $7::jsonb, updated_at = NOW() WHERE id = $8`,
-      [JSON.stringify(data), newVersion, JSON.stringify(history), JSON.stringify(wf), actor.signature_image, newExpiry, JSON.stringify(pkiSignature), s.id]
+      `UPDATE form_submissions SET form_data = $1::jsonb, subforms_data = $2::jsonb, version = $3, version_history = $4::jsonb, status = 'IN_REVIEW',
+         objection_notes = NULL, workflow = $5::jsonb, current_workflow_step = 1, signature = $6, signed_at = NOW(),
+         expiry_date = $7, pki_signature = $8::jsonb, updated_at = NOW() WHERE id = $9`,
+      [JSON.stringify(data), JSON.stringify(cleanSubformsData), newVersion, JSON.stringify(history), JSON.stringify(wf), actor.signature_image, newExpiry, JSON.stringify(pkiSignature), s.id]
     );
     await audit('FORM_RESUBMITTED', actor.username, `${s.unique_number} v${newVersion}`, s.department);
 
@@ -2647,6 +2889,8 @@ app.post('/api/forms/submissions/:id/verify-signatures', async (req, res) => {
     if (!canSeeSubmission(actor, s)) return res.status(403).json({ error: 'You do not have access to this form' });
 
     const formData = parseJson(s.form_data, {});
+    const subformsData = parseJson(s.subforms_data, {});
+    const hasSubformsData = subformsData && typeof subformsData === 'object' && Object.keys(subformsData).length > 0;
     const pkiSub = parseJson(s.pki_signature, null);
 
     // 1. Verify Submitter Signature
@@ -2658,9 +2902,22 @@ app.post('/api/forms/submissions/:id/verify-signatures', async (req, res) => {
         title: s.title,
         department: s.department,
         formData,
+        ...(hasSubformsData ? { subformsData } : {}),
         expiryDate: s.expiry_date
       };
       submitterVerification = verifySignatureBundle(pkiSub, submitterPayload);
+      if (!submitterVerification?.valid && hasSubformsData) {
+        const legacyPayload = {
+          templateId: s.template_id,
+          uniqueNumber: s.unique_number,
+          title: s.title,
+          department: s.department,
+          formData,
+          expiryDate: s.expiry_date
+        };
+        const legacyRes = verifySignatureBundle(pkiSub, legacyPayload);
+        if (legacyRes?.valid) submitterVerification = legacyRes;
+      }
     }
 
     // 2. Verify Approver Signatures in workflow
@@ -2795,7 +3052,10 @@ app.get('/api/forms/submissions/:id/document', async (req, res) => {
     const s = sr.rows[0];
     if (!s) return res.status(404).json({ error: 'Submission not found' });
     if (!canSeeSubmission(actor, s)) return res.status(403).json({ error: 'You do not have access to this form' });
-    const tr = await query('SELECT id, file_path, docx_base64, fields FROM form_templates WHERE id = $1', [s.template_id]);
+
+    const requestedSubformId = req.query.subformId ? String(req.query.subformId).trim() : null;
+    const targetTemplateId = requestedSubformId || s.template_id;
+    const tr = await query('SELECT id, title, file_path, docx_base64, fields FROM form_templates WHERE id = $1', [targetTemplateId]);
     const tmplRow = tr.rows[0];
     if (!tmplRow) return res.status(404).json({ error: 'The Word template for this form was not found' });
     const tmplBase64 = getTemplateBase64(tmplRow.id, tmplRow.file_path) || tmplRow.docx_base64;
@@ -2835,14 +3095,19 @@ app.get('/api/forms/submissions/:id/document', async (req, res) => {
       'Department': s.department
     };
     const templateFields = parseJson(tmplRow.fields, []);
+    const allSubformsData = parseJson(s.subforms_data, {});
+    const targetValues = requestedSubformId
+      ? (allSubformsData[requestedSubformId] || {})
+      : parseJson(s.form_data, {});
     const buf = renderFilledDocument(tmplBase64, {
-      values: parseJson(s.form_data, {}),
+      values: targetValues,
       system,
       signatures,
       fields: templateFields
     });
+    const suffix = requestedSubformId ? `_${encodeURIComponent(tmplRow.title || requestedSubformId)}` : '';
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    res.setHeader('Content-Disposition', `attachment; filename="${s.unique_number}_v${s.version}.docx"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${s.unique_number}${suffix}_v${s.version}.docx"`);
     res.send(buf);
   } catch (err) {
     console.error('[GET document]', err);
@@ -2934,6 +3199,7 @@ function reviewPhase(r, reviewers) {
 }
 
 function mapReviewSummary(r, reviewers) {
+  const parsedSettings = parseJson(r.settings, {});
   return {
     id: r.id,
     title: r.title,
@@ -2944,6 +3210,10 @@ function mapReviewSummary(r, reviewers) {
     status: r.status,
     phase: reviewPhase(r, reviewers),
     publishedTemplateId: r.published_template_id || null,
+    subforms: Array.isArray(parsedSettings.subforms) ? parsedSettings.subforms : [],
+    subformSummaries: Array.isArray(parsedSettings.subformSnapshots)
+      ? parsedSettings.subformSnapshots.map(s => ({ id: s.id, title: s.title, code: s.code, department: s.department }))
+      : [],
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     reviewers: reviewers.map(v => mapReviewer(v))
@@ -2962,7 +3232,7 @@ app.get('/api/template-reviews', async (req, res) => {
     const actor = await requireActor(req, res);
     if (!actor) return;
     const r = await query(
-      `SELECT id, title, department, initiator_id, initiator_name, message, status, published_template_id, created_at, updated_at
+      `SELECT id, title, department, initiator_id, initiator_name, message, settings, status, published_template_id, created_at, updated_at
        FROM template_reviews r
        WHERE r.initiator_id = $1
           OR EXISTS (SELECT 1 FROM template_review_reviewers x WHERE x.review_id = r.id AND x.user_id = $1)
@@ -3043,6 +3313,31 @@ app.post('/api/template-reviews', async (req, res) => {
     const inactive = found.rows.find(u => u.status === 'SUSPENDED');
     if (inactive) return res.status(400).json({ error: `${inactive.name} is suspended and cannot review` });
 
+    const rawSubforms = Array.isArray(req.body.subforms)
+      ? req.body.subforms.map(s => (typeof s === 'string' ? s : s?.id)).filter(Boolean)
+      : [];
+    let subformSnapshots = [];
+    if (rawSubforms.length > 0) {
+      const sfRes = await query(
+        `SELECT id, unique_code, title, department, file_type, is_editable, html_content, fields FROM form_templates WHERE id = ANY($1) AND status != 'ARCHIVED'`,
+        [rawSubforms]
+      );
+      const sfMap = new Map(sfRes.rows.map(r => [r.id, r]));
+      subformSnapshots = rawSubforms
+        .map(id => sfMap.get(id))
+        .filter(sf => sf && String(sf.department || '').trim() === String(targetDept || '').trim())
+        .map(sf => ({
+          id: sf.id,
+          code: sf.unique_code,
+          title: sf.title,
+          department: sf.department,
+          fileType: sf.file_type || 'docx',
+          isEditable: sf.is_editable !== false,
+          htmlContent: sf.html_content ? cleanDoubleEncodedAmp(sf.html_content) : '',
+          fields: parseJson(sf.fields, [])
+        }));
+    }
+
     const settings = {
       templateId: req.body.templateId || null,
       title: cleanTitle,
@@ -3052,7 +3347,9 @@ app.post('/api/template-reviews', async (req, res) => {
       audience: audience === 'ALL' ? 'ALL' : 'DEPARTMENT',
       defaultExpiryDays: Math.min(Math.max(parseInt(defaultExpiryDays, 10) || 14, 1), 365),
       workflow: (Array.isArray(workflow) ? workflow : []).map(w => (typeof w === 'string' ? w : w?.department)).filter(Boolean),
-      fields: Array.isArray(req.body.fields) ? req.body.fields : []
+      fields: Array.isArray(req.body.fields) ? req.body.fields : [],
+      subforms: rawSubforms,
+      subformSnapshots
     };
 
     const id = `REV-${Date.now()}`;
@@ -3263,8 +3560,8 @@ app.get('/api/audit-logs', async (req, res) => {
       APPROVALS: ['FORM_APPROVE', 'FORM_OBJECT', 'FORM_OBJECTION', 'FORM_REJECT'],
       TEMPLATES: [
         'TEMPLATE_CREATED', 'TEMPLATE_DRAFT_CREATED', 'TEMPLATE_EDITED', 'TEMPLATE_DRAFT_SAVED',
-        'TEMPLATE_PUBLISHED', 'TEMPLATE_PERMISSIONS_UPDATED', 'TEMPLATE_MOVED',
-        'TEMPLATE_ARCHIVED', 'TEMPLATE_DELETED', 'BULK_TEMPLATE_DRAFTS_IMPORTED', 'BULK_TEMPLATE_IMPORTED',
+        'TEMPLATE_PUBLISHED', 'TEMPLATE_PERMISSIONS_UPDATED', 'TEMPLATE_SUBFORMS_UPDATED', 'TEMPLATE_MOVED',
+        'TEMPLATE_ARCHIVED', 'TEMPLATE_RESTORED', 'TEMPLATE_DELETED', 'BULK_TEMPLATE_DRAFTS_IMPORTED', 'BULK_TEMPLATE_IMPORTED',
         'FOLDER_CREATED', 'FOLDER_RENAMED', 'FOLDER_DELETED'
       ],
       REVIEWS: [

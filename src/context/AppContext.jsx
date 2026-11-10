@@ -230,7 +230,45 @@ export const AppProvider = ({ children }) => {
   const [users, setUsers] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [folders, setFolders] = useState([]);
-  const [formTemplates, setFormTemplates] = useState([]);
+  const [allTemplates, setAllTemplates] = useState([]);
+
+  const canUserAccessTemplate = useCallback((u, t) => {
+    if (!u || !t) return false;
+    if (u.systemRole === 'superadmin') return true;
+    const isDraft = t.status === 'DRAFT' || t.isDraft;
+    if (isDraft) {
+      return u.systemRole === 'admin' && u.department === t.department;
+    }
+    const accessType = t.accessType || (t.audience === 'ALL' ? 'ALL' : 'DEPARTMENTS');
+    if (accessType === 'USERS') {
+      const allowedUsers = Array.isArray(t.allowedUsers) ? t.allowedUsers : [];
+      return allowedUsers.some(au => {
+        if (typeof au === 'string') {
+          return String(au) === String(u.id) || au.toLowerCase() === String(u.username || '').toLowerCase();
+        }
+        return (
+          String(au?.id) === String(u.id) ||
+          (au?.username && au.username.toLowerCase() === String(u.username || '').toLowerCase())
+        );
+      });
+    }
+    if (accessType === 'DEPARTMENTS') {
+      const allowedDepts = Array.isArray(t.allowedDepartments) ? t.allowedDepartments : [];
+      if (allowedDepts.length === 0) return t.department === u.department;
+      return allowedDepts.includes(u.department);
+    }
+    if (accessType === 'ALL') return true;
+    return t.department === u.department;
+  }, []);
+
+  const formTemplates = useMemo(
+    () => allTemplates.filter(t => t.status !== 'ARCHIVED' && canUserAccessTemplate(currentUser, t)),
+    [allTemplates, currentUser, canUserAccessTemplate]
+  );
+  const archivedTemplates = useMemo(
+    () => allTemplates.filter(t => t.status === 'ARCHIVED' && canUserAccessTemplate(currentUser, t)),
+    [allTemplates, currentUser, canUserAccessTemplate]
+  );
   const [formSubmissions, setFormSubmissions] = useState([]);
   const [departmentMessages, setDepartmentMessages] = useState([]);
   const [templateReviews, setTemplateReviews] = useState([]);
@@ -261,7 +299,7 @@ export const AppProvider = ({ children }) => {
   const refreshUsers = useCallback(async () => setUsers(await apiService.getUsers()), []);
   const refreshDepartments = useCallback(async () => setDepartments(await apiService.getDepartments()), []);
   const refreshFolders = useCallback(async () => setFolders(await apiService.getFolders()), []);
-  const refreshTemplates = useCallback(async () => setFormTemplates(await apiService.getTemplates()), []);
+  const refreshTemplates = useCallback(async () => setAllTemplates(await apiService.getTemplates()), []);
   const refreshSubmissions = useCallback(async () => setFormSubmissions(await apiService.getSubmissions()), []);
   const refreshReviews = useCallback(async () => setTemplateReviews(await apiService.getReviews()), []);
   const refreshActivityLogs = useCallback(async (params = {}) => {
@@ -364,7 +402,7 @@ export const AppProvider = ({ children }) => {
     setCurrentUser(null);
     setUsers([]);
     setFolders([]);
-    setFormTemplates([]);
+    setAllTemplates([]);
     setFormSubmissions([]);
     setDepartmentMessages([]);
     setTemplateReviews([]);
@@ -577,6 +615,17 @@ export const AppProvider = ({ children }) => {
     if (r) await refreshTemplates();
     return r;
   };
+  const updateTemplateSubforms = async (id, subforms) => {
+    const r = await run(
+      () => apiService.updateTemplateSubforms(id, subforms),
+      'Tagged Subforms Updated',
+      Array.isArray(subforms) && subforms.length > 0
+        ? `${subforms.length} subform${subforms.length === 1 ? '' : 's'} linked with combined approval workflow.`
+        : 'All subform links cleared from this main form.'
+    );
+    if (r) await refreshTemplates();
+    return r;
+  };
   const addTemplateComment = async (id, data) => {
     const r = await run(() => apiService.addTemplateComment(id, data), 'Comment added');
     if (r) await refreshTemplates();
@@ -592,14 +641,22 @@ export const AppProvider = ({ children }) => {
     if (r) await refreshTemplates();
     return r;
   };
-  const archiveTemplate = async (id) => {
-    const r = await run(() => apiService.archiveTemplate(id));
+  const archiveTemplate = async (id, mode = null) => {
+    const r = await run(() => apiService.archiveTemplate(id, mode));
     if (r) {
       if (r.action === 'deleted') {
         addToast('Template Deleted', r.message || 'Document permanently deleted from drive.', 'success');
       } else {
-        addToast('Template Archived', r.message || 'Existing submissions were preserved.', 'info');
+        addToast('Template Archived', r.message || 'Moved to Archived Files.', 'info');
       }
+      await refreshTemplates();
+    }
+    return r;
+  };
+  const restoreTemplate = async (id) => {
+    const r = await run(() => apiService.restoreTemplate(id));
+    if (r) {
+      addToast('Template Restored', `"${r.title}" has been restored to ${r.department}.`, 'success');
       await refreshTemplates();
     }
     return r;
@@ -800,7 +857,7 @@ export const AppProvider = ({ children }) => {
     toasts, addToast, removeToast,
     currentUser, isAuthenticated, authLoading, isAdmin, isSuperAdmin, login, logout,
     activeTab, setActiveTab,
-    users, departments, folders, formTemplates, formSubmissions, departmentMessages, templateReviews,
+    users, departments, folders, formTemplates, archivedTemplates, formSubmissions, departmentMessages, templateReviews,
     refreshAll, refreshSubmissions, refreshTemplates, refreshFolders, refreshReviews,
     saveSignature, isSignatureModalOpen, profileModalInitialTab,
     getPkiCertificate, generatePkiCertificate, verifySubmissionSignatures,
@@ -835,8 +892,8 @@ export const AppProvider = ({ children }) => {
     createUser, updateUser, toggleUserStatus, deleteUser, createDepartment, updateDepartment, deleteDepartment,
     canManageDepartment, createFolder, updateFolder, deleteFolder,
     createTemplate, bulkImportTemplates, refreshTemplates, refreshFolders,
-    updateTemplate, updateTemplatePermissions, addTemplateComment, updateTemplateComment,
-    moveTemplate, archiveTemplate,
+    updateTemplate, updateTemplatePermissions, updateTemplateSubforms, addTemplateComment, updateTemplateComment,
+    moveTemplate, archiveTemplate, restoreTemplate,
     submitForm, resubmitForm, workflowAction, addSubmissionComment, updateSubmissionComment,
     notifications, unreadNotificationsCount, refreshNotifications, markNotificationRead, markAllNotificationsRead,
     fetchDepartmentMessages, sendDepartmentMessage,

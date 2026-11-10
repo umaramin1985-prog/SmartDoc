@@ -30,7 +30,7 @@ SmartDoc is an enterprise **Word-template forms & department approval workflow**
 - The first account is the **super admin**, created automatically from the `.env` file (`SUPER_ADMIN_USERNAME` / `SUPER_ADMIN_PASSWORD`).
 - Use **Collapse sidebar** (or `Ctrl+B` / `Cmd+B`) at the bottom of the sidebar to toggle between full width (248px) and compact rail mode (72px).
 - **Dark & Light Mode + 5 Accent Color Themes**: SmartDoc supports both **Pure Black Dark Mode** (`#000000`) and **High-Contrast Light Mode** (`#f8fafc` / `#ffffff`), along with 5 selectable accent themes (**Electric Lime / Green**, **Crimson Red**, **Sunset Orange**, **Royal Purple**, and **Ocean Blue**). You can switch themes anytime from the Login top bar, the Sidebar footer bar, or the **App Theme** tab in **Profile & Signature**.
-- **`100vh` Zero-Scroll Viewport & Pinned Footer**: Every page (except the full-screen **Word Form Studio** editor) is locked to the screen height with zero page-level vertical scrolling and the application footer (`Powered by prynivo.com • v1.4.0`) permanently visible at the bottom.
+- **`100vh` Zero-Scroll Viewport & Pinned Footer**: Every page (except the full-screen **Word Form Studio** editor) is locked to the screen height with zero page-level vertical scrolling and the application footer (`Powered by prynivo.com • v1.5.0`) permanently visible at the bottom.
 
 ---
 
@@ -229,10 +229,10 @@ Located at the bottom of the dashboard for rapid access to core workflows:
 # 5. Forms & Documents (Explorer)
 
 ## 5.1 Layout
-- **Left pane (tree)**: Departments → Folders → Subfolders. Click to open and use the chevrons to expand or collapse.
+- **Left pane (tree)**: Departments → Folders → Subfolders, plus an **Archived Files** section at the bottom of the tree. Click to open and use the chevrons to expand or collapse.
 - **Address bar**: breadcrumbs such as `SmartDoc Drive > Human Resources > Recruitment`, with **Back / Forward / Up** buttons.
-- **Toolbar**: search, filter pills (**All / Templates / Submissions**), a **Grid ↔ Details** view toggle, and a rights badge showing whether you can manage the current location.
-- **Main pane**: department drive cards at the root. Inside a department you see folder tiles, template cards, and submitted document cards.
+- **Toolbar**: search, filter pills (**All / Word Forms / Drafts / Archived**), a **Grid ↔ Details** view toggle, and a rights badge showing whether you can manage the current location.
+- **Main pane**: department drive cards at the root. Inside a department you see folder tiles, template cards, and archived files when the **Archived** view is active.
 
 ## 5.2 Managing folders (admins)
 1. Open your department (super admin: choose the department when prompted at root).
@@ -247,9 +247,10 @@ Regular users see folders read-only. The folder management buttons are hidden an
 - Click **Word Form Studio** (header) to create a template from a blank page, or open an existing `.doc` or `.docx` file in the studio.
 - Use the **quick uploader** for ready Word documents (`.doc` or `.docx`) with `{{placeholders}}`: detected fields, signature slots (`{{Signature:...}}` and `{{sig:...}}`), and system tags are extracted automatically. Authors can configure each field's Fill Style (`🏷️ Placeholder` vs `📝 Direct Input`), Mandatory toggle, and **Weight** (`Bold` vs `Normal`). Legacy `.doc` templates are automatically compiled to `.docx` format upon saving for seamless downstream filling and signature stamping.
 - **Move template**: choose a different folder within the department.
-- **Remove / Delete Template (Submission-Aware)**:
-  - If **no user has filled or submitted a form** for this template, it is **permanently deleted** from both the server disk drive (`storage/templates/`) and the database.
-  - If **one or more users have filled or submitted forms**, the template is **archived** (`status = 'ARCHIVED'`). The document file is preserved on disk so historical submissions can still be rendered, printed, and PKI-verified. The confirmation modal dynamically reflects whether the item will be permanently erased or archived.
+- **Remove / Archive / Restore Template (Submission-Aware)**:
+  - If **no user has filled or submitted a form** for this template, admins can choose either **Move to Archive** or **Delete permanently** (which erases the file from both `storage/templates/` and the database).
+  - If **one or more users have filled or submitted forms**, the template is **archived** (`status = 'ARCHIVED'`). The document file is preserved on disk so historical submissions can still be rendered, printed, and PKI-verified.
+  - **Viewing & Restoring Archived Files**: Click **Archived Files** in the left Explorer tree or the **Archived (N)** filter pill in the Explorer toolbar to browse archived forms and files, preview or download them, or click **Restore to Drive** to restore an archived file back to its active department drive.
 
 ## 5.4 Non-Editable Documents (PDF & Images)
 Admins can upload static reference documents that cannot be modified:
@@ -309,10 +310,10 @@ Admins can upload multiple files at once using the **Bulk Import** tool:
 
 ## 5.12 Universal Document Download, Preview Parity & Client-Side "Save as PDF"
 SmartDoc allows users to preview and download any document or template across the system with exact 1:1 Filling Form parity:
-- **Exact Filling Form Visual Parity (`—` for Unfilled Fields)**: Previewing any template (`DocumentPreviewModal.jsx`) or downloading it as `.pdf` or `.docx` renders the exact same typography, fonts, multi-column rows, labels, field guidance, input boxes, and signature cards as the **Fill Form** screen — the only difference is that unfilled input boxes and in-text placeholders display a clean dash (`—`) instead of placeholder hints or raw `{{tags}}`.
+- **Exact Filling Form Visual Parity (`—` for Unfilled In-Text Tags)**: Previewing any template (`DocumentPreviewModal.jsx`) or downloading it as `.pdf` or `.docx` renders the exact same typography, fonts, multi-column rows, labels, field guidance, input boxes, and signature cards as the **Fill Form** screen — unfilled direct input boxes remain clean and empty while unfilled In-Text tags (`mode: 'placeholder'`) display a clean dash (`—`) instead of raw `{{tags}}`.
 - **Direct Download for PDFs & Images**: Clicking the **Download** button on any static PDF or image document instantly downloads the original file without additional prompts.
 - **Dual Formats for Word Documents (.docx & .doc)**: Clicking the **Download** button on any Word document opens the **Download Document** dialog, providing two options:
-  1. **Download Microsoft Word (.docx)**: Downloads a 100% Microsoft Word desktop-compliant `.docx` file (validated and repaired by SmartDoc's OpenXML/OPC engine `renderTemplateAsWordDocx` & `repairDocxBuffer`) matching the Filling Form layout with `—` in unfilled fields.
+  1. **Download Microsoft Word (.docx)**: Downloads a 100% Microsoft Word desktop-compliant `.docx` file (validated and repaired by SmartDoc's OpenXML/OPC engine `renderTemplateAsWordDocx` & `repairDocxBuffer`) matching the Filling Form layout with clean empty input boxes and `—` for unfilled In-Text tags.
   2. **Save as PDF (.pdf)**: Automatically converts the form sheet into an authentic, print-ready, high-resolution A4 `.pdf` file directly inside the browser using SmartDoc's upgraded 3.5× (~336 DPI) lossless client-side PDF export engine (`exportFormSheetToPdf`).
 - **In-Preview Downloads (`DocumentPreviewModal.jsx`)**: When viewing any document in the preview modal, dedicated header/footer buttons provide 1-click access to **Download PDF**, **Download .docx**, and **Print Form**.
 - **Vector PDF Alternative via Native Print**: Clicking **Print** in the preview modal or submission view triggers the browser's native print engine. Selecting "Save as PDF" in the print destination creates 100% vector, selectable text with infinite zoom clarity.
@@ -787,7 +788,7 @@ Click your profile/avatar in the sidebar footer → **Profile & Signature** → 
 All dialogs and modals in SmartDoc have backdrop outside-click protection enabled. This protects you from accidentally losing unsaved form fields, document edits, commit notes, or folder names if you click outside the modal window. To close any dialog intentionally, click the explicit **Cancel** or **Close (×)** buttons, or press the **Escape** key.
 
 **What does the version number in the footer do?**
-The footer displays the live application version (e.g. `v1.4.0`) with a status indicator. When a new version is deployed to production, SmartDoc automatically detects the update, purges stale browser caches, and performs a hard reload. You can also click the version pill at any time to trigger an immediate cache-clearing hard reload (`Ctrl + F5` equivalent).
+The footer displays the live application version (e.g. `v1.5.0`) with a status indicator. When a new version is deployed to production, SmartDoc automatically detects the update, purges stale browser caches, and performs a hard reload. You can also click the version pill at any time to trigger an immediate cache-clearing hard reload (`Ctrl + F5` equivalent).
 
 ---
 

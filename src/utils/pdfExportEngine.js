@@ -120,7 +120,7 @@ export function deepCloneFormSheet(source) {
   if (source.style.fontFamily) clone.style.fontFamily = source.style.fontFamily;
   if (source.style.fontSize) clone.style.fontSize = source.style.fontSize;
 
-  // 5. Ensure input fields have crisp borders without active glow, and display '—' when unfilled
+  // 5. Ensure input fields have crisp borders without active glow, and remain clean when unfilled
   clone.querySelectorAll('.sd-doc-live-field-wrap').forEach(w => {
     w.style.boxShadow = 'none';
     w.style.outline = 'none';
@@ -146,16 +146,16 @@ export function deepCloneFormSheet(source) {
     inp.placeholder = '';
   });
 
-  // Ensure all unfilled inputs, textareas, and selects render '—' instead of placeholders
+  // Ensure all unfilled inputs, textareas, and selects are clean and blank (no placeholders or dashes)
   clone.querySelectorAll('input').forEach(inp => {
     if (inp.type === 'checkbox' || inp.type === 'radio') return;
     const rawVal = (inp.value || '').trim();
     inp.type = 'text';
     inp.removeAttribute('placeholder');
     inp.placeholder = '';
-    if (!rawVal) {
-      inp.value = '—';
-      inp.setAttribute('value', '—');
+    if (!rawVal || rawVal === '—') {
+      inp.value = '';
+      inp.setAttribute('value', '');
     }
   });
 
@@ -163,12 +163,13 @@ export function deepCloneFormSheet(source) {
     el.removeAttribute('placeholder');
     const tag = el.tagName.toLowerCase();
     if (tag === 'textarea') {
-      if (!(el.value || el.textContent || '').trim()) {
-        el.value = '—';
-        el.textContent = '—';
+      const textVal = (el.value || el.textContent || '').trim();
+      if (!textVal || textVal === '—') {
+        el.value = '';
+        el.textContent = '';
       }
     } else if (tag === 'select' && el.options && el.options[0] && el.options[0].value === '') {
-      el.options[0].text = '—';
+      el.options[0].text = '';
     }
   });
 

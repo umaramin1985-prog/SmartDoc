@@ -10,7 +10,7 @@ import { buildAppUrl, tabLinkProps } from '../utils/router';
 import { useDeepLink } from '../utils/useDeepLink';
 import {
   Inbox, Send, ClipboardCheck, PencilLine, GitCompareArrows, Rocket, Ban, Check, Clock,
-  FileText, X
+  FileText, X, Layers
 } from 'lucide-react';
 
 const PHASE_META = {
@@ -152,6 +152,7 @@ export const ReviewsHub = () => {
       defaultExpiryDays: sendReviewTarget.defaultExpiryDays || 14,
       workflow: sendReviewTarget.workflow,
       fields: sendReviewTarget.fields || [],
+      subforms: sendReviewTarget.subforms || [],
       htmlContent: html,
       reviewerIds,
       message
@@ -292,6 +293,15 @@ export const ReviewsHub = () => {
                   <div className="sd-rvl-title-row">
                     <h3>{r.title}</h3>
                     <PhaseBadge phase={r.phase} />
+                    {Array.isArray(r.subforms) && r.subforms.length > 0 && (
+                      <span
+                        className="sd-badge sd-badge-purple"
+                        title={`Includes ${r.subforms.length} tagged subform${r.subforms.length === 1 ? '' : 's'}: ${(r.subformSummaries || []).map(s => s.title).join(', ')}`}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                      >
+                        <Layers size={11} /> {r.subforms.length} Subform{r.subforms.length === 1 ? '' : 's'}
+                      </span>
+                    )}
                   </div>
                   <p className="sd-muted sd-rvl-sub">
                     {tab === 'assigned' ? `From ${r.initiatorName}` : `${r.reviewers.length} reviewer${r.reviewers.length === 1 ? '' : 's'}`}
