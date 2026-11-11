@@ -6,16 +6,17 @@ import { hasChanges as docHasChanges } from './reviewDiff';
 import { PrePublishReviewPromptModal } from './PrePublishReviewPromptModal';
 import { SendForReviewModal } from './SendForReviewModal';
 import { AiFormGeneratorModal } from './AiFormGeneratorModal';
+import { ApprovalRouteModal } from './ApprovalRouteModal';
 import {
   Bold, Italic, Underline, Strikethrough, AlignLeft, AlignCenter, AlignRight, AlignJustify,
   List, ListOrdered, Table as TableIcon, Type, Calendar, Hash, CheckSquare, ChevronDown,
   PenTool, FileText, CheckCircle2, X, Plus, Trash2, ArrowLeft, ArrowRight, Settings,
   ShieldCheck, UploadCloud, Folder, Sparkles, AlertCircle, ArrowUp, ArrowDown,
   Layers, Palette, Layout, MousePointerClick, HelpCircle, Undo2, Redo2, Eye, Columns2, SquarePen,
-  Send, UserCheck, MessageSquare, GitCommit, Edit3, Check, AlertTriangle,
+  Send, UserCheck, MessageSquare, GitCommit, GitMerge, Edit3, Check, AlertTriangle,
   Minus, Image as ImageIcon, Link as LinkIcon, Tag, Info, Printer, Loader2, FileEdit,
   Baseline, Highlighter, IndentIncrease, IndentDecrease, RemoveFormatting, ListChevronsUpDown,
-  Unlink, Copy, ExternalLink, Pencil
+  Unlink, Copy, ExternalLink, Pencil, GripVertical, Users, RotateCcw, Clock
 } from 'lucide-react';
 
 const FONTS = [
@@ -1264,16 +1265,55 @@ const FormPreviewPane = ({ html, department, workflow, fontFamily, fontSize, cur
   );
 };
 
-// Safely normalize workflow entries to an array of clean department name strings
+const SLA_DAY_PRESETS = [3, 7, 14, 30];
+
+// Safely normalize workflow entries to an array of unique clean department name strings
 const normalizeWorkflowSteps = (wf) => {
   if (!Array.isArray(wf)) return [];
-  return wf.map(step => {
-    if (!step) return '';
-    if (typeof step === 'string') return step.trim();
-    if (typeof step === 'object') return (step.department || step.name || '').trim();
-    return String(step).trim();
-  }).filter(Boolean);
+  const seen = new Set();
+  const out = [];
+  for (const step of wf) {
+    if (!step) continue;
+    const dept = typeof step === 'string'
+      ? step.trim()
+      : (typeof step === 'object' ? (step.department || step.name || '').trim() : String(step).trim());
+    if (!dept) continue;
+    const k = dept.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(dept);
+  }
+  return out;
 };
+
+// Normalize workflow entries to rich step objects ({ department, instruction? }) while deduplicating departments
+const normalizeWorkflowItems = (wf) => {
+  if (!Array.isArray(wf)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const step of wf) {
+    if (!step) continue;
+    const department = typeof step === 'string'
+      ? step.trim()
+      : (typeof step === 'object' ? String(step.department || step.name || '').trim() : String(step).trim());
+    if (!department) continue;
+    const key = department.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const instruction = typeof step === 'object' && typeof (step.instruction ?? step.note) === 'string'
+      ? String(step.instruction ?? step.note).trim().slice(0, 240)
+      : '';
+    out.push(instruction ? { department, instruction } : { department });
+  }
+  return out;
+};
+
+const serializeWorkflowPayload = (wf) =>
+  normalizeWorkflowItems(wf).map((item, i) => ({
+    step: i + 1,
+    department: item.department,
+    ...(item.instruction ? { instruction: item.instruction } : {})
+  }));
 
 // Read file into complete data:image/...;base64 Data URL scheme
 const fileToDataUrl = (file) => new Promise((resolve, reject) => {
@@ -1534,7 +1574,7 @@ export const SmartWordStudio = ({
   templateToEdit
 }) => {
   const {
-    currentUser, isSuperAdmin, departments, folders, formTemplates,
+    currentUser, isSuperAdmin, users, departments, folders, formTemplates,
     createTemplate, updateTemplate, addTemplateComment, updateTemplateComment,
     submitReview, startReview, addToast
   } = useApp();
@@ -1635,11 +1675,27 @@ export const SmartWordStudio = ({
   // ---- Live preview (data derived from the fields/signatures currently in the document) ----
   const [viewMode, setViewMode] = useState('edit'); // 'edit' | 'split' | 'preview'
   const [previewHtml, setPreviewHtml] = useState('');
+  const [sheetSigSlots, setSheetSigSlots] = useState([]);
+  const lastSigSlotsKeyRef = useRef('');
+
+  const syncSheetSignatureSlots = () => {
+    const el = editorRef.current;
+    if (!el) return;
+    const slots = Array.from(el.querySelectorAll('.sd-doc-sig-block[data-sig-slot]'))
+      .map(n => decodeHtmlEntities(n.getAttribute('data-sig-slot') || 'Submitter').trim())
+      .filter(Boolean);
+    const key = slots.map(s => s.toLowerCase()).join('|');
+    if (key !== lastSigSlotsKeyRef.current) {
+      lastSigSlotsKeyRef.current = key;
+      setSheetSigSlots(slots);
+    }
+  };
 
   const refreshPreview = () => {
     const el = editorRef.current;
     if (!el) return;
     setPreviewHtml(buildPreviewHtml(el));
+    syncSheetSignatureSlots();
   };
 
   const syncHistoryState = () => {
@@ -2410,8 +2466,36 @@ export const SmartWordStudio = ({
   const [audience, setAudience] = useState(targetTemplate?.audience || seed?.audience || 'DEPARTMENT');
   const [defaultExpiryDays, setDefaultExpiryDays] = useState(targetTemplate?.defaultExpiryDays || seed?.defaultExpiryDays || 14);
   const [workflow, setWorkflow] = useState(() =>
-    normalizeWorkflowSteps(targetTemplate?.workflow || reviewSession?.review?.workflow || seed?.workflow)
+    normalizeWorkflowItems(targetTemplate?.workflow || reviewSession?.review?.workflow || seed?.workflow)
   );
+  const [dragWfIdx, setDragWfIdx] = useState(null);
+  const [dragOverWfIdx, setDragOverWfIdx] = useState(null);
+  const [editingStepNoteIdx, setEditingStepNoteIdx] = useState(null);
+  const [deptChipFilter, setDeptChipFilter] = useState('');
+  const [showApprovalRouteModal, setShowApprovalRouteModal] = useState(false);
+
+  const deptApproversMap = useMemo(() => {
+    const map = new Map();
+    (departments || []).forEach(d => {
+      if (d?.name) map.set(d.name.trim().toLowerCase(), []);
+    });
+    (users || []).forEach(u => {
+      if (!u || u.status === 'SUSPENDED' || (u.status && u.status !== 'ACTIVE')) return;
+      const isDeptAdmin = u.systemRole === 'admin' || u.role === 'Department Admin';
+      if (isDeptAdmin && u.department) {
+        const k = u.department.trim().toLowerCase();
+        if (!map.has(k)) map.set(k, []);
+        map.get(k).push(u);
+      }
+    });
+    return map;
+  }, [users, departments]);
+
+  useEffect(() => {
+    if (activeRibbonTab === 'workflow') {
+      syncSheetSignatureSlots();
+    }
+  }, [activeRibbonTab]);
   const [subforms, setSubforms] = useState(() => {
     const raw = targetTemplate?.subforms || reviewSession?.review?.settings?.subforms || seed?.subforms || [];
     return Array.isArray(raw) ? raw.map(s => (typeof s === 'string' ? s : s?.id)).filter(Boolean) : [];
@@ -2592,10 +2676,10 @@ export const SmartWordStudio = ({
     }
   }, [templateToEdit, targetTemplate, initialDocxFile, reviewSession, resume]);
 
-  // Keep workflow steps in sync if departments change
+  // Keep workflow steps in sync if departments change (preserve empty chain on intentional Draft templates)
   useEffect(() => {
-    if (workflow.length === 0 && activeDept) {
-      setWorkflow([activeDept]);
+    if (!targetTemplate?.isDraft && workflow.length === 0 && activeDept) {
+      setWorkflow([{ department: activeDept }]);
     }
   }, [activeDept]);
 
@@ -2610,8 +2694,8 @@ export const SmartWordStudio = ({
     if (!editorRef.current) return;
     editorRef.current.innerHTML = '<p><br/></p>';
     pushHistory();
-    if (workflow.length === 0 && activeDept) {
-      setWorkflow([activeDept]);
+    if (!targetTemplate?.isDraft && workflow.length === 0 && activeDept) {
+      setWorkflow([{ department: activeDept }]);
     }
   };
 
@@ -2619,7 +2703,9 @@ export const SmartWordStudio = ({
     if (!generated) return;
     if (generated.title) setTitle(generated.title);
     if (generated.department && isSuperAdmin) setDepartment(generated.department);
-    if (Array.isArray(generated.workflow) && generated.workflow.length > 0) setWorkflow(generated.workflow);
+    if (Array.isArray(generated.workflow) && generated.workflow.length > 0) {
+      setWorkflow(normalizeWorkflowItems(generated.workflow));
+    }
     if (editorRef.current) {
       const fields = generated.fields || [];
       const loadedHtml = convertRawHtmlToStudio(generated.htmlContent, fields);
@@ -3684,9 +3770,10 @@ export const SmartWordStudio = ({
     }
 
     // Automatically sync into workflow approval chain if it's a department
-    if (!isSubmitter && !workflow.some(w => (typeof w === 'string' ? w : w?.department) === deptName)) {
-      setWorkflow(prev => [...normalizeWorkflowSteps(prev), deptName]);
+    if (!isSubmitter && !workflow.some(w => (typeof w === 'string' ? w : w?.department)?.toLowerCase() === deptName.toLowerCase())) {
+      setWorkflow(prev => normalizeWorkflowItems([...prev, { department: deptName }]));
     }
+    syncSheetSignatureSlots();
   };
 
   // Insert System Tag
@@ -4011,11 +4098,12 @@ export const SmartWordStudio = ({
     applySigWidth(el, normW);
     el.innerHTML = sigInnerHtml(newDept, normW);
 
-    if (!isSubmitter && !workflow.some(w => (typeof w === 'string' ? w : w?.department) === newDept)) {
-      setWorkflow(prev => [...normalizeWorkflowSteps(prev), newDept]);
+    if (!isSubmitter && !workflow.some(w => (typeof w === 'string' ? w : w?.department)?.toLowerCase() === newDept.toLowerCase())) {
+      setWorkflow(prev => normalizeWorkflowItems([...prev, { department: newDept }]));
     }
     setActiveSigEdit(null);
     pushHistory();
+    syncSheetSignatureSlots();
   };
 
   const handleDeleteSigEdit = () => {
@@ -4075,8 +4163,8 @@ export const SmartWordStudio = ({
         const deptNames = departments.map(d => d.name.toLowerCase());
         const validSlots = res.signatureSlots
           .filter(s => deptNames.includes(s.toLowerCase()))
-          .map(s => departments.find(d => d.name.toLowerCase() === s.toLowerCase()).name);
-        if (validSlots.length) setWorkflow(validSlots);
+          .map(s => ({ department: departments.find(d => d.name.toLowerCase() === s.toLowerCase()).name }));
+        if (validSlots.length) setWorkflow(normalizeWorkflowItems(validSlots));
       }
 
       addToast('Document loaded', `Opened ${f.name} in Word Studio`, 'info');
@@ -4268,7 +4356,7 @@ export const SmartWordStudio = ({
         fontSize,
         fields: compiled.fields,
         subforms,
-        workflow: normalizeWorkflowSteps(workflow).map((dept, i) => ({ step: i + 1, department: dept })),
+        workflow: serializeWorkflowPayload(workflow),
         status: 'ACTIVE',
         isDraft: false,
         fileName: `${title.trim().replace(/\W+/g, '_')}.docx`,
@@ -4310,7 +4398,7 @@ export const SmartWordStudio = ({
         fontSize,
         fields: compiled.fields,
         subforms,
-        workflow: normalizeWorkflowSteps(workflow).map((dept, i) => ({ step: i + 1, department: dept })),
+        workflow: serializeWorkflowPayload(workflow),
         reviewerIds,
         message
       };
@@ -4356,7 +4444,7 @@ export const SmartWordStudio = ({
         fontSize,
         fields: compiled.fields,
         subforms,
-        workflow: normalizeWorkflowSteps(workflow).map((dept, i) => ({ step: i + 1, department: dept })),
+        workflow: serializeWorkflowPayload(workflow),
         status: 'ACTIVE',
         isDraft: false,
         commitMessage: commitMessage.trim() || 'Updated form template',
@@ -4405,7 +4493,7 @@ export const SmartWordStudio = ({
         fontSize,
         fields: compiled.fields,
         subforms,
-        workflow: normalizeWorkflowSteps(workflow).map((dept, i) => ({ step: i + 1, department: dept })),
+        workflow: serializeWorkflowPayload(workflow),
         status: 'DRAFT',
         isDraft: true,
         fileName: `${title.trim().replace(/\W+/g, '_')}.docx`
@@ -4493,19 +4581,83 @@ export const SmartWordStudio = ({
     }
   };
 
-  // Workflow step management
+  // Workflow step management & two-way A4 signature sync
+  const workflowItems = useMemo(() => normalizeWorkflowItems(workflow), [workflow]);
+
+  const workflowStepDiagnostics = useMemo(() => {
+    const slotSet = new Set(sheetSigSlots.map(s => s.toLowerCase()));
+    const hasOriginSig = ['submitter', 'applicant', 'originator'].some(k => slotSet.has(k));
+    const steps = workflowItems.map((item) => {
+      const deptKey = item.department.toLowerCase();
+      const approvers = deptApproversMap.get(deptKey) || [];
+      const hasSig = slotSet.has(deptKey);
+      return {
+        ...item,
+        approvers,
+        approverCount: approvers.length,
+        approverNames: approvers.map(u => u.name || u.username).filter(Boolean),
+        hasZeroAdmins: approvers.length === 0,
+        hasSig
+      };
+    });
+    const missingSigDepts = [
+      ...(hasOriginSig ? [] : ['Submitter']),
+      ...steps.filter(s => !s.hasSig).map(s => s.department)
+    ];
+    return {
+      hasOriginSig,
+      steps,
+      missingSigDepts,
+      zeroAdminSteps: steps.filter(s => s.hasZeroAdmins)
+    };
+  }, [workflowItems, sheetSigSlots, deptApproversMap]);
+
+  const remainingDepartments = useMemo(() => {
+    const taken = new Set(workflowItems.map(w => w.department.toLowerCase()));
+    const q = deptChipFilter.trim().toLowerCase();
+    return (departments || []).filter(d => {
+      if (!d?.name || taken.has(d.name.trim().toLowerCase())) return false;
+      if (q && !d.name.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [departments, workflowItems, deptChipFilter]);
+
+  const totalUnaddedDepartmentsCount = useMemo(() => {
+    const taken = new Set(workflowItems.map(w => w.department.toLowerCase()));
+    return (departments || []).filter(d => d?.name && !taken.has(d.name.trim().toLowerCase())).length;
+  }, [departments, workflowItems]);
+
   const moveWorkflowStep = (idx, delta) => {
     setWorkflow(prev => {
-      const next = [...normalizeWorkflowSteps(prev)];
+      const next = [...normalizeWorkflowItems(prev)];
       const target = idx + delta;
       if (target < 0 || target >= next.length) return next;
       [next[idx], next[target]] = [next[target], next[idx]];
       return next;
     });
+    setEditingStepNoteIdx(prev => {
+      if (prev === null) return null;
+      if (prev === idx) return idx + delta;
+      if (prev === idx + delta) return idx;
+      return prev;
+    });
+  };
+
+  const reorderWorkflowStep = (fromIdx, toIdx) => {
+    if (fromIdx === null || toIdx === null || fromIdx === toIdx) return;
+    setWorkflow(prev => {
+      const next = [...normalizeWorkflowItems(prev)];
+      if (fromIdx < 0 || fromIdx >= next.length || toIdx < 0 || toIdx >= next.length) return next;
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      return next;
+    });
+    setEditingStepNoteIdx(null);
   };
 
   const removeWorkflowStep = (idx) => {
-    setWorkflow(prev => normalizeWorkflowSteps(prev).filter((_, i) => i !== idx));
+    setWorkflow(prev => normalizeWorkflowItems(prev).filter((_, i) => i !== idx));
+    setEditingStepNoteIdx(prev => (prev === idx ? null : (prev !== null && prev > idx ? prev - 1 : prev)));
   };
 
   const addWorkflowStep = (deptName) => {
@@ -4513,10 +4665,158 @@ export const SmartWordStudio = ({
     const clean = typeof deptName === 'string' ? deptName.trim() : (deptName?.department || '').trim();
     if (!clean) return;
     setWorkflow(prev => {
-      const normalized = normalizeWorkflowSteps(prev);
-      return normalized.includes(clean) ? normalized : [...normalized, clean];
+      const normalized = normalizeWorkflowItems(prev);
+      if (normalized.some(item => item.department.toLowerCase() === clean.toLowerCase())) {
+        return normalized;
+      }
+      return [...normalized, { department: clean }];
     });
   };
+
+  const updateWorkflowStepInstruction = (idx, instructionText) => {
+    setWorkflow(prev => {
+      const next = [...normalizeWorkflowItems(prev)];
+      if (!next[idx]) return next;
+      const trimmed = String(instructionText || '').slice(0, 240);
+      next[idx] = trimmed.trim()
+        ? { ...next[idx], instruction: trimmed }
+        : { department: next[idx].department };
+      return next;
+    });
+  };
+
+  const resetWorkflowToOwnDept = () => {
+    if (!activeDept) return;
+    setWorkflow([{ department: activeDept }]);
+    setEditingStepNoteIdx(null);
+  };
+
+  const clearWorkflowSteps = () => {
+    setWorkflow([]);
+    setEditingStepNoteIdx(null);
+  };
+
+  const createDomSignatureBlock = (slotName, width = 100) => {
+    const normW = normalizeSigWidth(width);
+    const block = document.createElement('div');
+    block.className = 'sd-doc-sig-block';
+    block.setAttribute('data-sig-slot', slotName);
+    block.contentEditable = 'false';
+    block.draggable = true;
+    block.setAttribute('draggable', 'true');
+    applySigWidth(block, normW);
+    block.innerHTML = sigInnerHtml(slotName, normW);
+    return block;
+  };
+
+  const pulseSignatureElement = (el) => {
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('sd-sig-focus-pulse');
+    setTimeout(() => {
+      if (el.isConnected) el.classList.remove('sd-sig-focus-pulse');
+    }, 1500);
+  };
+
+  const focusOrAddSignatureSlot = (slotName) => {
+    const ed = editorRef.current;
+    if (!ed) return;
+    const targetLower = String(slotName || 'Submitter').trim().toLowerCase();
+    const isOrigin = ['submitter', 'applicant', 'originator'].includes(targetLower);
+    const existing = Array.from(ed.querySelectorAll('.sd-doc-sig-block[data-sig-slot]')).find(node => {
+      const s = decodeHtmlEntities(node.getAttribute('data-sig-slot') || '').trim().toLowerCase();
+      return isOrigin ? ['submitter', 'applicant', 'originator'].includes(s) : s === targetLower;
+    });
+
+    if (existing) {
+      if (viewMode === 'preview') setViewMode('edit');
+      pulseSignatureElement(existing);
+      return;
+    }
+
+    // Append cleanly before trailing empty paragraph (or at document end) and record Undo snapshot
+    if (viewMode === 'preview') setViewMode('edit');
+    const canonicalName = isOrigin ? 'Submitter' : String(slotName).trim();
+    const block = createDomSignatureBlock(canonicalName, 100);
+    const lastEl = ed.lastElementChild;
+    if (lastEl && lastEl.tagName === 'P' && !lastEl.textContent.trim() && !lastEl.querySelector('img, .sd-doc-field-pill, .sd-doc-sig-block, .sd-doc-system-tag')) {
+      ed.insertBefore(block, lastEl);
+    } else {
+      ed.appendChild(block);
+      const trailingP = document.createElement('p');
+      trailingP.innerHTML = '<br/>';
+      ed.appendChild(trailingP);
+    }
+    normalizeSignatureLayout(ed);
+    pushHistory();
+    syncSheetSignatureSlots();
+    pulseSignatureElement(block);
+    addToast(
+      'Signature Slot Added',
+      `Inserted "${isOrigin ? 'Applicant Signature' : `${canonicalName} Approval Signature`}" on the form sheet.`,
+      'success',
+      { action: { label: 'Undo', onClick: () => handleUndo() } }
+    );
+  };
+
+  const syncSignaturesForStepsList = (targetStepsInput, silentIfNone = false) => {
+    const ed = editorRef.current;
+    if (!ed) return;
+    const existingSet = new Set(
+      Array.from(ed.querySelectorAll('.sd-doc-sig-block[data-sig-slot]'))
+        .map(n => decodeHtmlEntities(n.getAttribute('data-sig-slot') || 'Submitter').trim().toLowerCase())
+        .filter(Boolean)
+    );
+    const hasOrigin = ['submitter', 'applicant', 'originator'].some(k => existingSet.has(k));
+    const normSteps = normalizeWorkflowItems(targetStepsInput);
+    const missing = [
+      ...(hasOrigin ? [] : ['Submitter']),
+      ...normSteps.map(s => s.department).filter(d => !existingSet.has(d.toLowerCase()))
+    ];
+
+    if (missing.length === 0) {
+      if (!silentIfNone) {
+        addToast('Signatures Up to Date', 'Every approval step already has a matching signature block on the sheet.', 'info');
+      }
+      return;
+    }
+    if (viewMode === 'preview') setViewMode('edit');
+
+    const lastEl = ed.lastElementChild;
+    const insertBeforeNode = (lastEl && lastEl.tagName === 'P' && !lastEl.textContent.trim() && !lastEl.querySelector('img, .sd-doc-field-pill, .sd-doc-sig-block, .sd-doc-system-tag'))
+      ? lastEl
+      : null;
+
+    let lastInserted = null;
+    missing.forEach(slotName => {
+      const block = createDomSignatureBlock(slotName, 100);
+      if (insertBeforeNode) {
+        ed.insertBefore(block, insertBeforeNode);
+      } else {
+        ed.appendChild(block);
+      }
+      lastInserted = block;
+    });
+
+    if (!insertBeforeNode) {
+      const trailingP = document.createElement('p');
+      trailingP.innerHTML = '<br/>';
+      ed.appendChild(trailingP);
+    }
+
+    normalizeSignatureLayout(ed);
+    pushHistory();
+    syncSheetSignatureSlots();
+    if (lastInserted) pulseSignatureElement(lastInserted);
+    addToast(
+      'Signatures Synced to Sheet',
+      `Added ${missing.length} missing signature block${missing.length === 1 ? '' : 's'} (${missing.join(', ')}) to the document.`,
+      'success',
+      { action: { label: 'Undo', onClick: () => handleUndo() } }
+    );
+  };
+
+  const syncAllWorkflowSignaturesToSheet = () => syncSignaturesForStepsList(workflow, false);
 
   return (
     <div className="sd-studio-modal-backdrop">
@@ -4758,7 +5058,17 @@ export const SmartWordStudio = ({
                 className={`sd-ribbon-tab ${activeRibbonTab === 'workflow' ? 'active' : ''}`}
                 onClick={() => setActiveRibbonTab('workflow')}
               >
-                Workflow &amp; Approvals ({workflow.length} step{workflow.length === 1 ? '' : 's'})
+                <ShieldCheck size={12} style={{ marginRight: '5px', verticalAlign: '-1px' }} />
+                Workflow &amp; Approvals
+                <span className={`sd-ribbon-tab-pill ${workflowItems.length === 0 ? 'is-draft' : ''}`}>
+                  {workflowItems.length === 0 ? 'Draft' : `${workflowItems.length} step${workflowItems.length === 1 ? '' : 's'}`}
+                </span>
+                {workflowStepDiagnostics.zeroAdminSteps.length > 0 && (
+                  <span
+                    className="sd-ribbon-tab-warn-dot"
+                    title={`${workflowStepDiagnostics.zeroAdminSteps.length} department step(s) have 0 active Department Admins`}
+                  />
+                )}
               </button>
             )}
             {tableCtx.inTable && (
@@ -5683,10 +5993,10 @@ export const SmartWordStudio = ({
 
             {/* TAB 4: WORKFLOW & APPROVALS */}
             {activeRibbonTab === 'workflow' && (
-              <div className="sd-ribbon-workflow-panel">
-                <div className="sd-workflow-config-row">
-                  <div className="sd-workflow-field">
-                    <span className="sd-workflow-field-label">Department:</span>
+              <div className="sd-ribbon-panel">
+                <div className="sd-ribbon-group">
+                  <span className="sd-ribbon-group-title">Location</span>
+                  <div className="sd-ribbon-controls" style={{ gap: '8px' }}>
                     {isSuperAdmin ? (
                       <select
                         className="sd-input sd-input-sm"
@@ -5702,10 +6012,7 @@ export const SmartWordStudio = ({
                         <Folder size={13} /> {activeDept}
                       </span>
                     )}
-                  </div>
 
-                  <div className="sd-workflow-field">
-                    <span className="sd-workflow-field-label">Folder:</span>
                     <select
                       className="sd-input sd-input-sm"
                       value={folderId}
@@ -5717,164 +6024,88 @@ export const SmartWordStudio = ({
                       ))}
                     </select>
                   </div>
-
-                  <div className="sd-workflow-field">
-                    <span className="sd-workflow-field-label">Audience:</span>
-                    <select
-                      className="sd-input sd-input-sm"
-                      value={audience}
-                      onChange={e => setAudience(e.target.value)}
-                    >
-                      <option value="DEPARTMENT">Department members only</option>
-                      <option value="ALL">Everyone in organization</option>
-                    </select>
-                  </div>
-
-                  <div className="sd-workflow-field">
-                    <span className="sd-workflow-field-label">Decision Days:</span>
-                    <div className="sd-workflow-days-wrap">
-                      <input
-                        type="number"
-                        className="sd-input sd-input-sm"
-                        min={1}
-                        max={90}
-                        value={defaultExpiryDays}
-                        onChange={e => setDefaultExpiryDays(e.target.value)}
-                      />
-                      <span className="sd-workflow-days-suffix">days</span>
-                    </div>
-                  </div>
                 </div>
 
-                <div className="sd-workflow-chain-bar">
-                  <span className="sd-workflow-chain-title">
-                    <ShieldCheck size={14} /> Sequential Approval Chain:
-                  </span>
-                  <div className="sd-workflow-steps-pills">
-                    <div className="sd-wf-step-pill applicant">
-                      <span className="sd-wf-step-idx">1</span>
-                      <span className="sd-wf-step-name">Applicant</span>
-                      <span className="sd-wf-step-sub">(Submitter)</span>
-                    </div>
+                <div className="sd-ribbon-divider" />
 
-                    {normalizeWorkflowSteps(workflow).map((item, idx) => {
-                      const deptName = typeof item === 'string' ? item : (item?.department || 'Department');
-                      return (
-                        <React.Fragment key={idx}>
-                          <span className="sd-wf-step-arrow">&rarr;</span>
-                          <div className="sd-wf-step-pill">
-                            <span className="sd-wf-step-idx">{idx + 2}</span>
-                            <span className="sd-wf-step-name">{deptName}</span>
-                            <div className="sd-wf-step-actions">
-                              {idx > 0 && (
-                                <button
-                                  type="button"
-                                  className="sd-wf-step-btn"
-                                  title="Move earlier"
-                                  onClick={() => moveWorkflowStep(idx, -1)}
-                                >
-                                  <ArrowLeft size={11} />
-                                </button>
-                              )}
-                              {idx < workflow.length - 1 && (
-                                <button
-                                  type="button"
-                                  className="sd-wf-step-btn"
-                                  title="Move later"
-                                  onClick={() => moveWorkflowStep(idx, 1)}
-                                >
-                                  <ArrowRight size={11} />
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                className="sd-wf-step-btn remove"
-                                title="Remove step"
-                                onClick={() => removeWorkflowStep(idx)}
-                              >
-                                <X size={11} />
-                              </button>
-                            </div>
-                          </div>
-                        </React.Fragment>
-                      );
-                    })}
-
-                    <span className="sd-wf-step-arrow">&rarr;</span>
-
-                    <select
-                      className="sd-wf-add-select"
-                      value=""
-                      onChange={e => {
-                        if (e.target.value) {
-                          addWorkflowStep(e.target.value);
-                          e.target.value = '';
-                        }
+                <div className="sd-ribbon-group">
+                  <span className="sd-ribbon-group-title">Approval Route</span>
+                  <div className="sd-ribbon-controls" style={{ gap: '8px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      id="btn-ribbon-design-approval-route"
+                      className="sd-ar-ribbon-trigger"
+                      onClick={() => {
+                        syncSheetSignatureSlots();
+                        setShowApprovalRouteModal(true);
                       }}
                     >
-                      <option value="">+ Add Dept Step…</option>
-                      {departments.map(d => (
-                        <option key={d.id} value={d.name}>{d.name}</option>
-                      ))}
-                    </select>
+                      <GitMerge size={13} />
+                      <span>
+                        {workflowStepDiagnostics.steps.length === 0
+                          ? 'Draft (No approval steps)'
+                          : workflowStepDiagnostics.steps.map(s => s.department).join(' → ')}
+                      </span>
+                      <span className="sd-ar-ribbon-edit-tag">Edit</span>
+                    </button>
+
+                    {workflowStepDiagnostics.steps.length > 0 && workflowStepDiagnostics.missingSigDepts.length > 0 && (
+                      <button
+                        type="button"
+                        className="sd-wf-action-chip is-accent"
+                        onClick={syncAllWorkflowSignaturesToSheet}
+                        title={`Add missing signature boxes to page: ${workflowStepDiagnostics.missingSigDepts.join(', ')}`}
+                      >
+                        <PenTool size={12} /> Add Signatures
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                {/* Tagged Subforms (Combined Approval & Bundle) */}
-                <div className="sd-workflow-chain-bar" style={{ marginTop: '6px' }}>
-                  <span className="sd-workflow-chain-title">
-                    <Layers size={14} /> Tagged Subforms:
-                  </span>
-                  <div className="sd-workflow-steps-pills" style={{ gap: '6px', flexWrap: 'wrap' }}>
+                <div className="sd-ribbon-divider" />
+
+                <div className="sd-ribbon-group">
+                  <span className="sd-ribbon-group-title">Subforms</span>
+                  <div className="sd-ribbon-controls" style={{ gap: '6px', flexWrap: 'wrap' }}>
                     {governingMainForm && (
-                      <div className="sd-wf-step-pill" style={{ borderColor: 'var(--primary)', background: 'var(--primary-soft)' }}>
+                      <span className="sd-wf-step-pill" style={{ borderColor: 'var(--primary)', background: 'var(--primary-soft)' }}>
                         <LinkIcon size={12} style={{ color: 'var(--primary)' }} />
-                        <span className="sd-wf-step-name">
-                          Subform of <strong>{governingMainForm.title}</strong> ({governingMainForm.code})
-                        </span>
-                        <span className="sd-wf-step-sub">— Approval chain synced with Main Form</span>
-                      </div>
+                        <span className="sd-wf-step-name">Synced with {governingMainForm.title}</span>
+                      </span>
                     )}
 
-                    {resolvedTaggedSubforms.length === 0 ? (
-                      <span className="sd-muted" style={{ fontSize: '0.78rem' }}>
-                        No subforms tagged yet. Tag subforms to combine pre-publication review, publishing, and multi-tab form filling.
-                      </span>
-                    ) : (
-                      resolvedTaggedSubforms.map((sf, idx) => (
-                        <div key={sf.id} className="sd-wf-step-pill" style={{ borderColor: 'var(--primary-border)' }}>
-                          <span className="sd-wf-step-idx" style={{ background: 'var(--primary)', color: '#000' }}>S{idx + 1}</span>
-                          <span className="sd-wf-step-name">{sf.title}</span>
-                          <span className="sd-wf-step-sub">({sf.department})</span>
-                          <div className="sd-wf-step-actions">
-                            <button
-                              type="button"
-                              className="sd-wf-step-btn"
-                              title="Preview Subform Sheet"
-                              onClick={() => setPreviewSubformDoc(sf)}
-                            >
-                              <Eye size={11} />
-                            </button>
-                            <button
-                              type="button"
-                              className="sd-wf-step-btn remove"
-                              title="Untag Subform"
-                              onClick={() => setSubforms(prev => prev.filter(id => id !== sf.id))}
-                            >
-                              <X size={11} />
-                            </button>
-                          </div>
+                    {resolvedTaggedSubforms.map((sf, idx) => (
+                      <div key={sf.id} className="sd-wf-step-pill" style={{ borderColor: 'var(--primary-border)' }}>
+                        <span className="sd-wf-step-idx" style={{ background: 'var(--primary)', color: '#000' }}>S{idx + 1}</span>
+                        <span className="sd-wf-step-name">{sf.title}</span>
+                        <div className="sd-wf-step-actions">
+                          <button
+                            type="button"
+                            className="sd-wf-step-btn"
+                            title="Preview Subform"
+                            onClick={() => setPreviewSubformDoc(sf)}
+                          >
+                            <Eye size={11} />
+                          </button>
+                          <button
+                            type="button"
+                            className="sd-wf-step-btn remove"
+                            title="Remove Subform"
+                            onClick={() => setSubforms(prev => prev.filter(id => id !== sf.id))}
+                          >
+                            <X size={11} />
+                          </button>
                         </div>
-                      ))
-                    )}
+                      </div>
+                    ))}
 
                     <button
                       type="button"
                       className="btn btn-secondary btn-xs"
-                      style={{ height: '26px', padding: '0 10px', fontSize: '0.76rem', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                      style={{ height: '28px', padding: '0 10px', fontSize: '0.77rem', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                       onClick={() => setShowSubformPickerModal(true)}
                     >
-                      <Plus size={12} /> Tag Subforms…
+                      <Plus size={12} /> {resolvedTaggedSubforms.length > 0 ? 'Add' : 'Tag Subforms…'}
                     </button>
                   </div>
                 </div>
@@ -7324,6 +7555,29 @@ export const SmartWordStudio = ({
               />
             )}
           </Modal>
+        )}
+
+        {/* POPUP 10: Widescreen Approval Route Studio Dialog */}
+        {showApprovalRouteModal && (
+          <ApprovalRouteModal
+            isOpen={showApprovalRouteModal}
+            onClose={() => setShowApprovalRouteModal(false)}
+            formTitle={title.trim() || 'Untitled Word Form'}
+            owningDepartment={activeDept}
+            workflow={workflow}
+            audience={audience}
+            defaultExpiryDays={defaultExpiryDays}
+            sheetSigSlots={sheetSigSlots}
+            governingMainForm={governingMainForm}
+            onApply={({ workflow: nextWf, audience: nextAud, defaultExpiryDays: nextDays, autoSyncSignatures }) => {
+              setWorkflow(normalizeWorkflowItems(nextWf));
+              if (nextAud) setAudience(nextAud);
+              if (nextDays) setDefaultExpiryDays(nextDays);
+              if (autoSyncSignatures) {
+                syncSignaturesForStepsList(nextWf, true);
+              }
+            }}
+          />
         )}
       </div>
     </div>

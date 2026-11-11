@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { apiService } from '../services/apiService';
 import { buildAppUrl, tabLinkProps, tabOpenProps } from '../utils/router';
@@ -10,6 +10,7 @@ import { SmartWordStudio } from './SmartWordStudio';
 import { FillFormModal } from './FillFormModal';
 import { SubmissionDetailModal } from './SubmissionDetailModal';
 import { TemplatePermissionsModal } from './TemplatePermissionsModal';
+import { ApprovalRouteModal } from './ApprovalRouteModal';
 import { VersionHistoryModal } from './VersionHistoryModal';
 import { SendForReviewModal } from './SendForReviewModal';
 import { exportWordToPdf } from '../utils/pdfExportEngine';
@@ -20,7 +21,7 @@ import {
   ShieldCheck, Lock, LayoutGrid, List, Plus,
   CheckCircle2, HardDrive, Edit2, Edit3, History, Image as ImageIcon, Shield,
   AlertTriangle, Send, Printer, FileEdit, Sparkles, Download, FileDown, Loader2,
-  Archive, RotateCcw, Layers, Link2, Check, X, 
+  Archive, RotateCcw, Layers, Link2, Check, X, GitMerge, MoreHorizontal
 } from 'lucide-react';
 
 export const FormsHub = () => {
@@ -62,6 +63,7 @@ export const FormsHub = () => {
   const [showWordStudio, setShowWordStudio] = useState(false);
   const [templateToEdit, setTemplateToEdit] = useState(null);
   const [rightsTemplate, setRightsTemplate] = useState(null);
+  const [routeModalTemplate, setRouteModalTemplate] = useState(null);
   const [versionHistoryTarget, setVersionHistoryTarget] = useState(null);
   const [fillTemplate, setFillTemplate] = useState(null);
   const [printDirect, setPrintDirect] = useState(false);
@@ -80,6 +82,48 @@ export const FormsHub = () => {
   const [subformsSelection, setSubformsSelection] = useState([]);
   const [subformsSearch, setSubformsSearch] = useState('');
   const [savingSubforms, setSavingSubforms] = useState(false);
+  const [openMenu, setOpenMenu] = useState(null);
+
+  useEffect(() => {
+    if (!openMenu) return;
+    const handleOutside = (ev) => {
+      if (ev.target?.closest?.('.sd-tpl-dropdown-menu, .sd-tpl-more-btn')) return;
+      setOpenMenu(null);
+    };
+    const handleKey = (ev) => {
+      if (ev.key === 'Escape') setOpenMenu(null);
+    };
+    const handleDismiss = () => setOpenMenu(null);
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('keydown', handleKey);
+    window.addEventListener('scroll', handleDismiss, true);
+    window.addEventListener('resize', handleDismiss);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('keydown', handleKey);
+      window.removeEventListener('scroll', handleDismiss, true);
+      window.removeEventListener('resize', handleDismiss);
+    };
+  }, [openMenu]);
+
+  const handleToggleTemplateMenu = (e, tpl) => {
+    e.stopPropagation();
+    if (openMenu?.template?.id === tpl.id) {
+      setOpenMenu(null);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const menuWidth = 210;
+    const estHeight = 310;
+    const openUp = window.innerHeight - rect.bottom < estHeight && rect.top > estHeight;
+    const left = Math.max(12, Math.min(window.innerWidth - menuWidth - 12, rect.right - menuWidth));
+    setOpenMenu({
+      template: tpl,
+      left,
+      top: openUp ? undefined : rect.bottom + 6,
+      bottom: openUp ? window.innerHeight - rect.top + 6 : undefined
+    });
+  };
 
   const parentMainFormBySubformId = useMemo(() => {
     const map = new Map();
@@ -669,20 +713,22 @@ export const FormsHub = () => {
 
   const renderTemplateCard = (t) => {
     const isNonEditable = t.isEditable === false;
-    const isPdf = t.fileType === 'pdf';
     const isImage = t.fileType === 'image';
+    const isPdf = t.fileType === 'pdf';
     const isArchived = t.status === 'ARCHIVED';
     const canManageTpl = isSuperAdmin || (t.department && canManageDepartment(t.department));
-    const subCount = isArchived ? (formSubmissions || []).filter(s => s.templateId === t.id).length : 0;
     const taggedSubformsList = (t.subforms || [])
       .map(sf => (typeof sf === 'string' ? (formTemplates || []).find(x => x.id === sf) : sf))
       .filter(Boolean);
     const parentMain = parentMainFormBySubformId.get(t.id) || null;
+    const stepCount = (t.workflow || []).length;
+    const fieldCount = (t.fields || []).length;
+    const isMenuOpen = openMenu?.template?.id === t.id;
 
     return (
       <article
         key={t.id}
-        className={`sd-card sd-template-card ${inspectedTemplateId === t.id ? 'is-inspected' : ''}`}
+        className={`sd-card sd-template-card ${inspectedTemplateId === t.id ? 'is-inspected' : ''} ${isMenuOpen ? 'has-open-menu' : ''}`}
         onClick={(e) => {
           if (!e.target.closest('a, button')) {
             setInspectedTemplateId(t.id);
@@ -692,273 +738,142 @@ export const FormsHub = () => {
       >
         <div className="sd-template-head">
           <div className={`sd-template-icon ${isNonEditable ? (isPdf ? 'sd-icon-pdf' : 'sd-icon-img') : 'sd-icon-word'}`}>
-            {isPdf ? (
-              <FileText size={20} />
-            ) : isImage ? (
-              <ImageIcon size={20} />
-            ) : (
-              <FileText size={20} />
-            )}
+            {isImage ? <ImageIcon size={18} /> : <FileText size={18} />}
           </div>
+
           <div className="sd-template-titles">
-            <div className="sd-template-title-row">
-              <h3 className="sd-card-title" title={t.title}>{t.title}</h3>
-              <span className="sd-badge sd-badge-gray sd-badge-xs sd-mono" title="File storage size">
-                <HardDrive size={10} style={{ marginRight: '3px' }} />
-                {formatSize(t.fileSize)}
-              </span>
-              {isArchived && (
-                <span className="sd-badge sd-badge-warn sd-badge-xs" title="Archived document">
-                  <Archive size={10} style={{ marginRight: '3px' }} /> Archived
-                </span>
-              )}
-              {isNonEditable ? (
-                <span className="sd-badge sd-badge-gray sd-badge-xs">
-                  <Lock size={10} /> {t.fileType?.toUpperCase()}
-                </span>
-              ) : (
-                <div style={{ display: 'inline-flex', gap: '4px', alignItems: 'center' }}>
-                  <a
-                    className="sd-badge sd-badge-accent sd-badge-xs sd-badge-clickable"
-                    title="View version history and revisions"
-                    {...tabLinkProps(tplUrl('history', t), (e) => { e.stopPropagation(); setVersionHistoryTarget(t); })}
-                  >
-                    v{t.version || 1}
-                  </a>
-                  {!isArchived && t.isDraft && (
-                    <span className="sd-badge sd-badge-warn sd-badge-xs" style={{ background: 'rgba(234, 179, 8, 0.15)', color: '#fbbf24', borderColor: 'rgba(234, 179, 8, 0.4)' }} title="Unpublished Draft: Not available for regular users to fill.">
-                      <FileEdit size={10} style={{ marginRight: '3px' }} /> Draft
-                    </span>
-                  )}
-                  {!isArchived && !t.isDraft && (!t.workflow || t.workflow.length === 0) && (
-                    <span className="sd-badge sd-badge-warn sd-badge-xs" title="No approval workflow configured. An admin must configure the approval chain before this form can be filled.">
-                      <AlertTriangle size={10} /> No Approvers
-                    </span>
-                  )}
-                  {taggedSubformsList.length > 0 && (
-                    <span
-                      className="sd-badge sd-badge-purple sd-badge-xs"
-                      style={{ cursor: canManageTpl && !isArchived ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
-                      title={`Main Form Bundle (${taggedSubformsList.length} tagged subform${taggedSubformsList.length === 1 ? '' : 's'}): ${taggedSubformsList.map(s => s.title).join(', ')}`}
-                      onClick={(e) => {
-                        if (canManageTpl && !isArchived) {
-                          e.stopPropagation();
-                          openSubformsManager(t);
-                        }
-                      }}
-                    >
-                      <Layers size={10} /> {taggedSubformsList.length} Subform{taggedSubformsList.length === 1 ? '' : 's'}
-                    </span>
-                  )}
-                  {parentMain && (
-                    <span
-                      className="sd-badge sd-badge-gray sd-badge-xs"
-                      title={`Subform linked to Main Form "${parentMain.title}" (${parentMain.code}) — Governed by Main Form's approval chain`}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}
-                    >
-                      <Link2 size={10} /> Subform of {parentMain.title}
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-            <span className="sd-muted sd-mono">{t.code}{currentDept === null ? ` · ${t.department}` : ''}</span>
-          </div>
-        </div>
-
-        {t.description && <p className="sd-card-text">{t.description}</p>}
-
-        <div className="sd-meta-row">
-          <span>
-            {!isNonEditable
-              ? `${(t.fields || []).length} field${(t.fields || []).length === 1 ? '' : 's'} · ${(t.workflow || []).length > 0 ? `${(t.workflow || []).length} approval step${(t.workflow || []).length === 1 ? '' : 's'}` : '⚠️ No workflow'}`
-              : `Static ${t.fileType?.toUpperCase()} document`}
-          </span>
-          <span title="Access Permissions">
-            {t.accessType === 'ALL'
-              ? '🌍 Everyone'
-              : t.accessType === 'USERS'
-                ? `👤 ${(t.allowedUsers || []).length} user${(t.allowedUsers || []).length === 1 ? '' : 's'}`
-                : `🏢 ${(t.allowedDepartments || []).length > 0 ? `${t.allowedDepartments.length} depts` : t.department}`}
-          </span>
-        </div>
-
-        <div className="sd-template-footer">
-          <div className="sd-template-footer-meta">
-            <span className="sd-muted">{isArchived ? `Archived · ${t.department}` : `Added ${formatDate(t.createdAt)}`}</span>
-            <div className="sd-template-quick-tools">
-              <a
-                className="sd-icon-btn-sm"
-                title="Preview document"
-                {...tabLinkProps(tplUrl('view', t), () => openPreview(t))}
-              >
-                <Eye size={14} />
-              </a>
-              <button
-                id={`btn-tpl-download-${t.id}`}
-                className="sd-icon-btn-sm"
-                title={isNonEditable && (isPdf || isImage) ? `Download ${t.fileType.toUpperCase()}` : 'Download (Word or PDF)'}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (isNonEditable && (isPdf || isImage)) {
-                    handleDirectDownload(t);
-                  } else {
-                    setDownloadTarget(t);
-                  }
-                }}
-              >
-                <Download size={14} />
-              </button>
-              <a
-                id={`btn-tpl-history-${t.id}`}
-                className="sd-icon-btn-sm"
-                title="Version History (Git log)"
-                {...tabLinkProps(tplUrl('history', t), (e) => { e.stopPropagation(); setVersionHistoryTarget(t); })}
-              >
-                <History size={14} />
-              </a>
-              {canManageTpl && !isArchived && (
+            <h3 className="sd-card-title" title={t.title}>{t.title}</h3>
+            <div className="sd-tpl-subline">
+              <span className="sd-mono">{t.code}</span>
+              {!isNonEditable && (
                 <>
-                  {!isNonEditable && (
-                    <>
-                      <button
-                        id={`btn-tpl-subforms-${t.id}`}
-                        className="sd-icon-btn-sm"
-                        title="Tag / Link Subforms (Combined Approval & Bundle)"
-                        onClick={() => openSubformsManager(t)}
-                      >
-                        <Layers size={14} />
-                      </button>
-                      <button
-                        className="sd-icon-btn-sm"
-                        title="Send for review"
-                        onClick={() => setSendForReviewTarget(t)}
-                      >
-                        <Send size={14} />
-                      </button>
-                    </>
-                  )}
-                  <button
-                    className="sd-icon-btn-sm"
-                    title="Assign Rights / Permissions"
-                    onClick={() => setRightsTemplate(t)}
-                  >
-                    <ShieldCheck size={14} />
-                  </button>
-                  <button
-                    className="sd-icon-btn-sm"
-                    title="Move to another folder"
-                    onClick={() => setMoveTemplateTarget(t)}
-                  >
-                    <FolderInput size={14} />
-                  </button>
-                  <button
-                    className="sd-icon-btn-sm sd-danger-hover"
-                    title="Archive or delete template"
-                    onClick={() => setConfirmRemoveTemplate(t)}
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  <span>·</span>
+                  <span>v{t.version || 1}</span>
                 </>
               )}
-              {canManageTpl && isArchived && subCount === 0 && (
-                <button
-                  className="sd-icon-btn-sm sd-danger-hover"
-                  title="Delete permanently"
-                  onClick={() => setConfirmRemoveTemplate(t)}
-                >
-                  <Trash2 size={14} />
-                </button>
+              {currentDept === null && t.department && (
+                <>
+                  <span>·</span>
+                  <span>{t.department}</span>
+                </>
+              )}
+              {isArchived && (
+                <span className="sd-tpl-status-pill is-warn">Archived</span>
+              )}
+              {!isArchived && t.isDraft && (
+                <span className="sd-tpl-status-pill is-warn">Draft</span>
+              )}
+              {!isArchived && !isNonEditable && !t.isDraft && stepCount === 0 && (
+                <span className="sd-tpl-status-pill is-warn">No Route</span>
+              )}
+              {taggedSubformsList.length > 0 && (
+                <span className="sd-tpl-status-pill is-accent">
+                  {taggedSubformsList.length} subform{taggedSubformsList.length === 1 ? '' : 's'}
+                </span>
+              )}
+              {parentMain && (
+                <span className="sd-tpl-status-pill" title={`Subform of ${parentMain.title}`}>
+                  Subform
+                </span>
               )}
             </div>
           </div>
 
-          <div className="sd-template-footer-actions">
+          <button
+            type="button"
+            className={`sd-tpl-more-btn ${isMenuOpen ? 'is-active' : ''}`}
+            title="More actions"
+            aria-label="More template actions"
+            onClick={(e) => handleToggleTemplateMenu(e, t)}
+          >
+            <MoreHorizontal size={16} />
+          </button>
+        </div>
+
+        {t.description && (
+          <p className="sd-card-text sd-tpl-desc-clamp">{t.description}</p>
+        )}
+
+        <div className="sd-tpl-clean-footer">
+          <span className="sd-tpl-clean-meta">
+            {!isNonEditable
+              ? `${fieldCount} field${fieldCount === 1 ? '' : 's'} · ${stepCount} step${stepCount === 1 ? '' : 's'}`
+              : `${(t.fileType || 'DOC').toUpperCase()} · ${formatSize(t.fileSize)}`}
+          </span>
+
+          <div className="sd-tpl-clean-cta">
             {isArchived ? (
               <>
                 <a
-                  className="btn btn-secondary btn-sm sd-btn-flex"
+                  className="btn btn-secondary btn-xs"
                   {...tabLinkProps(tplUrl('view', t), () => openPreview(t))}
                 >
-                  <Eye size={13} /> Preview
+                  Preview
                 </a>
                 {canManageTpl && (
                   <button
                     id={`btn-tpl-restore-${t.id}`}
                     type="button"
-                    className="btn btn-primary btn-sm sd-btn-flex"
+                    className="btn btn-primary btn-xs"
                     onClick={() => restoreTemplate(t.id)}
-                    title="Restore this document back to its active department drive"
                   >
-                    <RotateCcw size={13} /> Restore to Drive
+                    Restore
                   </button>
                 )}
               </>
+            ) : isNonEditable ? (
+              <a
+                className="btn btn-primary btn-xs"
+                {...tabLinkProps(tplUrl('view', t), () => openPreview(t))}
+              >
+                View
+              </a>
             ) : (
               <>
-                {canManageTpl && !isNonEditable && (
+                {canManageTpl && (
                   <a
                     id={`btn-tpl-edit-${t.id}`}
-                    className="btn btn-secondary btn-sm sd-btn-flex"
-                    title="Edit template definition in Word Studio"
+                    className="btn btn-secondary btn-xs"
+                    title="Open in Word Form Studio"
                     {...tabLinkProps(tplUrl('edit', t), () => openEditor(t))}
                   >
-                    <Edit3 size={13} /> Edit template
+                    Edit
                   </a>
                 )}
-                {!isNonEditable ? (
-                  <>
+
+                {t.isDraft ? (
+                  canManageTpl ? (
                     <a
-                      id={`btn-tpl-print-${t.id}`}
-                      className="btn btn-secondary btn-sm sd-btn-flex"
-                      {...tabLinkProps(tplUrl('print', t), () => handlePrintTemplate(t))}
-                      title="Print form (filled or blank)"
+                      className="btn btn-primary btn-xs"
+                      {...tabLinkProps(tplUrl('edit', t), () => openEditor(t))}
                     >
-                      <Printer size={13} /> Print
+                      Publish
                     </a>
-                    {t.isDraft ? (
-                      canManageTpl ? (
-                        <a
-                          className="btn btn-primary btn-sm sd-btn-flex"
-                          {...tabLinkProps(tplUrl('edit', t), () => openEditor(t))}
-                          title="Open in Word Studio to configure approval chain and publish"
-                        >
-                          <Sparkles size={13} /> Edit &amp; Publish
-                        </a>
-                      ) : (
-                        <button
-                          className="btn btn-secondary btn-sm sd-btn-flex"
-                          disabled
-                          title="Draft document — pending configuration &amp; publishing by department admin"
-                        >
-                          <FileEdit size={13} style={{ color: '#fbbf24' }} /> Unpublished Draft
-                        </button>
-                      )
-                    ) : (t.workflow && t.workflow.length > 0) ? (
-                      <a
-                        id={`btn-tpl-fill-${t.id}`}
-                        className="btn btn-primary btn-sm sd-btn-flex"
-                        {...tabLinkProps(tplUrl('fill', t), () => handleStartFill(t))}
-                      >
-                        <PenSquare size={13} /> Fill form
-                      </a>
-                    ) : (
-                      <button
-                        className="btn btn-secondary btn-sm sd-btn-flex"
-                        disabled
-                        title="Cannot fill: No approval workflow configured for this form. An admin must configure the approval chain before this form can be submitted."
-                      >
-                        <AlertTriangle size={13} className="sd-text-warn" /> No Workflow
-                      </button>
-                    )}
-                  </>
-                ) : (
+                  ) : (
+                    <button type="button" className="btn btn-secondary btn-xs" disabled>
+                      Draft
+                    </button>
+                  )
+                ) : stepCount > 0 ? (
                   <a
-                    className="btn btn-primary btn-sm sd-btn-flex"
-                    {...tabLinkProps(tplUrl('view', t), () => openPreview(t))}
+                    id={`btn-tpl-fill-${t.id}`}
+                    className="btn btn-primary btn-xs"
+                    {...tabLinkProps(tplUrl('fill', t), () => handleStartFill(t))}
                   >
-                    <Eye size={13} /> View doc
+                    Fill Form
                   </a>
+                ) : canManageTpl ? (
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-xs"
+                    onClick={() => setRouteModalTemplate(t)}
+                  >
+                    Set Route
+                  </button>
+                ) : (
+                  <button type="button" className="btn btn-secondary btn-xs" disabled>
+                    No Route
+                  </button>
                 )}
               </>
             )}
@@ -974,11 +889,9 @@ export const FormsHub = () => {
     const isImage = t.fileType === 'image';
     const isArchived = t.status === 'ARCHIVED';
     const canManageTpl = isSuperAdmin || (t.department && canManageDepartment(t.department));
-    const subCount = isArchived ? (formSubmissions || []).filter(s => s.templateId === t.id).length : 0;
-    const taggedSubformsList = (t.subforms || [])
-      .map(sf => (typeof sf === 'string' ? (formTemplates || []).find(x => x.id === sf) : sf))
-      .filter(Boolean);
-    const parentMain = parentMainFormBySubformId.get(t.id) || null;
+    const stepCount = (t.workflow || []).length;
+    const fieldCount = (t.fields || []).length;
+    const isMenuOpen = openMenu?.template?.id === t.id;
 
     return (
       <tr
@@ -1005,233 +918,102 @@ export const FormsHub = () => {
         </td>
         <td>
           {isArchived ? (
-            <span className="sd-badge sd-badge-warn" title="Archived document">
-              <Archive size={10} /> Archived ({t.department})
-            </span>
+            <span className="sd-tpl-status-pill is-warn">Archived</span>
           ) : t.isDraft ? (
-            <span className="sd-badge sd-badge-warn" style={{ background: 'rgba(234, 179, 8, 0.15)', color: '#fbbf24', borderColor: 'rgba(234, 179, 8, 0.4)' }} title="Unpublished Draft: Workflow not yet configured">
-              <FileEdit size={10} /> Draft (Unpublished)
-            </span>
+            <span className="sd-tpl-status-pill is-warn">Draft</span>
           ) : isNonEditable ? (
-            <span className="sd-badge sd-badge-gray">
-              <Lock size={10} /> {t.fileType?.toUpperCase()} (Read-only)
-            </span>
+            <span className="sd-muted">{t.fileType?.toUpperCase()}</span>
           ) : (
-            <div style={{ display: 'inline-flex', gap: '4px', alignItems: 'center' }}>
-              <a
-                className="sd-badge sd-badge-accent sd-badge-clickable"
-                title="View version history and revisions"
-                {...tabLinkProps(tplUrl('history', t), (e) => { e.stopPropagation(); setVersionHistoryTarget(t); })}
-              >
-                Word Form v{t.version || 1}
-              </a>
-              {(!t.workflow || t.workflow.length === 0) && (
-                <span className="sd-badge sd-badge-warn" title="No approval workflow configured">
-                  <AlertTriangle size={10} /> No Approvers
-                </span>
-              )}
-              {taggedSubformsList.length > 0 && (
-                <span
-                  className="sd-badge sd-badge-purple"
-                  style={{ cursor: canManageTpl && !isArchived ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
-                  title={`Main Form Bundle (${taggedSubformsList.length} subforms): ${taggedSubformsList.map(s => s.title).join(', ')}`}
-                  onClick={(e) => {
-                    if (canManageTpl && !isArchived) {
-                      e.stopPropagation();
-                      openSubformsManager(t);
-                    }
-                  }}
-                >
-                  <Layers size={10} /> {taggedSubformsList.length} Subform{taggedSubformsList.length === 1 ? '' : 's'}
-                </span>
-              )}
-              {parentMain && (
-                <span
-                  className="sd-badge sd-badge-gray"
-                  title={`Subform of "${parentMain.title}" (${parentMain.code})`}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}
-                >
-                  <Link2 size={10} /> Subform of {parentMain.title}
-                </span>
-              )}
-            </div>
+            <span className="sd-muted">Word Form · v{t.version || 1}</span>
           )}
         </td>
         <td>
-          <span className="sd-mono" title="Document File Size">
-            {formatSize(t.fileSize)}
-          </span>
+          <span className="sd-mono">{formatSize(t.fileSize)}</span>
         </td>
         <td>
-          {!isNonEditable
-            ? `${(t.fields || []).length} fields · ${(t.workflow || []).length > 0 ? `${(t.workflow || []).length} approval step${(t.workflow || []).length === 1 ? '' : 's'}` : '⚠️ No workflow'}`
-            : `Static non-editable document`}
+          <span className="sd-muted">
+            {!isNonEditable
+              ? `${fieldCount} field${fieldCount === 1 ? '' : 's'} · ${stepCount} step${stepCount === 1 ? '' : 's'}`
+              : 'Read-only file'}
+          </span>
         </td>
         <td><code className="sd-mono">{t.code}</code></td>
         <td><span className="sd-muted">{formatDate(t.createdAt)}</span></td>
-        <td style={{ textAlign: 'right' }}>
-          <div className="sd-btn-row sd-justify-end">
-            <a
-              className="sd-icon-btn"
-              title="Preview document"
-              {...tabLinkProps(tplUrl('view', t), () => openPreview(t))}
-            >
-              <Eye size={15} />
-            </a>
-            <button
-              id={`btn-tbl-tpl-download-${t.id}`}
-              className="sd-icon-btn"
-              title={isNonEditable && (isPdf || isImage) ? `Download ${t.fileType.toUpperCase()}` : 'Download (Word or PDF)'}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (isNonEditable && (isPdf || isImage)) {
-                  handleDirectDownload(t);
-                } else {
-                  setDownloadTarget(t);
-                }
-              }}
-            >
-              <Download size={15} />
-            </button>
-            <a
-              className="sd-icon-btn"
-              title="Version History (Git log)"
-              {...tabLinkProps(tplUrl('history', t), () => setVersionHistoryTarget(t))}
-            >
-              <History size={15} />
-            </a>
+        <td style={{ textAlign: 'right' }} onClick={e => e.stopPropagation()}>
+          <div className="sd-btn-row sd-justify-end" style={{ gap: '6px' }}>
             {isArchived ? (
-              <>
-                {canManageTpl && subCount === 0 && (
-                  <button
-                    className="sd-icon-btn sd-danger-hover"
-                    title="Delete permanently"
-                    onClick={() => setConfirmRemoveTemplate(t)}
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                )}
-                {canManageTpl && (
-                  <button
-                    id={`btn-tbl-tpl-restore-${t.id}`}
-                    type="button"
-                    className="btn btn-primary btn-xs"
-                    onClick={() => restoreTemplate(t.id)}
-                    title="Restore this document back to its active department drive"
-                  >
-                    <RotateCcw size={12} /> Restore
-                  </button>
-                )}
-              </>
+              canManageTpl && (
+                <button
+                  id={`btn-tbl-tpl-restore-${t.id}`}
+                  type="button"
+                  className="btn btn-primary btn-xs"
+                  onClick={() => restoreTemplate(t.id)}
+                >
+                  Restore
+                </button>
+              )
+            ) : isNonEditable ? (
+              <a
+                className="btn btn-primary btn-xs"
+                {...tabLinkProps(tplUrl('view', t), () => openPreview(t))}
+              >
+                View
+              </a>
             ) : (
               <>
                 {canManageTpl && (
-                  <>
-                    {!isNonEditable && (
-                      <>
-                        <button
-                          id={`btn-tbl-tpl-subforms-${t.id}`}
-                          className="sd-icon-btn"
-                          title="Tag / Link Subforms (Combined Approval & Bundle)"
-                          onClick={() => openSubformsManager(t)}
-                        >
-                          <Layers size={15} />
-                        </button>
-                        <button
-                          className="sd-icon-btn"
-                          title="Send for review"
-                          onClick={() => setSendForReviewTarget(t)}
-                        >
-                          <Send size={15} />
-                        </button>
-                      </>
-                    )}
-                    <button
-                      className="sd-icon-btn"
-                      title="Assign Rights / Permissions"
-                      onClick={() => setRightsTemplate(t)}
-                    >
-                      <ShieldCheck size={15} />
-                    </button>
-                    <button
-                      className="sd-icon-btn"
-                      title="Move template"
-                      onClick={() => setMoveTemplateTarget(t)}
-                    >
-                      <FolderInput size={15} />
-                    </button>
-                    <button
-                      className="sd-icon-btn sd-danger-hover"
-                      title="Archive or delete template"
-                      onClick={() => setConfirmRemoveTemplate(t)}
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                    {!isNonEditable && (
-                      <a
-                        className="btn btn-secondary btn-xs"
-                        title="Edit template definition in Word Studio"
-                        {...tabLinkProps(tplUrl('edit', t), () => openEditor(t))}
-                      >
-                        <Edit3 size={13} /> Edit template
-                      </a>
-                    )}
-                  </>
+                  <a
+                    className="btn btn-secondary btn-xs"
+                    {...tabLinkProps(tplUrl('edit', t), () => openEditor(t))}
+                  >
+                    Edit
+                  </a>
                 )}
-                {!isNonEditable ? (
-                  <>
+                {t.isDraft ? (
+                  canManageTpl ? (
                     <a
-                      className="btn btn-secondary btn-xs"
-                      {...tabLinkProps(tplUrl('print', t), () => handlePrintTemplate(t))}
-                      title="Print form (filled or blank)"
+                      className="btn btn-primary btn-xs"
+                      {...tabLinkProps(tplUrl('edit', t), () => openEditor(t))}
                     >
-                      <Printer size={12} /> Print
+                      Publish
                     </a>
-                    {t.isDraft ? (
-                      canManageTpl ? (
-                        <a
-                          className="btn btn-primary btn-xs"
-                          {...tabLinkProps(tplUrl('edit', t), () => openEditor(t))}
-                          title="Open in Word Studio to configure approval chain and publish"
-                        >
-                          <Sparkles size={12} /> Publish
-                        </a>
-                      ) : (
-                        <button
-                          className="btn btn-secondary btn-xs"
-                          disabled
-                          title="Draft form — pending publishing by department admin"
-                        >
-                          <FileEdit size={11} style={{ color: '#fbbf24' }} /> Draft
-                        </button>
-                      )
-                    ) : (t.workflow && t.workflow.length > 0) ? (
-                      <a
-                        className="btn btn-primary btn-xs"
-                        {...tabLinkProps(tplUrl('fill', t), () => handleStartFill(t))}
-                      >
-                        <PenSquare size={13} /> Fill
-                      </a>
-                    ) : (
-                      <button
-                        className="btn btn-secondary btn-xs"
-                        disabled
-                        title="Cannot fill: No approval workflow configured. Approval steps must be added before filling."
-                      >
-                        <AlertTriangle size={11} className="sd-text-warn" /> No Route
-                      </button>
-                    )}
-                  </>
-                ) : (
+                  ) : (
+                    <button type="button" className="btn btn-secondary btn-xs" disabled>
+                      Draft
+                    </button>
+                  )
+                ) : stepCount > 0 ? (
                   <a
                     className="btn btn-primary btn-xs"
-                    {...tabLinkProps(tplUrl('view', t), () => openPreview(t))}
+                    {...tabLinkProps(tplUrl('fill', t), () => handleStartFill(t))}
                   >
-                    <Eye size={13} /> View
+                    Fill Form
                   </a>
+                ) : canManageTpl ? (
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-xs"
+                    onClick={() => setRouteModalTemplate(t)}
+                  >
+                    Set Route
+                  </button>
+                ) : (
+                  <button type="button" className="btn btn-secondary btn-xs" disabled>
+                    No Route
+                  </button>
                 )}
               </>
             )}
+
+            <button
+              type="button"
+              className={`sd-tpl-more-btn ${isMenuOpen ? 'is-active' : ''}`}
+              title="More actions"
+              aria-label="More template actions"
+              onClick={(e) => handleToggleTemplateMenu(e, t)}
+            >
+              <MoreHorizontal size={16} />
+            </button>
           </div>
         </td>
       </tr>
@@ -2204,6 +1986,176 @@ export const FormsHub = () => {
         <TemplatePermissionsModal
           template={rightsTemplate}
           onClose={() => setRightsTemplate(null)}
+        />
+      )}
+
+      {/* Clean Floating Template Actions Menu (⋯) */}
+      {openMenu?.template && (() => {
+        const t = openMenu.template;
+        const isNonEditable = t.isEditable === false;
+        const isPdf = t.fileType === 'pdf';
+        const isImage = t.fileType === 'image';
+        const isArchived = t.status === 'ARCHIVED';
+        const canManageTpl = isSuperAdmin || (t.department && canManageDepartment(t.department));
+        const subCount = isArchived ? (formSubmissions || []).filter(s => s.templateId === t.id).length : 0;
+
+        return (
+          <div
+            className="sd-tpl-dropdown-menu"
+            role="menu"
+            style={{
+              position: 'fixed',
+              left: openMenu.left,
+              ...(openMenu.top !== undefined ? { top: openMenu.top } : {}),
+              ...(openMenu.bottom !== undefined ? { bottom: openMenu.bottom } : {}),
+              zIndex: 100450
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="sd-tpl-menu-item"
+              onClick={() => {
+                setOpenMenu(null);
+                openPreview(t);
+              }}
+            >
+              <Eye size={14} /> Preview
+            </button>
+
+            {!isNonEditable && !isArchived && (
+              <button
+                id={`btn-tpl-print-${t.id}`}
+                type="button"
+                className="sd-tpl-menu-item"
+                onClick={() => {
+                  setOpenMenu(null);
+                  handlePrintTemplate(t);
+                }}
+              >
+                <Printer size={14} /> Print
+              </button>
+            )}
+
+            <button
+              id={`btn-tpl-download-${t.id}`}
+              type="button"
+              className="sd-tpl-menu-item"
+              onClick={() => {
+                setOpenMenu(null);
+                if (isNonEditable && (isPdf || isImage)) {
+                  handleDirectDownload(t);
+                } else {
+                  setDownloadTarget(t);
+                }
+              }}
+            >
+              <Download size={14} /> Download
+            </button>
+
+            <button
+              id={`btn-tpl-history-${t.id}`}
+              type="button"
+              className="sd-tpl-menu-item"
+              onClick={() => {
+                setOpenMenu(null);
+                setVersionHistoryTarget(t);
+              }}
+            >
+              <History size={14} /> Version History
+            </button>
+
+            {canManageTpl && !isArchived && (
+              <>
+                <div className="sd-tpl-menu-divider" />
+
+                {!isNonEditable && (
+                  <>
+                    <button
+                      type="button"
+                      className="sd-tpl-menu-item"
+                      onClick={() => {
+                        setOpenMenu(null);
+                        setRouteModalTemplate(t);
+                      }}
+                    >
+                      <GitMerge size={14} /> Approval Route
+                    </button>
+
+                    <button
+                      id={`btn-tpl-subforms-${t.id}`}
+                      type="button"
+                      className="sd-tpl-menu-item"
+                      onClick={() => {
+                        setOpenMenu(null);
+                        openSubformsManager(t);
+                      }}
+                    >
+                      <Layers size={14} /> Subforms
+                    </button>
+
+                    <button
+                      type="button"
+                      className="sd-tpl-menu-item"
+                      onClick={() => {
+                        setOpenMenu(null);
+                        setSendForReviewTarget(t);
+                      }}
+                    >
+                      <Send size={14} /> Send for Review
+                    </button>
+                  </>
+                )}
+
+                <button
+                  type="button"
+                  className="sd-tpl-menu-item"
+                  onClick={() => {
+                    setOpenMenu(null);
+                    setRightsTemplate(t);
+                  }}
+                >
+                  <ShieldCheck size={14} /> Permissions
+                </button>
+
+                <button
+                  type="button"
+                  className="sd-tpl-menu-item"
+                  onClick={() => {
+                    setOpenMenu(null);
+                    setMoveTemplateTarget(t);
+                  }}
+                >
+                  <FolderInput size={14} /> Move to Folder
+                </button>
+              </>
+            )}
+
+            {canManageTpl && (!isArchived || subCount === 0) && (
+              <>
+                <div className="sd-tpl-menu-divider" />
+                <button
+                  type="button"
+                  className="sd-tpl-menu-item is-danger"
+                  onClick={() => {
+                    setOpenMenu(null);
+                    setConfirmRemoveTemplate(t);
+                  }}
+                >
+                  <Trash2 size={14} /> {isArchived ? 'Delete Permanently' : 'Archive / Delete'}
+                </button>
+              </>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Approval Route Studio Modal */}
+      {routeModalTemplate && (
+        <ApprovalRouteModal
+          template={routeModalTemplate}
+          governingMainForm={parentMainFormBySubformId.get(routeModalTemplate.id) || null}
+          onClose={() => setRouteModalTemplate(null)}
         />
       )}
 

@@ -4,11 +4,43 @@ import { apiService } from '../services/apiService';
 import { Modal, fileToBase64 } from './ui';
 import { PrePublishReviewPromptModal } from './PrePublishReviewPromptModal';
 import { SendForReviewModal } from './SendForReviewModal';
+import { ApprovalRouteModal } from './ApprovalRouteModal';
 import {
   UploadCloud, FileText, X, Plus, PenLine, Info, Loader2, Lock,
   Image as ImageIcon, FolderInput, FileEdit, AlertTriangle, GitMerge, Tag,
-  ChevronUp, ChevronDown, RefreshCw
+  ChevronUp, ChevronDown, RefreshCw, GripVertical, Users, ShieldCheck,
+  CheckCircle2, MessageSquare, RotateCcw, Clock
 } from 'lucide-react';
+
+const SLA_PRESETS = [3, 7, 14, 30];
+
+const normalizeUploadWorkflow = (wf) => {
+  if (!Array.isArray(wf)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const step of wf) {
+    if (!step) continue;
+    const department = typeof step === 'string'
+      ? step.trim()
+      : String(step.department || step.name || '').trim();
+    if (!department) continue;
+    const key = department.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const instruction = typeof step === 'object' && typeof (step.instruction ?? step.note) === 'string'
+      ? String(step.instruction ?? step.note).trim().slice(0, 240)
+      : '';
+    out.push(instruction ? { department, instruction } : { department });
+  }
+  return out;
+};
+
+const serializeUploadWorkflow = (wf) =>
+  normalizeUploadWorkflow(wf).map((item, i) => ({
+    step: i + 1,
+    department: item.department,
+    ...(item.instruction ? { instruction: item.instruction } : {})
+  }));
 
 const guessType = (key) => {
   const k = key.toLowerCase();
@@ -28,7 +60,7 @@ const formatSize = (bytes) => {
 // Admin flow: upload .docx -> mark mandatory fields -> build department approval chain -> publish
 // Or upload static PDF / Image as reference document
 export const TemplateUploadModal = ({ onClose, initialDepartment, initialFolderId, onOpenBulkImport }) => {
-  const { currentUser, isSuperAdmin, departments, folders, formTemplates, createTemplate, startReview } = useApp();
+  const { currentUser, isSuperAdmin, users, departments, folders, formTemplates, createTemplate, startReview } = useApp();
   const inputRef = useRef(null);
 
   const [file, setFile] = useState(null); // { name, base64, fileType, size }
@@ -45,13 +77,33 @@ export const TemplateUploadModal = ({ onClose, initialDepartment, initialFolderI
   const [audience, setAudience] = useState('DEPARTMENT');
   const [expiryDays, setExpiryDays] = useState(14);
   const [workflow, setWorkflow] = useState([]);
-  const [stepToAdd, setStepToAdd] = useState('');
+  const [dragIdx, setDragIdx] = useState(null);
+  const [dragOverIdx, setDragOverIdx] = useState(null);
+  const [editingNoteIdx, setEditingNoteIdx] = useState(null);
   const [saving, setSaving] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+
+  const deptApproversMap = useMemo(() => {
+    const map = new Map();
+    (departments || []).forEach(d => {
+      if (d?.name) map.set(d.name.trim().toLowerCase(), []);
+    });
+    (users || []).forEach(u => {
+      if (!u || u.status === 'SUSPENDED' || (u.status && u.status !== 'ACTIVE')) return;
+      const isDeptAdmin = u.systemRole === 'admin' || u.role === 'Department Admin';
+      if (isDeptAdmin && u.department) {
+        const k = u.department.trim().toLowerCase();
+        if (!map.has(k)) map.set(k, []);
+        map.get(k).push(u);
+      }
+    });
+    return map;
+  }, [users, departments]);
 
   // Pre-publish prompt & Send for review states
   const [showPrePublishPrompt, setShowPrePublishPrompt] = useState(false);
   const [showSendForReview, setShowSendForReview] = useState(false);
+  const [showRouteModal, setShowRouteModal] = useState(false);
 
   const activeDept = isSuperAdmin ? department : (currentUser?.department || '');
   const deptFolders = (folders || []).filter(f => f.department === activeDept);
@@ -110,12 +162,12 @@ export const TemplateUploadModal = ({ onClose, initialDepartment, initialFolderI
         // Pre-fill approval chain from department signature placeholders, or fallback to owning/active department
         const deptNames = departments.map(d => d.name.toLowerCase());
         const fromSlots = (parsed.signatureSlots || []).filter(s => deptNames.includes(s.toLowerCase()))
-          .map(s => departments.find(d => d.name.toLowerCase() === s.toLowerCase()).name);
+          .map(s => ({ department: departments.find(d => d.name.toLowerCase() === s.toLowerCase()).name }));
         if (fromSlots.length > 0) {
-          setWorkflow(fromSlots);
+          setWorkflow(normalizeUploadWorkflow(fromSlots));
         } else if (workflow.length === 0) {
           const fallbackDept = department || currentUser?.department || departments[0]?.name;
-          if (fallbackDept) setWorkflow([fallbackDept]);
+          if (fallbackDept) setWorkflow([{ department: fallbackDept }]);
         }
       }
     } catch (err) {
@@ -124,13 +176,58 @@ export const TemplateUploadModal = ({ onClose, initialDepartment, initialFolderI
     setParsing(false);
   };
 
-  const moveStep = (i, dir) => setWorkflow(prev => {
-    const next = [...prev];
-    const j = i + dir;
-    if (j < 0 || j >= next.length) return prev;
-    [next[i], next[j]] = [next[j], next[i]];
-    return next;
-  });
+  const workflowItems = useMemo(() => normalizeUploadWorkflow(workflow), [workflow]);
+
+  const remainingDepartments = useMemo(() => {
+    const taken = new Set(workflowItems.map(w => w.department.toLowerCase()));
+    return (departments || []).filter(d => d?.name && !taken.has(d.name.trim().toLowerCase()));
+  }, [departments, workflowItems]);
+
+  const moveStep = (i, dir) => {
+    setWorkflow(prev => {
+      const next = [...normalizeUploadWorkflow(prev)];
+      const j = i + dir;
+      if (j < 0 || j >= next.length) return next;
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+    setEditingNoteIdx(prev => (prev === i ? i + dir : (prev === i + dir ? i : prev)));
+  };
+
+  const reorderStep = (fromIdx, toIdx) => {
+    if (fromIdx === null || toIdx === null || fromIdx === toIdx) return;
+    setWorkflow(prev => {
+      const next = [...normalizeUploadWorkflow(prev)];
+      if (fromIdx < 0 || fromIdx >= next.length || toIdx < 0 || toIdx >= next.length) return next;
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      return next;
+    });
+    setEditingNoteIdx(null);
+  };
+
+  const addStep = (deptName) => {
+    const clean = String(deptName || '').trim();
+    if (!clean) return;
+    setWorkflow(prev => normalizeUploadWorkflow([...prev, { department: clean }]));
+  };
+
+  const removeStep = (idx) => {
+    setWorkflow(prev => normalizeUploadWorkflow(prev).filter((_, j) => j !== idx));
+    setEditingNoteIdx(prev => (prev === idx ? null : (prev !== null && prev > idx ? prev - 1 : prev)));
+  };
+
+  const updateStepNote = (idx, text) => {
+    setWorkflow(prev => {
+      const next = [...normalizeUploadWorkflow(prev)];
+      if (!next[idx]) return next;
+      const clean = String(text || '').slice(0, 240);
+      next[idx] = clean.trim()
+        ? { ...next[idx], instruction: clean }
+        : { department: next[idx].department };
+      return next;
+    });
+  };
 
   const unmatchedSlots = signatureSlots.filter(
     s => s.toLowerCase() !== 'submitter' && !departments.some(d => d.name.toLowerCase() === s.toLowerCase())
@@ -155,7 +252,7 @@ export const TemplateUploadModal = ({ onClose, initialDepartment, initialFolderI
     return found ? (cleanT && found.title?.trim().toLowerCase() === cleanT ? `A document titled "${found.title}" already exists in this folder.` : `A file named "${found.fileName}" already exists in this folder.`) : null;
   }, [title, file, folderId, activeDept, formTemplates]);
 
-  const canPublish = file && title.trim() && (!isDocx || workflow.length > 0) && !saving && !duplicateConflict;
+  const canPublish = file && title.trim() && (!isDocx || workflowItems.length > 0) && !saving && !duplicateConflict;
 
   const handlePublish = async () => {
     if (duplicateConflict) {
@@ -185,7 +282,7 @@ export const TemplateUploadModal = ({ onClose, initialDepartment, initialFolderI
         fileName: file.name,
         fileType: file.fileType || 'docx',
         fields: isDocx ? fields : [],
-        workflow: isDocx ? workflow : [],
+        workflow: isDocx ? serializeUploadWorkflow(workflow) : [],
         defaultExpiryDays: isDocx ? expiryDays : null,
         status: 'ACTIVE'
       });
@@ -257,7 +354,7 @@ export const TemplateUploadModal = ({ onClose, initialDepartment, initialFolderI
         folderId: folderId || null,
         audience,
         defaultExpiryDays: expiryDays || 14,
-        workflow: workflow.map((dept, i) => ({ step: i + 1, department: dept })),
+        workflow: serializeUploadWorkflow(workflow),
         htmlContent: html,
         reviewerIds,
         message
@@ -550,27 +647,59 @@ export const TemplateUploadModal = ({ onClose, initialDepartment, initialFolderI
                   </select>
                 </label>
 
-                <label className="sd-field">
+                <div className="sd-field">
                   <span className="sd-label">Who Can Access This Form</span>
-                  <select className="sd-input" value={audience} onChange={e => setAudience(e.target.value)}>
-                    <option value="DEPARTMENT">Members of the owning department</option>
-                    <option value="ALL">Everyone in the company</option>
-                  </select>
-                </label>
+                  <div className="sd-wf-segmented sd-wf-segmented-block" role="group" aria-label="Form audience">
+                    <button
+                      type="button"
+                      className={`sd-wf-seg-btn ${audience === 'DEPARTMENT' ? 'active' : ''}`}
+                      onClick={() => setAudience('DEPARTMENT')}
+                    >
+                      Owning Dept Only
+                    </button>
+                    <button
+                      type="button"
+                      className={`sd-wf-seg-btn ${audience === 'ALL' ? 'active' : ''}`}
+                      onClick={() => setAudience('ALL')}
+                    >
+                      Everyone in Company
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="sd-grid-2">
-                <label className="sd-field">
-                  <span className="sd-label">Default Decision Deadline (days)</span>
-                  <input
-                    className="sd-input"
-                    type="number"
-                    min="1"
-                    max="365"
-                    value={expiryDays}
-                    onChange={e => setExpiryDays(e.target.value)}
-                  />
-                </label>
+                <div className="sd-field">
+                  <span className="sd-label">
+                    <Clock size={12} style={{ verticalAlign: '-1px', marginRight: '4px' }} />
+                    Default Decision Deadline
+                  </span>
+                  <div className="sd-wf-sla-group">
+                    <div className="sd-wf-sla-pills">
+                      {SLA_PRESETS.map(preset => (
+                        <button
+                          key={preset}
+                          type="button"
+                          className={`sd-wf-sla-pill ${Number(expiryDays) === preset ? 'active' : ''}`}
+                          onClick={() => setExpiryDays(preset)}
+                        >
+                          {preset}d
+                        </button>
+                      ))}
+                    </div>
+                    <div className="sd-workflow-days-wrap">
+                      <input
+                        className="sd-input sd-input-sm"
+                        type="number"
+                        min="1"
+                        max="365"
+                        value={expiryDays}
+                        onChange={e => setExpiryDays(e.target.value)}
+                      />
+                      <span className="sd-workflow-days-suffix">days</span>
+                    </div>
+                  </div>
+                </div>
 
                 <label className="sd-field">
                   <span className="sd-label">Description (Optional)</span>
@@ -608,131 +737,47 @@ export const TemplateUploadModal = ({ onClose, initialDepartment, initialFolderI
                   </p>
                 )}
 
-                <div className="sd-muted sd-small" style={{ fontSize: '0.76rem', color: '#71717a' }}>
+                <div className="sd-muted sd-small" style={{ fontSize: '0.76rem' }}>
                   Placeholders and form layout can be edited anytime directly in <strong>Word Form Studio</strong>.
                 </div>
               </div>
             )}
 
-            {/* Card 3: Sequential Approval Chain */}
+            {/* Card 3: Approval Route */}
             <div className="sd-upload-card">
               <div className="sd-card-section-header">
                 <div className="sd-card-section-title">
-                  <GitMerge size={16} /> Sequential Approval Chain
+                  <GitMerge size={16} /> Approval Route
                 </div>
-                <span className="sd-muted sd-small">{workflow.length} step{workflow.length === 1 ? '' : 's'}</span>
-              </div>
-
-              <p className="sd-muted" style={{ margin: 0, fontSize: '0.82rem' }}>
-                Submissions route sequentially through these departments. Any department admin can approve and stamp their digital signature.
-              </p>
-
-              <div className="sd-upload-workflow-pipeline">
-                <div className="sd-upload-workflow-step is-originator">
-                  <div className="sd-workflow-step-num is-originator">0</div>
-                  <div className="sd-workflow-step-name">
-                    Submitter / Originator
-                    <span className="sd-workflow-step-desc">— fills form &amp; signs with saved signature</span>
-                  </div>
-                  <span className="sd-badge sd-badge-xs">Origin</span>
-                </div>
-
-                {workflow.map((dept, i) => {
-                  const deptName = typeof dept === 'string' ? dept : (dept?.department || '');
-                  return (
-                    <div key={`${deptName}-${i}`} className="sd-upload-workflow-step">
-                      <div className="sd-workflow-step-num">{i + 1}</div>
-                      <div className="sd-workflow-step-name">
-                        {deptName}
-                        <span className="sd-workflow-step-desc">— any department admin</span>
-                      </div>
-                      <div className="sd-workflow-step-actions">
-                        <button
-                          type="button"
-                          className="sd-icon-btn"
-                          disabled={i === 0}
-                          onClick={() => moveStep(i, -1)}
-                          title="Move up"
-                        >
-                          <ChevronUp size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          className="sd-icon-btn"
-                          disabled={i === workflow.length - 1}
-                          onClick={() => moveStep(i, 1)}
-                          title="Move down"
-                        >
-                          <ChevronDown size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          className="sd-icon-btn sd-danger-hover"
-                          onClick={() => setWorkflow(prev => prev.filter((_, j) => j !== i))}
-                          title="Remove step"
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="sd-inline-form">
-                <select
-                  id="select-workflow-dept"
-                  className="sd-input"
-                  value={stepToAdd}
-                  onChange={e => setStepToAdd(e.target.value)}
-                >
-                  <option value="">Select an approving department…</option>
-                  {departments.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
-                </select>
                 <button
                   type="button"
-                  id="btn-add-workflow-step"
-                  className="btn btn-secondary"
-                  disabled={!stepToAdd}
-                  onClick={() => { setWorkflow(prev => [...prev, stepToAdd]); setStepToAdd(''); }}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  className="btn btn-primary btn-xs"
+                  style={{ height: '28px', padding: '0 12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  onClick={() => setShowRouteModal(true)}
                 >
-                  <Plus size={15} /> Add Step
+                  <GitMerge size={13} /> Edit Route…
                 </button>
               </div>
 
-              {workflow.length === 0 && (
-                <div className="sd-upload-draft-banner">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <FileEdit size={16} style={{ color: '#fbbf24', flexShrink: 0 }} />
-                    <span className="sd-small" style={{ color: '#fbbf24' }}>
-                      <strong>Want to skip the approval workflow?</strong> You can upload this document as an unpublished <strong>Draft</strong>.
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-xs"
-                    disabled={saving || !title.trim()}
-                    onClick={handleSaveDraft}
-                  >
-                    Upload as Draft
-                  </button>
+              {workflowItems.length === 0 ? (
+                <div className="sd-ar-empty-box" style={{ margin: '4px 0 0' }}>
+                  No approval steps selected — form will upload as a <strong>Draft</strong> unless you add steps via <strong>Edit Route…</strong>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
+                  {workflowItems.map((item, i) => (
+                    <React.Fragment key={item.department}>
+                      <span className="sd-ar-upload-step-pill">
+                        <span className="sd-ar-upload-step-num">{i + 1}</span>
+                        <span>{item.department}</span>
+                      </span>
+                      {i < workflowItems.length - 1 && (
+                        <span className="sd-muted" style={{ fontSize: '0.8rem' }}>→</span>
+                      )}
+                    </React.Fragment>
+                  ))}
                 </div>
               )}
-
-              <div className="sd-sig-summary">
-                <PenLine size={14} />
-                {signatureSlots.length > 0 ? (
-                  <span>
-                    Signature slots in document: <strong style={{ color: '#ffffff' }}>{signatureSlots.join(', ')}</strong>.
-                    {unmatchedSlots.length > 0 && (
-                      <span className="sd-text-warn"> Unmatched slots: {unmatchedSlots.join(', ')} (will stay blank).</span>
-                    )}
-                  </span>
-                ) : (
-                  <span>No signature placeholders detected — a “Signatures” section will be appended at the end of the document.</span>
-                )}
-              </div>
             </div>
           </div>
         )}
@@ -754,6 +799,23 @@ export const TemplateUploadModal = ({ onClose, initialDepartment, initialFolderI
         title={title}
         onClose={() => setShowSendForReview(false)}
         onSend={handleSendForReview}
+      />
+    )}
+
+    {showRouteModal && (
+      <ApprovalRouteModal
+        isOpen={showRouteModal}
+        onClose={() => setShowRouteModal(false)}
+        formTitle={title.trim() || file?.name || 'Uploaded Word Template'}
+        owningDepartment={activeDept}
+        workflow={workflowItems}
+        audience={audience}
+        defaultExpiryDays={expiryDays}
+        onApply={({ workflow: nextWf, audience: nextAud, defaultExpiryDays: nextDays }) => {
+          setWorkflow(normalizeUploadWorkflow(nextWf));
+          if (nextAud) setAudience(nextAud);
+          if (nextDays) setExpiryDays(nextDays);
+        }}
       />
     )}
   </>

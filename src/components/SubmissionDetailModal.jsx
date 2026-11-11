@@ -7,7 +7,7 @@ import { VersionHistoryModal } from './VersionHistoryModal';
 import {
   CheckCircle2, AlertTriangle, XCircle, Edit3, PenLine, Clock, CircleDot,
   History, MessageSquare, Check, X, Lock, ShieldCheck, ShieldAlert, RefreshCw, Key,
-  Loader2, Download, Eye, Tag
+  Loader2, Download, Eye, Tag, Info
 } from 'lucide-react';
 
 const STEP_ICON = {
@@ -389,9 +389,16 @@ export const SubmissionDetailModal = ({ submissionId, onClose, initialViewAs = '
               background: 'var(--bg-card-subtle)'
             }}
           >
-            <div style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)', marginBottom: '10px' }}>
+            <div style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)', marginBottom: step?.instruction ? '8px' : '10px' }}>
               Step {s.currentWorkflowStep || 1}: {step?.department} Decision
             </div>
+
+            {step?.instruction && (
+              <div className="sd-wf-reviewer-guidance">
+                <Info size={13} />
+                <span><strong>Step Guidance:</strong> {step.instruction}</span>
+              </div>
+            )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', marginBottom: decision ? '12px' : 0 }}>
               <button
@@ -746,6 +753,11 @@ export const SubmissionDetailModal = ({ submissionId, onClose, initialViewAs = '
                     {st.status === 'PENDING' && (s.status === 'EXPIRED' ? 'deadline passed' : 'waiting for department admin')}
                     {st.status === 'WAITING' && 'not started'}
                   </span>
+                  {st.instruction && (
+                    <div className="sd-wf-timeline-instruction">
+                      <Info size={11} /> Guidance: {st.instruction}
+                    </div>
+                  )}
                   {st.actedAt && <div className="sd-muted">{formatDate(st.actedAt, true)}</div>}
                   {st.notes && <div className="sd-quote">“{st.notes}”</div>}
                 </div>

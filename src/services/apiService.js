@@ -85,6 +85,7 @@ export const apiService = {
   createTemplate: (data) => post('/forms/templates', data),
   updateTemplate: (id, data) => put(`/forms/templates/${id}`, data),
   updateTemplatePermissions: (id, data) => put(`/forms/templates/${id}/permissions`, data),
+  updateTemplateWorkflow: (id, data) => put(`/forms/templates/${id}/workflow`, data),
   updateTemplateSubforms: (id, subforms) => put(`/forms/templates/${id}/subforms`, { subforms }),
   addTemplateComment: (id, data) => post(`/forms/templates/${id}/comments`, data),
   updateTemplateComment: (id, commentId, data) => put(`/forms/templates/${id}/comments/${commentId}`, data),

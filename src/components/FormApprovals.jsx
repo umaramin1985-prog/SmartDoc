@@ -5,11 +5,12 @@ import {
   WorkflowMiniProgress, WorkflowTrack, SlaBadge, UserAvatar
 } from './ui';
 import { SubmissionDetailModal } from './SubmissionDetailModal';
+import { SubmissionKanbanBoard } from './SubmissionKanbanBoard';
 import { buildAppUrl, tabLinkProps, tabOpenProps } from '../utils/router';
 import { useDeepLink } from '../utils/useDeepLink';
 import {
   Inbox, Send, Building2, CheckCircle2, Search, FileText,
-  AlertTriangle, Eye, X, LayoutGrid, List, ShieldCheck
+  AlertTriangle, Eye, X, LayoutGrid, List, Columns3
 } from 'lucide-react';
 
 const STATUS_OPTIONS = [
@@ -204,8 +205,15 @@ export const FormApprovals = () => {
   const [tab, setTab] = useState(isAdmin && myApprovalQueue.length > 0 ? 'queue' : 'mine');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
-  const [viewMode, setViewMode] = useState('table'); // 'table' | 'cards'
+  const [viewMode, setViewMode] = useState(
+    () => localStorage.getItem('smartdoc_approvals_view') || 'board'
+  ); // 'board' | 'table' | 'cards'
   const [openId, setOpenId] = useState(null);
+
+  const handleChangeViewMode = (mode) => {
+    setViewMode(mode);
+    try { localStorage.setItem('smartdoc_approvals_view', mode); } catch {}
+  };
 
   // Deep link: /approvals?submission=<id> opens that submission's detail modal
   useDeepLink(({ submission }, { timedOut }) => {
@@ -263,6 +271,32 @@ export const FormApprovals = () => {
     return list;
   }, [baseRows, statusFilter, search]);
 
+  // For Kanban Board mode: on "queue" tab, show items awaiting user's decision in "In Review"
+  // plus submissions where the user already recorded a decision in the other 3 columns.
+  const boardFilteredRows = useMemo(() => {
+    let list = baseRows;
+    if (tab === 'queue' && currentUser?.id) {
+      const queueIds = new Set(myApprovalQueue.map(s => String(s.id)));
+      const decidedByMe = formSubmissions.filter(
+        s =>
+          !queueIds.has(String(s.id)) &&
+          s.status !== 'IN_REVIEW' &&
+          Array.isArray(s.workflow) &&
+          s.workflow.some(st => st && String(st.actedById) === String(currentUser.id))
+      );
+      list = [...myApprovalQueue, ...decidedByMe];
+    }
+    const q = search.trim().toLowerCase();
+    if (q) {
+      list = list.filter(s =>
+        [s.uniqueNumber, s.title, s.submittedByName, s.department, s.status].some(v =>
+          String(v || '').toLowerCase().includes(q)
+        )
+      );
+    }
+    return list;
+  }, [tab, baseRows, myApprovalQueue, formSubmissions, currentUser?.id, search]);
+
   const handleQuickPreview = (s) => {
     openDocumentPreview({
       kind: 'submission',
@@ -273,7 +307,7 @@ export const FormApprovals = () => {
   };
 
   return (
-    <div className="sd-page animate-fade-in">
+    <div className={`sd-page animate-fade-in sd-approvals-page ${viewMode === 'board' ? 'is-board-mode' : ''}`}>
       <PageHeader
         title="Submissions &amp; Approvals"
         subtitle={isAdmin
@@ -297,26 +331,34 @@ export const FormApprovals = () => {
         ))}
       </div>
 
-      {/* Approvals Toolbar: Status Filter Chips + Search + View Mode Switcher */}
+      {/* Approvals Toolbar: Status Filter Chips (Table/Cards only) + Search + View Mode Switcher */}
       <div className="sd-approvals-toolbar">
-        <div className="sd-status-chips-wrap" role="group" aria-label="Filter by submission status">
-          {STATUS_OPTIONS.map(opt => {
-            const count = statusCounts[opt.id] || 0;
-            const isActive = statusFilter === opt.id;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                className={`sd-status-chip ${isActive ? 'active' : ''}`}
-                onClick={() => setStatusFilter(opt.id)}
-              >
-                {opt.tone && <span className={`sd-status-chip-dot ${opt.tone}`} />}
-                <span>{opt.label}</span>
-                <span className="sd-status-chip-count">{count}</span>
-              </button>
-            );
-          })}
-        </div>
+        {viewMode !== 'board' ? (
+          <div className="sd-status-chips-wrap" role="group" aria-label="Filter by submission status">
+            {STATUS_OPTIONS.map(opt => {
+              const count = statusCounts[opt.id] || 0;
+              const isActive = statusFilter === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className={`sd-status-chip ${isActive ? 'active' : ''}`}
+                  onClick={() => setStatusFilter(opt.id)}
+                >
+                  {opt.tone && <span className={`sd-status-chip-dot ${opt.tone}`} />}
+                  <span>{opt.label}</span>
+                  <span className="sd-status-chip-count">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <span className="sd-kb-toolbar-hint">
+            {isAdmin
+              ? 'Click any card to open the form sheet, or drag actionable cards across columns to decide.'
+              : 'Click any card to view the submitted form sheet and approval status.'}
+          </span>
+        )}
 
         <div className="sd-approvals-right-controls">
           <div className="sd-approvals-search">
@@ -342,17 +384,25 @@ export const FormApprovals = () => {
           <div className="sd-explorer-view-toggle" role="group" aria-label="Layout mode">
             <button
               type="button"
+              className={`sd-icon-btn ${viewMode === 'board' ? 'is-active' : ''}`}
+              title="Kanban Board View"
+              onClick={() => handleChangeViewMode('board')}
+            >
+              <Columns3 size={15} />
+            </button>
+            <button
+              type="button"
               className={`sd-icon-btn ${viewMode === 'table' ? 'is-active' : ''}`}
-              title="High-Density Table View"
-              onClick={() => setViewMode('table')}
+              title="Table View"
+              onClick={() => handleChangeViewMode('table')}
             >
               <List size={15} />
             </button>
             <button
               type="button"
               className={`sd-icon-btn ${viewMode === 'cards' ? 'is-active' : ''}`}
-              title="Visual Pipeline Cards View"
-              onClick={() => setViewMode('cards')}
+              title="Cards View"
+              onClick={() => handleChangeViewMode('cards')}
             >
               <LayoutGrid size={15} />
             </button>
@@ -360,7 +410,29 @@ export const FormApprovals = () => {
         </div>
       </div>
 
-      {filteredRows.length === 0 ? (
+      {viewMode === 'board' ? (
+        search && boardFilteredRows.length === 0 ? (
+          <EmptyState
+            icon={FileText}
+            title="No matching submissions found"
+            text="Try clearing your search query."
+            action={
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setSearch('')}
+              >
+                Clear search
+              </button>
+            }
+          />
+        ) : (
+          <SubmissionKanbanBoard
+            rows={boardFilteredRows}
+            onOpen={id => setOpenId(id)}
+          />
+        )
+      ) : filteredRows.length === 0 ? (
         <EmptyState
           icon={tab === 'queue' ? CheckCircle2 : FileText}
           title={

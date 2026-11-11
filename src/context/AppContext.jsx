@@ -615,6 +615,16 @@ export const AppProvider = ({ children }) => {
     if (r) await refreshTemplates();
     return r;
   };
+  const updateTemplateWorkflow = async (id, data) => {
+    const count = Array.isArray(data?.workflow) ? data.workflow.length : 0;
+    const r = await run(
+      () => apiService.updateTemplateWorkflow(id, data),
+      count === 0 ? 'Moved to Draft Mode' : 'Approval Route Saved',
+      count === 0 ? 'Approval steps cleared; form saved as Draft.' : `Sequential route updated (${count} department step${count === 1 ? '' : 's'}).`
+    );
+    if (r) await refreshTemplates();
+    return r;
+  };
   const updateTemplateSubforms = async (id, subforms) => {
     const r = await run(
       () => apiService.updateTemplateSubforms(id, subforms),
@@ -892,7 +902,7 @@ export const AppProvider = ({ children }) => {
     createUser, updateUser, toggleUserStatus, deleteUser, createDepartment, updateDepartment, deleteDepartment,
     canManageDepartment, createFolder, updateFolder, deleteFolder,
     createTemplate, bulkImportTemplates, refreshTemplates, refreshFolders,
-    updateTemplate, updateTemplatePermissions, updateTemplateSubforms, addTemplateComment, updateTemplateComment,
+    updateTemplate, updateTemplatePermissions, updateTemplateWorkflow, updateTemplateSubforms, addTemplateComment, updateTemplateComment,
     moveTemplate, archiveTemplate, restoreTemplate,
     submitForm, resubmitForm, workflowAction, addSubmissionComment, updateSubmissionComment,
     notifications, unreadNotificationsCount, refreshNotifications, markNotificationRead, markAllNotificationsRead,

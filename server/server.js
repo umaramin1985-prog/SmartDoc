@@ -187,6 +187,14 @@ function cleanWorkflowStep(w, index) {
   if (w.nodeSubType !== undefined) {
     result.nodeSubType = w.nodeSubType;
   }
+  const rawInstruction = typeof w.instruction === 'string'
+    ? w.instruction.trim()
+    : (typeof w.note === 'string' ? w.note.trim() : '');
+  if (rawInstruction) {
+    result.instruction = rawInstruction.slice(0, 240);
+  } else {
+    delete result.instruction;
+  }
 
   return result;
 }
@@ -322,6 +330,7 @@ function bumpVersion(v) {
 const freshWorkflow = (tmplWorkflow) => tmplWorkflow.map((st, i) => ({
   step: i + 1,
   department: st.department,
+  instruction: st.instruction ? String(st.instruction).trim().slice(0, 240) : null,
   status: i === 0 ? 'PENDING' : 'WAITING',
   actedById: null, actedByName: null, actedAt: null, notes: null, signature: null
 }));
@@ -2220,6 +2229,118 @@ app.put('/api/forms/templates/:id/permissions', async (req, res) => {
   } catch (err) {
     console.error('[PUT template permissions]', err);
     res.status(400).json({ error: err.message || 'Failed to update permissions' });
+  }
+});
+
+// Dedicated quick-update for Sequential Approval Route, SLA & Audience from ApprovalRouteModal
+app.put('/api/forms/templates/:id/workflow', async (req, res) => {
+  try {
+    const actor = await requireActor(req, res);
+    if (!actor) return;
+    const r = await query('SELECT * FROM form_templates WHERE id = $1', [req.params.id]);
+    const t = r.rows[0];
+    if (!t) return res.status(404).json({ error: 'Template not found' });
+    if (!isDeptAdmin(actor, t.department)) {
+      return res.status(403).json({ error: 'Only admins of the owning department can configure the approval route' });
+    }
+
+    const rawWorkflow = Array.isArray(req.body.workflow) ? req.body.workflow : [];
+    const seenDepts = new Set();
+    const cleanWorkflow = [];
+    for (const entry of rawWorkflow) {
+      const cleaned = cleanWorkflowStep(entry, cleanWorkflow.length);
+      if (!cleaned) continue;
+      const key = cleaned.department.toLowerCase();
+      if (seenDepts.has(key)) continue;
+      seenDepts.add(key);
+      cleanWorkflow.push(cleaned);
+    }
+
+    const nextExpiry = req.body.defaultExpiryDays !== undefined
+      ? Math.min(Math.max(parseInt(req.body.defaultExpiryDays, 10) || 14, 1), 365)
+      : (t.default_expiry_days || 14);
+
+    const nextAudience = req.body.audience === 'ALL'
+      ? 'ALL'
+      : (req.body.audience === 'DEPARTMENT' ? 'DEPARTMENT' : (t.audience || 'DEPARTMENT'));
+    const nextAccessType = req.body.audience !== undefined
+      ? (nextAudience === 'ALL' ? 'ALL' : (t.access_type === 'ALL' ? 'DEPARTMENTS' : (t.access_type || 'DEPARTMENTS')))
+      : (t.access_type || 'DEPARTMENTS');
+
+    const nextStatus = cleanWorkflow.length === 0 ? 'DRAFT' : 'ACTIVE';
+    const prevWorkflow = parseJson(t.workflow, []);
+    const prevSteps = prevWorkflow.map(w => (typeof w === 'string' ? w : w?.department)).filter(Boolean);
+    const nextSteps = cleanWorkflow.map(w => w.department);
+
+    const nextVersion = bumpVersion(t.version || '1.0');
+    const existingHistory = parseJson(t.version_history, []);
+    const summary = cleanWorkflow.length === 0
+      ? 'Cleared approval route (saved as Draft)'
+      : `Updated approval route: ${nextSteps.join(' → ')} (${nextExpiry}d SLA)`;
+
+    const commit = {
+      commitId: crypto.randomBytes(3).toString('hex'),
+      version: nextVersion,
+      author: { id: actor.id, name: actor.name, username: actor.username, department: actor.department },
+      timestamp: new Date().toISOString(),
+      summary,
+      changeType: nextStatus === 'DRAFT' ? 'DRAFT' : 'UPDATE',
+      details: `${cleanWorkflow.length} approval step${cleanWorkflow.length === 1 ? '' : 's'}, ${nextExpiry}d SLA`,
+      changes: {
+        addedFields: [],
+        removedFields: [],
+        modifiedFields: [],
+        workflowChanged: JSON.stringify(prevSteps) !== JSON.stringify(nextSteps),
+        prevWorkflow: prevSteps,
+        nextWorkflow: nextSteps,
+        titleChanged: null,
+        descChanged: null
+      },
+      fields: parseJson(t.fields, []),
+      workflow: cleanWorkflow,
+      htmlContent: t.html_content
+    };
+
+    await query(
+      `UPDATE form_templates
+          SET workflow = $1::jsonb,
+              default_expiry_days = $2,
+              audience = $3,
+              access_type = $4,
+              status = $5,
+              version = $6,
+              version_history = $7::jsonb,
+              updated_at = NOW()
+        WHERE id = $8`,
+      [
+        JSON.stringify(cleanWorkflow),
+        nextExpiry,
+        nextAudience,
+        nextAccessType,
+        nextStatus,
+        nextVersion,
+        JSON.stringify([...existingHistory, commit]),
+        t.id
+      ]
+    );
+
+    const subformList = parseJson(t.subforms, []);
+    if (subformList.length > 0) {
+      await syncTaggedSubforms(t.id, subformList, cleanWorkflow, nextStatus, t.department);
+    }
+
+    await audit(
+      'TEMPLATE_WORKFLOW_UPDATED',
+      actor.username,
+      `${t.unique_code} v${nextVersion} (${cleanWorkflow.length} step${cleanWorkflow.length === 1 ? '' : 's'})`,
+      t.department
+    );
+
+    const updated = await query('SELECT * FROM form_templates WHERE id = $1', [t.id]);
+    res.json(mapTemplate(updated.rows[0]));
+  } catch (err) {
+    console.error('[PUT template workflow]', err);
+    res.status(400).json({ error: err.message || 'Failed to update approval route' });
   }
 });
 
