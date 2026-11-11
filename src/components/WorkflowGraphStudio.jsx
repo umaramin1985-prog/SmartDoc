@@ -15,7 +15,9 @@ import {
   loadWorkflowBlueprints,
   saveWorkflowBlueprints,
   loadTemplateGraphRecord,
-  saveTemplateGraphRecord
+  saveTemplateGraphRecord,
+  addNodeOnBranch,
+  repairBranchTargets
 } from '../utils/workflowGraphEngine';
 import {
   GitBranch,
@@ -46,8 +48,7 @@ import {
   Split,
   HelpCircle,
   FilePlus2,
-  Check,
-  CornerDownRight
+  Check
 } from 'lucide-react';
 
 const NODE_WIDTH = 242;
@@ -181,7 +182,7 @@ export const WorkflowGraphStudio = () => {
     return simulateWorkflowGraph(nodes, simValues);
   }, [simMode, nodes, simValues]);
 
-  // Computed edges
+  // Computed edges from workflow engine
   const edges = useMemo(() => computeGraphEdges(nodes, simulationResult), [nodes, simulationResult]);
 
   // Selected node object
@@ -192,6 +193,12 @@ export const WorkflowGraphStudio = () => {
 
   const stageNodes = useMemo(() => nodes.filter(n => n.type === 'STAGE'), [nodes]);
 
+  // Candidate destination nodes (excluding the selected node itself to prevent self-cycles)
+  const candidateDestinationNodes = useMemo(() => {
+    if (!selectedNode) return [];
+    return stageNodes.filter(s => s.id !== selectedNode.id);
+  }, [stageNodes, selectedNode]);
+
   // Check URL deep link `?template=<id>` or `?id=<id>` on mount
   useEffect(() => {
     try {
@@ -200,7 +207,7 @@ export const WorkflowGraphStudio = () => {
       if (tplId && formTemplates.some(t => t.id === tplId)) {
         handleSelectTemplate(tplId);
       }
-    } catch (e) {
+    } catch {
       // ignore
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -231,7 +238,10 @@ export const WorkflowGraphStudio = () => {
     const tpl = (formTemplates || []).find(t => t.id === tplId);
     if (!tpl) return;
 
-    const savedRecord = loadTemplateGraphRecord(tpl.id);
+    const serverGraph = tpl.workflowGraph || tpl.workflow_graph;
+    const savedRecord = (serverGraph && Array.isArray(serverGraph.nodes) && serverGraph.nodes.length >= 2)
+      ? serverGraph
+      : loadTemplateGraphRecord(tpl.id);
     if (savedRecord && Array.isArray(savedRecord.nodes) && savedRecord.nodes.length >= 2) {
       setNodes(savedRecord.nodes);
       setOrientation(savedRecord.orientation || 'horizontal');
@@ -275,7 +285,9 @@ export const WorkflowGraphStudio = () => {
       noDepartment: options.noDepartment || secondaryDept,
       slaHours: options.slaHours || 48,
       withCondition: Boolean(options.withCondition || isDecision),
-      defaultField
+      defaultField,
+      trueBranchTarget: '__NEXT__',
+      falseBranchTarget: ''
     });
 
     setNodes(prev => {
@@ -334,6 +346,7 @@ export const WorkflowGraphStudio = () => {
         condition: {
           ...(n.condition || {}),
           enabled: isDecision || isRule,
+          combiner: n.condition?.combiner || 'ALL',
           logic: n.condition?.logic || 'AND',
           elseAction: isDecision
             ? ((n.noAction || 'ROUTE_DEPT') === 'ROUTE_DEPT' ? 'FALLBACK_DEPT' : 'BYPASS')
@@ -377,7 +390,7 @@ export const WorkflowGraphStudio = () => {
     });
   }, [orientation]);
 
-  // Remove a stage node
+  // Remove a stage node safely, repairing any branch references to prevent dangling targets
   const handleDeleteStage = useCallback((nodeId) => {
     setNodes(prev => {
       const stages = prev.filter(n => n.type === 'STAGE');
@@ -385,14 +398,47 @@ export const WorkflowGraphStudio = () => {
         addToast('Minimum 1 Stage Required', 'An approval workflow must contain at least one department stage.', 'warning');
         return prev;
       }
-      const next = prev.filter(n => n.id !== nodeId);
-      const remainingStage = next.find(n => n.type === 'STAGE');
+      const filtered = prev.filter(n => n.id !== nodeId);
+      const repaired = repairBranchTargets(filtered);
+      const remainingStage = repaired.find(n => n.type === 'STAGE');
       if (selectedNodeId === nodeId && remainingStage) {
         setSelectedNodeId(remainingStage.id);
       }
-      return computeAutoLayout(next, orientation);
+      return computeAutoLayout(repaired, orientation);
     });
   }, [addToast, orientation, selectedNodeId]);
+
+  // Dedicated Action: Add New Node on NO Branch
+  const handleAddNodeOnNoBranch = useCallback((sourceNodeId) => {
+    if (!sourceNodeId) return;
+    const sourceNode = nodes.find(n => n.id === sourceNodeId);
+    if (!sourceNode) return;
+
+    const targetDept = sourceNode.noDepartment || secondaryDept || 'Compliance';
+    const updatedNodes = addNodeOnBranch(
+      nodes,
+      sourceNodeId,
+      'false',
+      {
+        department: targetDept,
+        label: `${targetDept} Review (NO Branch)`
+      },
+      orientation
+    );
+
+    setNodes(updatedNodes);
+
+    const newNode = updatedNodes.newNode;
+    if (newNode) {
+      setSelectedNodeId(newNode.id);
+      setRightTab('inspector');
+      addToast(
+        'Node Added on NO Branch',
+        `Created new stage "${newNode.label}" chained to the NO branch of ${sourceNode.label}.`,
+        'success'
+      );
+    }
+  }, [nodes, secondaryDept, orientation, addToast]);
 
   // Rule CRUD helpers for selected node
   const handleToggleNodeCondition = (enabled) => {
@@ -407,6 +453,7 @@ export const WorkflowGraphStudio = () => {
       condition: {
         ...(n.condition || {}),
         enabled: true,
+        combiner: n.condition?.combiner || 'ALL',
         logic: n.condition?.logic || 'AND',
         elseAction: n.condition?.elseAction || 'BYPASS',
         rules: [
@@ -446,6 +493,49 @@ export const WorkflowGraphStudio = () => {
         }
       };
     });
+  };
+
+  // Branch Destination update handlers
+  const handleTrueBranchTargetChange = (targetValue) => {
+    if (!selectedNode || selectedNode.type !== 'STAGE') return;
+    updateStageNode(selectedNode.id, { trueBranchTarget: targetValue });
+  };
+
+  const handleFalseBranchTargetChange = (targetValue) => {
+    if (!selectedNode || selectedNode.type !== 'STAGE') return;
+    if (targetValue === 'ROUTE_DEPT' || targetValue === 'RETURN_SUBMITTER' || targetValue === 'BYPASS_NEXT') {
+      updateStageNode(selectedNode.id, (n) => ({
+        ...n,
+        falseBranchTarget: '',
+        noAction: targetValue,
+        condition: {
+          ...(n.condition || {}),
+          elseAction: targetValue === 'ROUTE_DEPT' ? 'FALLBACK_DEPT' : 'BYPASS'
+        }
+      }));
+    } else if (targetValue === 'node-end' || targetValue === 'REJECT_END' || targetValue === '__REJECT__') {
+      updateStageNode(selectedNode.id, (n) => ({
+        ...n,
+        falseBranchTarget: 'node-end',
+        noAction: 'REJECT_END',
+        condition: {
+          ...(n.condition || {}),
+          elseAction: 'BYPASS'
+        }
+      }));
+    } else {
+      const targetNode = nodes.find(nd => nd.id === targetValue);
+      updateStageNode(selectedNode.id, (n) => ({
+        ...n,
+        falseBranchTarget: targetValue,
+        noAction: 'ROUTE_DEPT',
+        noDepartment: targetNode?.department || n.noDepartment,
+        condition: {
+          ...(n.condition || {}),
+          fallbackDepartment: targetNode?.department || n.condition?.fallbackDepartment
+        }
+      }));
+    }
   };
 
   // Save current graph as a reusable Blueprint (updates existing or creates new)
@@ -546,6 +636,8 @@ export const WorkflowGraphStudio = () => {
         fontSize: linkedTemplate.fontSize || '11pt',
         fields: linkedTemplate.fields || [],
         workflow: standardWorkflow,
+        workflowGraph: { nodes, orientation, version: 2 },
+        workflow_graph: { nodes, orientation, version: 2 },
         status: linkedTemplate.status || 'ACTIVE',
         isDraft: Boolean(linkedTemplate.isDraft),
         commitMessage: `Updated workflow graph (${stageNodes.map(s => s.department).join(' → ')})`,
@@ -571,7 +663,7 @@ export const WorkflowGraphStudio = () => {
   const handleExportJson = () => {
     const data = {
       name: workflowName,
-      version: '1.0',
+      version: '2.0',
       exportedAt: new Date().toISOString(),
       orientation,
       nodes,
@@ -603,7 +695,7 @@ export const WorkflowGraphStudio = () => {
         } else {
           addToast('Invalid Workflow File', 'JSON file does not contain a valid workflow node array.', 'error');
         }
-      } catch (err) {
+      } catch {
         addToast('Import Error', 'Could not parse workflow JSON file.', 'error');
       }
     };
@@ -637,8 +729,8 @@ export const WorkflowGraphStudio = () => {
     if (e.button !== 0) return;
     if (
       e.target.closest('.sd-wfg-node') ||
-      e.target.closest('.sd-wfg-no-branch-card') ||
       e.target.closest('.sd-wfg-edge-badge-wrap') ||
+      e.target.closest('.sd-wfg-canvas-add-no-port') ||
       e.target.closest('.sd-wfg-sim-drawer')
     ) {
       return;
@@ -721,7 +813,7 @@ export const WorkflowGraphStudio = () => {
     });
   };
 
-  // Calculate SVG geometry for edges (including YES primary lines and NO branch cards!)
+  // Rendered edges prepared for SVG and badge overlays
   const renderedEdges = useMemo(() => {
     const nodeMap = new Map(nodes.map(n => [n.id, n]));
     const isHoriz = orientation !== 'vertical';
@@ -729,33 +821,42 @@ export const WorkflowGraphStudio = () => {
     return edges
       .map((edge) => {
         const fromNode = nodeMap.get(edge.fromId);
-        const toNode = nodeMap.get(edge.toId);
-        if (!fromNode || !toNode) return null;
+        const toNode = edge.toId ? nodeMap.get(edge.toId) : null;
+        if (!fromNode) return null;
 
+        // Use engine computed path directly if available
+        if (edge.d && typeof edge.midX === 'number' && typeof edge.midY === 'number') {
+          return {
+            ...edge,
+            fromNode,
+            toNode,
+            parentNode: fromNode
+          };
+        }
+
+        // Fallback coordinate resolution
         const fx = fromNode.position?.x || 0;
         const fy = fromNode.position?.y || 0;
-        const tx = toNode.position?.x || 0;
-        const ty = toNode.position?.y || 0;
+        const tx = toNode ? (toNode.position?.x || 0) : fx;
+        const ty = toNode ? (toNode.position?.y || 0) : fy + NODE_HEIGHT + 60;
 
-        if (edge.kind === 'NO_BRANCH') {
-          // Connects from the bottom (horizontal) or right (vertical) of `fromNode` to its visual `NO` outcome box
+        if (edge.kind === 'NO_BRANCH' || edge.isNoBranch || edge.isFalseBranch) {
           const x1 = isHoriz ? fx + NODE_WIDTH / 2 : fx + NODE_WIDTH;
           const y1 = isHoriz ? fy + NODE_HEIGHT : fy + NODE_HEIGHT / 2;
           const boxX = isHoriz ? fx + 12 : fx + NODE_WIDTH + 60;
           const boxY = isHoriz ? fy + NODE_HEIGHT + 58 : fy + 26;
-          const x2 = isHoriz ? boxX + (NODE_WIDTH - 24) / 2 : boxX;
-          const y2 = isHoriz ? boxY : boxY + 28;
+          const x2 = toNode ? (isHoriz ? tx : tx + NODE_WIDTH / 2) : (isHoriz ? boxX + (NODE_WIDTH - 24) / 2 : boxX);
+          const y2 = toNode ? (isHoriz ? ty + NODE_HEIGHT / 2 : ty) : (isHoriz ? boxY : boxY + 28);
 
           const d = isHoriz
-            ? `M ${x1} ${y1} L ${x2} ${y2}`
-            : `M ${x1} ${y1} C ${x1 + 28} ${y1}, ${x2 - 28} ${y2}, ${x2} ${y2}`;
+            ? `M ${x1} ${y1} C ${x1} ${y1 + 40}, ${x2} ${y2 - 40}, ${x2} ${y2}`
+            : `M ${x1} ${y1} C ${x1 + 40} ${y1}, ${x2 - 40} ${y2}, ${x2} ${y2}`;
           const midX = (x1 + x2) / 2;
           const midY = (y1 + y2) / 2;
 
-          return { ...edge, d, midX, midY, x1, y1, x2, y2, boxX, boxY, parentNode: fromNode };
+          return { ...edge, d, midX, midY, x1, y1, x2, y2, boxX, boxY, fromNode, toNode, parentNode: fromNode };
         }
 
-        // Standard primary edge (or YES branch edge)
         const x1 = isHoriz ? fx + NODE_WIDTH : fx + NODE_WIDTH / 2;
         const y1 = isHoriz ? fy + NODE_HEIGHT / 2 : fy + NODE_HEIGHT;
         const x2 = isHoriz ? tx : tx + NODE_WIDTH / 2;
@@ -763,7 +864,6 @@ export const WorkflowGraphStudio = () => {
 
         const deltaX = Math.max(48, Math.abs(x2 - x1) * 0.45);
         const deltaY = Math.max(48, Math.abs(y2 - y1) * 0.45);
-
         const cx1 = isHoriz ? x1 + deltaX : x1;
         const cy1 = isHoriz ? y1 : y1 + deltaY;
         const cx2 = isHoriz ? x2 - deltaX : x2;
@@ -773,7 +873,7 @@ export const WorkflowGraphStudio = () => {
         const midX = (x1 + x2) / 2;
         const midY = (y1 + y2) / 2;
 
-        return { ...edge, d, midX, midY, x1, y1, x2, y2 };
+        return { ...edge, d, midX, midY, x1, y1, x2, y2, fromNode, toNode, parentNode: fromNode };
       })
       .filter(Boolean);
   }, [edges, nodes, orientation]);
@@ -964,7 +1064,7 @@ export const WorkflowGraphStudio = () => {
         </div>
       </header>
 
-      {/* 1B. SAVED WORKFLOWS BAR — CLICK ANY SAVED WORKFLOW TO VIEW OR EDIT */}
+      {/* 1B. SAVED WORKFLOWS BAR */}
       <div className="sd-wfg-saved-strip">
         <span className="sd-wfg-saved-strip-label">
           <Layers size={12} /> Saved Workflows ({blueprints.length}):
@@ -1026,11 +1126,15 @@ export const WorkflowGraphStudio = () => {
               <span>Yes / No Branch</span>
             </div>
             <div className="sd-wfg-hud-pill">
+              <span className="sd-wfg-hud-dot branch" />
+              <span>Branch Path</span>
+            </div>
+            <div className="sd-wfg-hud-pill">
               <span className="sd-wfg-hud-dot end" />
               <span>PKI Seal</span>
             </div>
             <span className="sd-wfg-hud-hint">
-              Click any node to edit its <strong>Yes / No branches &amp; rules</strong> on the right · Drag nodes to move · Click <strong>+</strong> on any line to insert
+              Click any node to edit rules &amp; branch destinations · Drag nodes to move · Click <strong>+</strong> on lines to insert stages
             </span>
           </div>
 
@@ -1043,7 +1147,7 @@ export const WorkflowGraphStudio = () => {
             }}
           >
             {/* SVG Edges Layer */}
-            <svg className="sd-wfg-edges-svg" width="3200" height="2200">
+            <svg className="sd-wfg-edges-svg" width="3600" height="2400">
               <defs>
                 <marker
                   id="wfg-arrow-active"
@@ -1092,7 +1196,8 @@ export const WorkflowGraphStudio = () => {
               </defs>
 
               {renderedEdges.map((edge) => {
-                const isNoBranch = edge.kind === 'NO_BRANCH';
+                const isNoBranch = edge.kind === 'NO_BRANCH' || edge.isNoBranch || edge.isFalseBranch;
+                const isTrueBranch = edge.kind === 'TRUE_BRANCH' || edge.isYesBranch || edge.isTrueBranch;
                 const isSimBypassed = simMode && edge.simStatus === 'BYPASSED';
                 const isNoTriggered = simMode && edge.simStatus === 'NO_ACTIVE';
 
@@ -1100,15 +1205,17 @@ export const WorkflowGraphStudio = () => {
                 let markerUrl = 'url(#wfg-arrow-active)';
 
                 if (isNoBranch) {
-                  strokeColor = isNoTriggered ? '#f43f5e' : 'rgba(244, 63, 94, 0.65)';
+                  strokeColor = isNoTriggered ? '#f43f5e' : 'rgba(244, 63, 94, 0.85)';
                   markerUrl = 'url(#wfg-arrow-rose)';
                 } else if (isSimBypassed) {
                   strokeColor = 'rgba(148, 163, 184, 0.35)';
                   markerUrl = 'url(#wfg-arrow-muted)';
-                } else if (edge.isYesBranch) {
+                } else if (isTrueBranch) {
                   strokeColor = '#10b981';
                   markerUrl = 'url(#wfg-arrow-emerald)';
                 }
+
+                const isUnconnectedNo = isNoBranch && (!edge.toNode || edge.isPlaceholder || !edge.toId);
 
                 return (
                   <g key={edge.id} className="sd-wfg-edge-group">
@@ -1125,44 +1232,114 @@ export const WorkflowGraphStudio = () => {
                       d={edge.d}
                       fill="none"
                       stroke={strokeColor}
-                      strokeWidth={isNoBranch ? '2.2' : '2.6'}
+                      strokeWidth={isNoBranch ? '2.4' : '2.6'}
                       strokeDasharray={isNoBranch ? '5 4' : isSimBypassed ? '6 5' : simMode ? '8 4' : undefined}
                       className={simMode && (!isSimBypassed || isNoTriggered) ? 'sd-wfg-edge-animated' : ''}
-                      markerEnd={markerUrl}
+                      markerEnd={isUnconnectedNo ? undefined : markerUrl}
                     />
+
+                    {/* Interactive Clickable Port for Unconnected NO Branch Stubs */}
+                    {isUnconnectedNo && (
+                      <g
+                        className="sd-wfg-canvas-add-no-port"
+                        transform={`translate(${edge.x2 || edge.midX}, ${edge.y2 || edge.midY})`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleAddNodeOnNoBranch(edge.fromId);
+                        }}
+                        style={{ cursor: 'pointer' }}
+                        title="Click to add a new stage on this NO branch path"
+                      >
+                        <rect
+                          x="-75"
+                          y="-13"
+                          width="150"
+                          height="26"
+                          rx="13"
+                          fill="var(--bg-card, #ffffff)"
+                          stroke="#f43f5e"
+                          strokeWidth="1.5"
+                          strokeDasharray="3 2"
+                        />
+                        <text
+                          x="0"
+                          y="4"
+                          textAnchor="middle"
+                          fill="#f43f5e"
+                          fontSize="11"
+                          fontWeight="600"
+                          fontFamily="var(--font-sans, sans-serif)"
+                        >
+                          + Add Node on NO Path
+                        </text>
+                      </g>
+                    )}
                   </g>
                 );
               })}
             </svg>
 
-            {/* HTML Edge Labels, Midpoint '+' Insert Stage Buttons, & Visual 'NO' Branch Cards */}
+            {/* HTML Edge Labels & Centered Outcome Badges */}
             {renderedEdges.map((edge) => {
-              if (edge.kind === 'NO_BRANCH') {
-                const isSelectedParent = selectedNode?.id === edge.fromId;
-                const isNoActive = simMode && edge.simStatus === 'NO_ACTIVE';
+              const isNoBranch = edge.kind === 'NO_BRANCH' || edge.isNoBranch || edge.isFalseBranch;
+              const isTrueBranch = edge.kind === 'TRUE_BRANCH' || edge.isYesBranch || edge.isTrueBranch;
+              const isUnconnectedNo = isNoBranch && (!edge.toNode || edge.isPlaceholder || !edge.toId);
+
+              // Unconnected NO branches render the interactive SVG clickable port above
+              if (isUnconnectedNo) return null;
+
+              if (isNoBranch) {
+                const targetLabel = edge.toNode?.label || edge.toNode?.department || (edge.toId === 'node-end' ? 'Terminal Seal' : 'Next Stage');
+                const badgeText = edge.label && edge.label.startsWith('✕') ? edge.label : `✕ NO → ${targetLabel}`;
+
                 return (
                   <div
-                    key={`no-card-${edge.id}`}
-                    className={`sd-wfg-no-branch-card ${isSelectedParent ? 'is-parent-selected' : ''} ${isNoActive ? 'sim-no-active' : ''}`}
+                    key={`badge-${edge.id}`}
+                    className="sd-wfg-edge-badge-wrap is-no-branch"
                     style={{
-                      left: `${edge.boxX}px`,
-                      top: `${edge.boxY}px`,
-                      width: `${NODE_WIDTH - 24}px`
+                      left: `${edge.midX}px`,
+                      top: `${edge.midY}px`
                     }}
                     onClick={(e) => {
                       e.stopPropagation();
                       setSelectedNodeId(edge.fromId);
                       setRightTab('inspector');
                     }}
-                    title="Click to configure what happens on the NO / False branch"
+                    title="Click to view branch source node"
                   >
-                    <div className="sd-wfg-no-branch-header">
-                      <span className="sd-wfg-no-pill">✕ IF NO / FALSE</span>
-                      <CornerDownRight size={12} />
-                    </div>
-                    <div className="sd-wfg-no-branch-body">
-                      {edge.label.replace(/^✕\s*/, '')}
-                    </div>
+                    <span className="sd-wfg-edge-label-pill sd-wfg-edge-badge-no" title={badgeText}>
+                      {badgeText}
+                    </span>
+                  </div>
+                );
+              }
+
+              if (isTrueBranch) {
+                const badgeText = edge.label && edge.label.startsWith('✓') ? edge.label : '✓ YES · Proceed';
+
+                return (
+                  <div
+                    key={`badge-${edge.id}`}
+                    className="sd-wfg-edge-badge-wrap is-yes-branch has-rule"
+                    style={{
+                      left: `${edge.midX}px`,
+                      top: `${edge.midY}px`
+                    }}
+                  >
+                    <span className="sd-wfg-edge-label-pill sd-wfg-edge-badge-yes" title={badgeText}>
+                      {badgeText}
+                    </span>
+                    <button
+                      type="button"
+                      className="sd-wfg-edge-insert-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleInsertStageNode({}, edge.insertIndex);
+                      }}
+                      title="Insert a new node here"
+                    >
+                      <Plus size={11} />
+                    </button>
                   </div>
                 );
               }
@@ -1170,7 +1347,7 @@ export const WorkflowGraphStudio = () => {
               return (
                 <div
                   key={`badge-${edge.id}`}
-                  className={`sd-wfg-edge-badge-wrap ${edge.isYesBranch ? 'is-yes-branch' : ''} ${edge.hasRule ? 'has-rule' : ''}`}
+                  className="sd-wfg-edge-badge-wrap"
                   style={{
                     left: `${edge.midX}px`,
                     top: `${edge.midY}px`
@@ -1194,7 +1371,7 @@ export const WorkflowGraphStudio = () => {
               );
             })}
 
-            {/* HTML Interactive Node Cards */}
+            {/* HTML Interactive Node Cards (Primary and Branch Lane Nodes) */}
             {nodes.map((node) => {
               const isSelected = selectedNode?.id === node.id;
               const isDragging = draggingNodeId === node.id;
@@ -1283,7 +1460,7 @@ export const WorkflowGraphStudio = () => {
                 );
               }
 
-              // STAGE NODE (Standard Approval, Yes/No Decision Node, or Field Rule Gate)
+              // STAGE NODE (Lane 0 Primary or Lane 1 Branch Path)
               const isSimBypassed = simMode && simState?.status === 'BYPASSED';
               const isSimNoBranch = simMode && simState?.branch === 'NO';
               const isSimActive = simMode && simState?.branch !== 'NO';
@@ -1292,7 +1469,7 @@ export const WorkflowGraphStudio = () => {
                 <div
                   key={node.id}
                   id={`wfg-node-${node.id}`}
-                  className={`sd-wfg-node node-stage ${isDecisionNode ? 'is-decision-node' : ''} ${isSelected ? 'is-selected' : ''} ${isDragging ? 'is-dragging' : ''} ${condSummary ? 'has-condition' : ''} ${isSimBypassed ? 'sim-bypassed' : ''} ${isSimActive ? 'sim-active' : ''}`}
+                  className={`sd-wfg-node node-stage ${node.isBranchNode ? 'is-branch-node' : ''} ${isDecisionNode ? 'is-decision-node' : ''} ${isSelected ? 'is-selected' : ''} ${isDragging ? 'is-dragging' : ''} ${condSummary ? 'has-condition' : ''} ${isSimBypassed ? 'sim-bypassed' : ''} ${isSimActive ? 'sim-active' : ''}`}
                   style={{
                     width: `${NODE_WIDTH}px`,
                     minHeight: `${NODE_HEIGHT}px`,
@@ -1306,6 +1483,11 @@ export const WorkflowGraphStudio = () => {
                   <div className={`sd-wfg-node-header stage ${isDecisionNode ? 'decision' : ''}`}>
                     <div className="sd-wfg-node-step-badge">
                       <span className="sd-wfg-step-num">STAGE {stageIdx + 1}</span>
+                      {node.isBranchNode && (
+                        <span className="sd-wfg-node-branch-tag sd-wfg-branch-badge" title="Node executing on conditional branch path">
+                          Branch Path
+                        </span>
+                      )}
                       {isDecisionNode ? (
                         <span className="sd-wfg-yesno-gate-tag" title="Yes / No Decision Branch Node">
                           🔀 YES / NO
@@ -1373,8 +1555,8 @@ export const WorkflowGraphStudio = () => {
                           ? {node.decisionQuestion || `Does ${node.department} approve?`}
                         </div>
                         <div className="sd-wfg-yesno-split-pills">
-                          <span className="sd-wfg-yn-pill yes">✓ YES &rarr; Next</span>
-                          <span className="sd-wfg-yn-pill no">✕ NO &rarr; Branch</span>
+                          <span className="sd-wfg-yn-pill yes">✓ YES &rarr; {node.trueBranchTarget && node.trueBranchTarget !== '__NEXT__' ? 'Jump' : 'Next'}</span>
+                          <span className="sd-wfg-yn-pill no">✕ NO &rarr; {node.falseBranchTarget ? 'Branch' : 'Alternate'}</span>
                         </div>
                       </div>
                     ) : condSummary ? (
@@ -1401,7 +1583,7 @@ export const WorkflowGraphStudio = () => {
 
                   {/* YES Output Port (Right) and NO Output Port (Bottom) */}
                   <div className={`sd-wfg-port port-out ${orientation}`} title="YES / Primary Output Port" />
-                  {(isDecisionNode || condSummary) && (
+                  {(isDecisionNode || condSummary || node.falseBranchTarget) && (
                     <div className={`sd-wfg-port port-no ${orientation}`} title="NO / False Branch Port" />
                   )}
                 </div>
@@ -1409,7 +1591,7 @@ export const WorkflowGraphStudio = () => {
             })}
           </div>
 
-          {/* LIVE RULE SIMULATOR DRAWER (BOTTOM OF CENTER CANVAS) */}
+          {/* LIVE RULE SIMULATOR DRAWER */}
           {simMode && (
             <div className="sd-wfg-sim-drawer">
               <div className="sd-wfg-sim-header">
@@ -1472,9 +1654,9 @@ export const WorkflowGraphStudio = () => {
           )}
         </div>
 
-        {/* 3. RIGHT-HAND RAIL: CREATE NODES & DEFINE RULES */}
+        {/* 3. RIGHT-HAND RAIL: NODE & RULE INSPECTOR */}
         <aside className="sd-wfg-right-rail" aria-label="Workflow Node Creator and Rule Builder">
-          {/* Persistent Quick-Create Node Bar at Top of Right Rail */}
+          {/* Top Quick-Create Bar */}
           <div className="sd-wfg-rail-create-bar">
             <div className="sd-wfg-rail-section-kicker">
               <span>ADD NODES TO WORKFLOW GRAPH (CLICK OR DRAG)</span>
@@ -1539,7 +1721,7 @@ export const WorkflowGraphStudio = () => {
             </div>
           </div>
 
-          {/* Right Rail Mode Switcher: Node & Rule Inspector vs. Department Palette & Saved List */}
+          {/* Mode Switcher Tabs */}
           <div className="sd-wfg-rail-tabs">
             <button
               type="button"
@@ -1559,17 +1741,22 @@ export const WorkflowGraphStudio = () => {
             </button>
           </div>
 
-          {/* TAB 1: SELECTED NODE PROPERTIES, YES/NO BRANCHES & CONDITIONAL RULE BUILDER */}
+          {/* TAB 1: INSPECTOR — NODE PROPERTIES, DESTINATION ROUTING & RULE BUILDER */}
           {rightTab === 'inspector' && (
             <div className="sd-wfg-rail-scroll">
               {selectedNode && selectedNode.type === 'STAGE' ? (
                 <>
-                  {/* Node Type Switcher (Standard vs Yes/No Decision vs Field Rule) */}
+                  {/* Node Identity & Mode Card */}
                   <div className="sd-wfg-inspector-card">
                     <div className="sd-wfg-card-header">
-                      <span className="sd-wfg-card-title">
-                        Stage {stageNodes.findIndex(s => s.id === selectedNode.id) + 1} Mode
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span className="sd-wfg-card-title">
+                          Stage {stageNodes.findIndex(s => s.id === selectedNode.id) + 1} Settings
+                        </span>
+                        {selectedNode.isBranchNode && (
+                          <span className="sd-wfg-branch-badge">Branch Node</span>
+                        )}
+                      </div>
                       <div className="sd-wfg-card-actions">
                         <button
                           type="button"
@@ -1691,20 +1878,21 @@ export const WorkflowGraphStudio = () => {
                     </label>
                   </div>
 
-                  {/* DEDICATED YES / NO DECISION BRANCH CONFIGURATOR */}
-                  {selectedNode.nodeSubType === 'DECISION_YES_NO' && (
-                    <div className="sd-wfg-inspector-card yesno-card">
-                      <div className="sd-wfg-card-header">
-                        <div className="sd-wfg-rule-header-title">
-                          <HelpCircle size={14} className="sd-wfg-yesno-icon" />
-                          <span>Yes / No Decision Paths</span>
-                        </div>
-                        <span className="sd-wfg-yesno-gate-tag">✓ YES / ✕ NO</span>
+                  {/* BRANCH DESTINATIONS CARD (TRUE & FALSE DESTINATION NODE SELECTORS) */}
+                  <div className="sd-wfg-inspector-card yesno-card">
+                    <div className="sd-wfg-card-header">
+                      <div className="sd-wfg-rule-header-title">
+                        <GitBranch size={14} className="sd-wfg-yesno-icon" />
+                        <span>Conditional Branch Transitions</span>
                       </div>
+                      <span className="sd-wfg-yesno-gate-tag">ROUTING</span>
+                    </div>
 
+                    {selectedNode.nodeSubType === 'DECISION_YES_NO' && (
                       <div className="sd-wfg-field-group">
                         <label className="sd-wfg-label">Decision Question Displayed on Node</label>
                         <input
+                          id="input-wfg-decision-question"
                           type="text"
                           className="sd-input sd-input-sm"
                           value={selectedNode.decisionQuestion || ''}
@@ -1714,82 +1902,124 @@ export const WorkflowGraphStudio = () => {
                           placeholder="e.g., Is Budget Approved by Department Head?"
                         />
                       </div>
+                    )}
 
-                      {/* YES Branch Box */}
-                      <div className="sd-wfg-branch-config-box yes">
-                        <div className="sd-wfg-branch-config-title">
-                          <Check size={13} />
-                          <strong>IF YES (Approved / True Path)</strong>
-                        </div>
-                        <p className="sd-wfg-branch-config-desc">
-                          Proceeds forward along the green <strong>✓ YES</strong> line to the next stage in the workflow.
-                        </p>
+                    {/* TRUE / YES Destination Node Selector */}
+                    <div className="sd-wfg-branch-config-box yes">
+                      <div className="sd-wfg-branch-config-title">
+                        <Check size={13} />
+                        <strong>IF TRUE / YES Destination Node</strong>
+                      </div>
+                      <p className="sd-wfg-branch-config-desc">
+                        Target node when condition passes or decision is YES.
+                      </p>
+                      <div style={{ marginTop: 6 }}>
+                        <select
+                          id="select-wfg-true-branch-target"
+                          className="sd-wfg-target-select yes"
+                          value={selectedNode.trueBranchTarget || '__NEXT__'}
+                          onChange={(e) => handleTrueBranchTargetChange(e.target.value)}
+                        >
+                          <option value="__NEXT__">Next Sequential Stage (Default)</option>
+                          {candidateDestinationNodes.map((st) => {
+                            const idx = stageNodes.findIndex(s => s.id === st.id);
+                            return (
+                              <option key={st.id} value={st.id}>
+                                Stage {idx + 1}: {st.department} ({st.label || `${st.department} Approval`})
+                              </option>
+                            );
+                          })}
+                          <option value="node-end">Terminal Seal (Final Approved &amp; Archived)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* FALSE / NO Destination Node Selector */}
+                    <div className="sd-wfg-branch-config-box no" style={{ marginTop: 10 }}>
+                      <div className="sd-wfg-branch-config-title">
+                        <X size={13} />
+                        <strong>IF FALSE / NO Destination Node</strong>
+                      </div>
+                      <p className="sd-wfg-branch-config-desc">
+                        Target node or fallback action when condition fails or answer is NO.
+                      </p>
+                      <div style={{ marginTop: 6 }}>
+                        <select
+                          id="select-wfg-false-branch-target"
+                          className="sd-wfg-target-select no"
+                          value={selectedNode.falseBranchTarget || selectedNode.noAction || 'ROUTE_DEPT'}
+                          onChange={(e) => handleFalseBranchTargetChange(e.target.value)}
+                        >
+                          <optgroup label="Special Routing Actions">
+                            {YES_NO_NO_ACTIONS.map(act => (
+                              <option key={act.value} value={act.value === 'REJECT_END' ? 'node-end' : act.value}>
+                                {act.label}
+                              </option>
+                            ))}
+                          </optgroup>
+                          {candidateDestinationNodes.length > 0 && (
+                            <optgroup label="Candidate Stage Nodes">
+                              {candidateDestinationNodes.map((st) => {
+                                const idx = stageNodes.findIndex(s => s.id === st.id);
+                                return (
+                                  <option key={st.id} value={st.id}>
+                                    Stage {idx + 1}: {st.department} ({st.label || `${st.department} Approval`})
+                                  </option>
+                                );
+                              })}
+                            </optgroup>
+                          )}
+                        </select>
                       </div>
 
-                      {/* NO Branch Box */}
-                      <div className="sd-wfg-branch-config-box no">
-                        <div className="sd-wfg-branch-config-title">
-                          <X size={13} />
-                          <strong>IF NO (Rejected / False Path)</strong>
-                        </div>
-                        <div className="sd-wfg-field-group" style={{ marginTop: 6 }}>
-                          <label className="sd-wfg-label">Action When Answer is NO:</label>
+                      {/* Fallback Department selector if ROUTE_DEPT */}
+                      {(selectedNode.falseBranchTarget === 'ROUTE_DEPT' ||
+                        (!selectedNode.falseBranchTarget && (selectedNode.noAction === 'ROUTE_DEPT' || selectedNode.condition?.elseAction === 'FALLBACK_DEPT'))) && (
+                        <div className="sd-wfg-field-group" style={{ marginTop: 8 }}>
+                          <label className="sd-wfg-label">Fallback Department:</label>
                           <select
+                            id="select-wfg-fallback-dept"
                             className="sd-input sd-input-sm"
-                            value={selectedNode.noAction || 'ROUTE_DEPT'}
+                            value={selectedNode.noDepartment || selectedNode.condition?.fallbackDepartment || secondaryDept}
                             onChange={(e) => {
-                              const act = e.target.value;
+                              const dept = e.target.value;
                               updateStageNode(selectedNode.id, (n) => ({
                                 ...n,
-                                noAction: act,
+                                noDepartment: dept,
                                 condition: {
                                   ...(n.condition || {}),
-                                  enabled: true,
-                                  elseAction: act === 'ROUTE_DEPT' ? 'FALLBACK_DEPT' : 'BYPASS'
+                                  fallbackDepartment: dept
                                 }
                               }));
                             }}
                           >
-                            {YES_NO_NO_ACTIONS.map(a => (
-                              <option key={a.value} value={a.value}>{a.label}</option>
+                            {departments.map(d => (
+                              <option key={d.id} value={d.name}>{d.name}</option>
                             ))}
                           </select>
                         </div>
+                      )}
 
-                        {(selectedNode.noAction || 'ROUTE_DEPT') === 'ROUTE_DEPT' && (
-                          <div className="sd-wfg-field-group" style={{ marginTop: 6 }}>
-                            <label className="sd-wfg-label">Route NO Branch to Department:</label>
-                            <select
-                              className="sd-input sd-input-sm"
-                              value={selectedNode.noDepartment || secondaryDept}
-                              onChange={(e) => {
-                                const dept = e.target.value;
-                                updateStageNode(selectedNode.id, (n) => ({
-                                  ...n,
-                                  noDepartment: dept,
-                                  condition: {
-                                    ...(n.condition || {}),
-                                    fallbackDepartment: dept
-                                  }
-                                }));
-                              }}
-                            >
-                              {departments.map(d => (
-                                <option key={d.id} value={d.name}>{d.name}</option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
-                      </div>
+                      {/* Dedicated Action Button: Add New Node on NO Branch */}
+                      <button
+                        id="btn-wfg-add-node-on-no-branch"
+                        type="button"
+                        className="sd-wfg-add-branch-node-btn"
+                        onClick={() => handleAddNodeOnNoBranch(selectedNode.id)}
+                        title="Create and chain a new first-class stage node directly on this node's NO branch"
+                      >
+                        <Plus size={13} />
+                        <span>＋ Add New Node on NO Branch</span>
+                      </button>
                     </div>
-                  )}
+                  </div>
 
-                  {/* FIELD-BASED CONDITIONAL ROUTING RULES BUILDER */}
+                  {/* FIELD-BASED CONDITIONAL RULE CRITERIA BUILDER */}
                   <div className="sd-wfg-inspector-card rule-card">
                     <div className="sd-wfg-card-header">
                       <div className="sd-wfg-rule-header-title">
                         <Split size={14} className="sd-wfg-rule-icon" />
-                        <span>Field Conditions (IF / ELSE)</span>
+                        <span>Rule Criteria &amp; Logic</span>
                       </div>
                       <button
                         id="btn-wfg-toggle-condition"
@@ -1804,7 +2034,7 @@ export const WorkflowGraphStudio = () => {
                     {!selectedNode.condition?.enabled ? (
                       <div className="sd-wfg-rule-empty">
                         <p>
-                          Want this stage to trigger based on form answers (e.g., <code>Total Amount &gt; 5000</code>) or a Yes/No choice? Click below to add a rule.
+                          Define business rules (e.g. <code>Total Amount &gt; 5000</code>) to control conditional transitions.
                         </p>
                         <div style={{ display: 'flex', gap: 6 }}>
                           <button
@@ -1825,17 +2055,17 @@ export const WorkflowGraphStudio = () => {
                       </div>
                     ) : (
                       <div className="sd-wfg-rule-builder-body">
-                        {/* AND / OR Combiner */}
+                        {/* AND / OR Combiner Bar */}
                         <div className="sd-wfg-logic-bar">
                           <span className="sd-wfg-logic-label">Trigger YES path when:</span>
                           <div className="sd-wfg-logic-pills">
                             <button
                               type="button"
-                              className={`sd-wfg-logic-btn ${selectedNode.condition?.logic !== 'OR' ? 'active' : ''}`}
+                              className={`sd-wfg-logic-btn ${selectedNode.condition?.combiner !== 'ANY' && selectedNode.condition?.logic !== 'OR' ? 'active' : ''}`}
                               onClick={() =>
                                 updateStageNode(selectedNode.id, n => ({
                                   ...n,
-                                  condition: { ...n.condition, logic: 'AND' }
+                                  condition: { ...n.condition, combiner: 'ALL', logic: 'AND' }
                                 }))
                               }
                             >
@@ -1843,11 +2073,11 @@ export const WorkflowGraphStudio = () => {
                             </button>
                             <button
                               type="button"
-                              className={`sd-wfg-logic-btn ${selectedNode.condition?.logic === 'OR' ? 'active' : ''}`}
+                              className={`sd-wfg-logic-btn ${selectedNode.condition?.combiner === 'ANY' || selectedNode.condition?.logic === 'OR' ? 'active' : ''}`}
                               onClick={() =>
                                 updateStageNode(selectedNode.id, n => ({
                                   ...n,
-                                  condition: { ...n.condition, logic: 'OR' }
+                                  condition: { ...n.condition, combiner: 'ANY', logic: 'OR' }
                                 }))
                               }
                             >
@@ -1856,56 +2086,59 @@ export const WorkflowGraphStudio = () => {
                           </div>
                         </div>
 
-                        {/* Individual Rule Condition Rows */}
+                        {/* Individual Rule Clause Rows */}
                         <div className="sd-wfg-rules-list">
-                          {(selectedNode.condition?.rules || []).map((rule, rIdx) => (
-                            <div key={rule.id || rIdx} className="sd-wfg-rule-row-card">
-                              <div className="sd-wfg-rule-row-top">
-                                <span className="sd-wfg-rule-idx">
-                                  {rIdx === 0 ? 'IF' : selectedNode.condition?.logic || 'AND'}
-                                </span>
-                                <input
-                                  type="text"
-                                  list="wfg-available-fields-datalist"
-                                  className="sd-input sd-input-sm sd-wfg-rule-field-input"
-                                  value={rule.field || ''}
-                                  onChange={(e) => handleUpdateRuleRow(rule.id, { field: e.target.value })}
-                                  placeholder="Field name (e.g. Total Amount)"
-                                  title="Select a template field or type any field name"
-                                />
-                                <button
-                                  type="button"
-                                  className="sd-wfg-rule-del-btn"
-                                  onClick={() => handleRemoveRuleRow(rule.id)}
-                                  title="Remove condition"
-                                >
-                                  <X size={12} />
-                                </button>
-                              </div>
+                          {(selectedNode.condition?.rules || []).map((rule, rIdx) => {
+                            const isOr = selectedNode.condition?.combiner === 'ANY' || selectedNode.condition?.logic === 'OR';
+                            const prefix = rIdx === 0 ? 'IF' : (isOr ? 'OR' : 'AND');
 
-                              <div className="sd-wfg-rule-row-bottom">
-                                <select
-                                  className="sd-input sd-input-sm sd-wfg-rule-op-select"
-                                  value={rule.operator || '='}
-                                  onChange={(e) => handleUpdateRuleRow(rule.id, { operator: e.target.value })}
-                                >
-                                  {RULE_OPERATORS.map(op => (
-                                    <option key={op.value} value={op.value}>{op.label}</option>
-                                  ))}
-                                </select>
-
-                                {rule.operator !== 'not_empty' && (
+                            return (
+                              <div key={rule.id || rIdx} className="sd-wfg-rule-row-card">
+                                <div className="sd-wfg-rule-row-top">
+                                  <span className="sd-wfg-rule-idx">{prefix}</span>
                                   <input
                                     type="text"
-                                    className="sd-input sd-input-sm sd-wfg-rule-val-input"
-                                    value={rule.value ?? ''}
-                                    onChange={(e) => handleUpdateRuleRow(rule.id, { value: e.target.value })}
-                                    placeholder="Value (e.g. Yes or 5000)"
+                                    list="wfg-available-fields-datalist"
+                                    className="sd-input sd-input-sm sd-wfg-rule-field-input"
+                                    value={rule.field || ''}
+                                    onChange={(e) => handleUpdateRuleRow(rule.id, { field: e.target.value })}
+                                    placeholder="Field name (e.g. Total Amount)"
+                                    title="Select a template field or type any field name"
                                   />
-                                )}
+                                  <button
+                                    type="button"
+                                    className="sd-wfg-rule-del-btn"
+                                    onClick={() => handleRemoveRuleRow(rule.id)}
+                                    title="Remove rule clause"
+                                  >
+                                    <X size={12} />
+                                  </button>
+                                </div>
+
+                                <div className="sd-wfg-rule-row-bottom">
+                                  <select
+                                    className="sd-input sd-input-sm sd-wfg-rule-op-select"
+                                    value={rule.operator || '='}
+                                    onChange={(e) => handleUpdateRuleRow(rule.id, { operator: e.target.value })}
+                                  >
+                                    {RULE_OPERATORS.map(op => (
+                                      <option key={op.value} value={op.value}>{op.label}</option>
+                                    ))}
+                                  </select>
+
+                                  {rule.operator !== 'not_empty' && (
+                                    <input
+                                      type="text"
+                                      className="sd-input sd-input-sm sd-wfg-rule-val-input"
+                                      value={rule.value ?? ''}
+                                      onChange={(e) => handleUpdateRuleRow(rule.id, { value: e.target.value })}
+                                      placeholder="Value (e.g. Yes or 5000)"
+                                    />
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
 
                           <datalist id="wfg-available-fields-datalist">
                             {availableFields.map(f => (
@@ -1915,52 +2148,13 @@ export const WorkflowGraphStudio = () => {
                         </div>
 
                         <button
+                          id="btn-wfg-add-rule-row"
                           type="button"
                           className="sd-wfg-add-rule-btn"
                           onClick={handleAddRuleRow}
                         >
-                          <Plus size={12} /> Add Another Rule Condition
+                          <Plus size={12} /> + Add Rule
                         </button>
-
-                        {/* False / Else Action (for non-Decision Rule Gates) */}
-                        {selectedNode.nodeSubType !== 'DECISION_YES_NO' && (
-                          <div className="sd-wfg-else-box">
-                            <label className="sd-wfg-label">When Rule is FALSE (NO / Else Path)</label>
-                            <select
-                              className="sd-input sd-input-sm"
-                              value={selectedNode.condition?.elseAction || 'BYPASS'}
-                              onChange={(e) =>
-                                updateStageNode(selectedNode.id, n => ({
-                                  ...n,
-                                  condition: { ...n.condition, elseAction: e.target.value }
-                                }))
-                              }
-                            >
-                              <option value="BYPASS">Bypass / Skip This Stage Automatically</option>
-                              <option value="FALLBACK_DEPT">Route to Fallback Department Instead</option>
-                            </select>
-
-                            {selectedNode.condition?.elseAction === 'FALLBACK_DEPT' && (
-                              <div style={{ marginTop: 8 }}>
-                                <label className="sd-wfg-label">Fallback Department</label>
-                                <select
-                                  className="sd-input sd-input-sm"
-                                  value={selectedNode.condition?.fallbackDepartment || secondaryDept}
-                                  onChange={(e) =>
-                                    updateStageNode(selectedNode.id, n => ({
-                                      ...n,
-                                      condition: { ...n.condition, fallbackDepartment: e.target.value }
-                                    }))
-                                  }
-                                >
-                                  {departments.map(d => (
-                                    <option key={d.id} value={d.name}>{d.name}</option>
-                                  ))}
-                                </select>
-                              </div>
-                            )}
-                          </div>
-                        )}
                       </div>
                     )}
                   </div>
@@ -1978,7 +2172,7 @@ export const WorkflowGraphStudio = () => {
                       : 'Once all active department stages approve the submission, SmartDoc permanently stamps all signatures into the Word document and seals the record.'}
                   </p>
                   <div className="sd-wfg-stage-quick-pick">
-                    <span className="sd-wfg-label">Click a Stage to Configure Rules or Yes/No Paths:</span>
+                    <span className="sd-wfg-label">Select a Stage to Configure Rules &amp; Branch Destinations:</span>
                     {stageNodes.map((st, idx) => (
                       <button
                         key={st.id}
@@ -1988,7 +2182,8 @@ export const WorkflowGraphStudio = () => {
                       >
                         <span>
                           Stage {idx + 1}: {st.department}{' '}
-                          {st.nodeSubType === 'DECISION_YES_NO' ? '(Yes/No)' : ''}
+                          {st.isBranchNode ? '(Branch)' : ''}
+                          {st.nodeSubType === 'DECISION_YES_NO' ? ' (Yes/No)' : ''}
                         </span>
                         <ArrowRight size={12} />
                       </button>
@@ -2096,4 +2291,5 @@ export const WorkflowGraphStudio = () => {
     </div>
   );
 };
+
 export default WorkflowGraphStudio;

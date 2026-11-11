@@ -164,6 +164,7 @@ export async function initPostgresDatabase() {
       fields JSONB NOT NULL DEFAULT '[]',
       subforms JSONB NOT NULL DEFAULT '[]',
       workflow JSONB NOT NULL DEFAULT '[]',
+      workflow_graph JSONB DEFAULT '{}',
       default_expiry_days INTEGER DEFAULT 14,
       status VARCHAR(32) DEFAULT 'ACTIVE',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -242,6 +243,7 @@ export async function initPostgresDatabase() {
     ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS file_path VARCHAR(512);
     ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS file_hash VARCHAR(128);
     ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS mime_type VARCHAR(128);
+    ALTER TABLE form_templates ADD COLUMN IF NOT EXISTS workflow_graph JSONB DEFAULT '{}';
 
     ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS folder_id VARCHAR(64) REFERENCES folders(id) ON DELETE SET NULL;
     ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS comments JSONB DEFAULT '[]';
@@ -485,5 +487,3 @@ export async function wipeFormsOnly(actorName = 'Super Administrator') {
   console.log('[PostgreSQL] Forms wipe complete.');
   return true;
 }
-
-

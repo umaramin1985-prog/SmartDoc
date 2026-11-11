@@ -148,6 +148,49 @@ function decodeHtmlAmp(str) {
   return str.replace(/&(amp;)+/gi, '&');
 }
 
+function cleanWorkflowStep(w, index) {
+  if (!w) return null;
+  const dept = typeof w === 'string' ? w.trim() : String(w.department || w.name || '').trim();
+  if (!dept) return null;
+
+  if (typeof w !== 'object') {
+    return { step: index + 1, department: dept };
+  }
+
+  const {
+    step: _discardStep,
+    department: _discardDept,
+    name: _discardName,
+    ...extra
+  } = w;
+
+  const result = {
+    step: index + 1,
+    department: dept,
+    ...extra
+  };
+
+  // Retain canonical branch targets and subType / condition
+  if (w.trueBranchTarget !== undefined) {
+    result.trueBranchTarget = w.trueBranchTarget;
+  } else if (w.yesTargetNodeId !== undefined) {
+    result.trueBranchTarget = w.yesTargetNodeId;
+  }
+  if (w.falseBranchTarget !== undefined) {
+    result.falseBranchTarget = w.falseBranchTarget;
+  } else if (w.noTargetNodeId !== undefined) {
+    result.falseBranchTarget = w.noTargetNodeId;
+  }
+  if (w.condition !== undefined) {
+    result.condition = w.condition;
+  }
+  if (w.nodeSubType !== undefined) {
+    result.nodeSubType = w.nodeSubType;
+  }
+
+  return result;
+}
+
 function mapTemplate(t) {
   const fileType = t.file_type || 'docx';
   const cleanBase64 = String(t.docx_base64 || '').replace(/^data:[^;]+;base64,/, '');
@@ -178,6 +221,8 @@ function mapTemplate(t) {
     signatureSlots: Array.isArray(rawSigSlots) ? rawSigSlots.map(s => decodeHtmlAmp(String(s || ''))) : [],
     systemTags: parseJson(t.system_tags, []),
     workflow: parseJson(t.workflow, []),
+    workflow_graph: parseJson(t.workflow_graph, {}),
+    workflowGraph: parseJson(t.workflow_graph, {}),
     defaultExpiryDays: t.default_expiry_days || 14,
     createdBy: t.created_by,
     createdAt: t.created_at,
@@ -1094,6 +1139,21 @@ app.get('/api/forms/templates', async (req, res) => {
   }
 });
 
+app.get('/api/forms/templates/:id', async (req, res) => {
+  try {
+    const actor = await requireActor(req, res);
+    if (!actor) return;
+    const r = await query('SELECT * FROM form_templates WHERE id = $1', [req.params.id]);
+    const t = r.rows[0];
+    if (!t) return res.status(404).json({ error: 'Template not found' });
+    if (!canSeeTemplate(actor, t)) return res.status(403).json({ error: 'You do not have access to this template' });
+    res.json(mapTemplate(t));
+  } catch (err) {
+    console.error('[GET template by id]', err);
+    res.status(500).json({ error: 'Failed to load template' });
+  }
+});
+
 app.get('/api/forms/templates/:id/file', async (req, res) => {
   try {
     const actor = await requireActor(req, res);
@@ -1530,10 +1590,16 @@ app.post('/api/forms/templates', async (req, res) => {
     const deptNames = new Set(deptRows.rows.map(d => d.name));
     if (!deptNames.has(dept)) return res.status(400).json({ error: 'Template department does not exist' });
 
-    const steps = (Array.isArray(workflow) ? workflow : [])
-      .map(w => (typeof w === 'string' ? w : w?.department))
+    const cleanWorkflow = (Array.isArray(workflow) ? workflow : [])
+      .map((w, i) => cleanWorkflowStep(w, i))
       .filter(Boolean);
-    const cleanWorkflow = steps.map((department, i) => ({ step: i + 1, department }));
+
+    const incomingWfGraph = req.body.workflow_graph !== undefined
+      ? req.body.workflow_graph
+      : (req.body.workflowGraph !== undefined ? req.body.workflowGraph : {});
+    const cleanWorkflowGraph = typeof incomingWfGraph === 'string'
+      ? parseJson(incomingWfGraph, {})
+      : (incomingWfGraph || {});
     const isDraft = !!(req.body.isDraft || req.body.status === 'DRAFT');
     const finalStatus = isDraft ? 'DRAFT' : 'ACTIVE';
     if (isEditable && !isDraft && cleanWorkflow.length === 0) {
@@ -1578,9 +1644,9 @@ app.post('/api/forms/templates', async (req, res) => {
       `INSERT INTO form_templates (id, unique_code, title, department, description, category, version, created_by, created_by_username,
          fields, subforms, workflow, default_expiry_days, status, docx_base64, docx_filename, audience, signature_slots, system_tags, folder_id, html_content,
          file_type, is_editable, access_type, allowed_departments, allowed_users, version_history, comments, font_family, font_size, file_size,
-         file_path, file_hash, mime_type)
+         file_path, file_hash, mime_type, workflow_graph)
        VALUES ($1, $2, $3, $4, $5, 'Word Template', '1.0', $6, $7, $8::jsonb, '[]'::jsonb, $9::jsonb, $10, $11, $12, $13, $14, $15::jsonb, $16::jsonb, $17, $18,
-         $19, $20, $21, $22::jsonb, $23::jsonb, $24::jsonb, '[]'::jsonb, $25, $26, $27, $28, $29, $30)`,
+         $19, $20, $21, $22::jsonb, $23::jsonb, $24::jsonb, '[]'::jsonb, $25, $26, $27, $28, $29, $30, $31::jsonb)`,
       [id, code, title.trim(), dept, String(description || '').trim(), actor.name, actor.username,
         JSON.stringify(cleanFields), JSON.stringify(cleanWorkflow), expiryDays, finalStatus,
         null, actualFilename,
@@ -1588,7 +1654,8 @@ app.post('/api/forms/templates', async (req, res) => {
         finalHtmlContent || null,
         fileType, isEditable, finalAccessType, JSON.stringify(allowedDepartments || []), JSON.stringify(allowedUsers || []), JSON.stringify(initialCommit),
         fontFamily || null, fontSize || null, computedFileSize,
-        savedFile ? savedFile.filePath : null, savedFile ? savedFile.fileHash : null, savedFile ? savedFile.mimeType : null]
+        savedFile ? savedFile.filePath : null, savedFile ? savedFile.fileHash : null, savedFile ? savedFile.mimeType : null,
+        JSON.stringify(cleanWorkflowGraph)]
     );
 
     await audit(isDraft ? 'TEMPLATE_DRAFT_CREATED' : 'TEMPLATE_CREATED', actor.username, `${code} ${title.trim()}`, dept);
@@ -1958,12 +2025,19 @@ app.put('/api/forms/templates/:id', async (req, res) => {
     const governingMain = await getGoverningMainForm(t.id);
     const governingWf = governingMain ? parseJson(governingMain.workflow, []) : [];
 
-    const steps = (governingWf.length > 0
+    const rawWorkflowSteps = governingWf.length > 0
       ? governingWf
-      : (Array.isArray(workflow) ? workflow : parseJson(t.workflow, [])))
-      .map(w => (typeof w === 'string' ? w : w?.department))
+      : (Array.isArray(workflow) ? workflow : parseJson(t.workflow, []));
+    const cleanWorkflow = (Array.isArray(rawWorkflowSteps) ? rawWorkflowSteps : [])
+      .map((w, i) => cleanWorkflowStep(w, i))
       .filter(Boolean);
-    const cleanWorkflow = steps.map((department, i) => ({ step: i + 1, department }));
+
+    const incomingWfGraph = req.body.workflow_graph !== undefined
+      ? req.body.workflow_graph
+      : (req.body.workflowGraph !== undefined ? req.body.workflowGraph : undefined);
+    const cleanWorkflowGraph = incomingWfGraph !== undefined
+      ? (typeof incomingWfGraph === 'string' ? parseJson(incomingWfGraph, {}) : (incomingWfGraph || {}))
+      : undefined;
     const isDraftUpdate = req.body.isDraft === true || req.body.status === 'DRAFT';
     const nextStatus = isDraftUpdate ? 'DRAFT' : (req.body.status === 'ACTIVE' ? 'ACTIVE' : (t.status === 'DRAFT' && cleanWorkflow.length > 0 ? 'ACTIVE' : (t.status || 'ACTIVE')));
     if (t.is_editable && nextStatus !== 'DRAFT' && cleanWorkflow.length === 0) {
@@ -2054,14 +2128,17 @@ app.put('/api/forms/templates/:id', async (req, res) => {
          access_type = COALESCE($12, access_type), allowed_departments = COALESCE($13::jsonb, allowed_departments),
          allowed_users = COALESCE($14::jsonb, allowed_users),
          font_family = COALESCE($15, font_family), font_size = COALESCE($16, font_size),
-         file_size = $17, status = $18, file_path = $19, file_hash = $20, mime_type = $21, updated_at = NOW()
-       WHERE id = $22`,
+         file_size = $17, status = $18, file_path = $19, file_hash = $20, mime_type = $21,
+         workflow_graph = COALESCE($22::jsonb, workflow_graph), updated_at = NOW()
+       WHERE id = $23`,
       [nextTitle, nextDesc, JSON.stringify(cleanFields), JSON.stringify(cleanWorkflow), nextExpiry,
         targetFolderId, htmlContent || t.html_content,
         JSON.stringify(parsedSigSlots), JSON.stringify(parsedSysTags), nextVersion, JSON.stringify(nextHistory),
         accessType || null, allowedDepartments ? JSON.stringify(allowedDepartments) : null,
         allowedUsers ? JSON.stringify(allowedUsers) : null,
-        fontFamily || null, fontSize || null, updateFileSize, nextStatus, updateFilePath, updateFileHash, updateMime, t.id]
+        fontFamily || null, fontSize || null, updateFileSize, nextStatus, updateFilePath, updateFileHash, updateMime,
+        cleanWorkflowGraph !== undefined ? JSON.stringify(cleanWorkflowGraph) : null,
+        t.id]
     );
 
     const auditAction = (t.status === 'DRAFT' && nextStatus === 'ACTIVE')

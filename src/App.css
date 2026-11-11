@@ -20027,3 +20027,165 @@ a.sd-address-crumb:focus-visible {
   background: #10b981;
   color: #ffffff;
 }
+/* ==========================================================================
+   SmartDoc Workflow Studio — Visual Rule Builder & Conditional Branching UI
+   Scoped styles for Target Selectors, Branch Badges, Edge Badges, & Ports
+   ========================================================================== */
+
+/* 1. Destination Node Dropdowns (True / False Branch Targets) */
+.sd-wfg-target-select {
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--border-color, #e2e8f0);
+  background: var(--bg-card, #ffffff);
+  color: var(--text-main, #0f172a);
+  font-size: 0.78rem;
+  font-family: var(--font-sans, inherit);
+  font-weight: 500;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.sd-wfg-target-select:focus {
+  border-color: var(--primary-500, #2563eb);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-500, #2563eb) 20%, transparent);
+}
+
+.sd-wfg-target-select.yes {
+  border-color: color-mix(in srgb, #10b981 40%, var(--border-color, #e2e8f0));
+}
+
+.sd-wfg-target-select.yes:focus {
+  border-color: #10b981;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #10b981 22%, transparent);
+}
+
+.sd-wfg-target-select.no {
+  border-color: color-mix(in srgb, #f43f5e 40%, var(--border-color, #e2e8f0));
+}
+
+.sd-wfg-target-select.no:focus {
+  border-color: #f43f5e;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #f43f5e 22%, transparent);
+}
+
+/* 2. Branch Badges (For Node Cards & Inspector Header) */
+.sd-wfg-branch-badge,
+.sd-wfg-node-branch-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: color-mix(in srgb, #f43f5e 12%, var(--bg-card, #ffffff));
+  border: 1px solid color-mix(in srgb, #f43f5e 36%, transparent);
+  color: #f43f5e;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+}
+
+.sd-wfg-hud-dot.branch {
+  background: #f43f5e;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #f43f5e 25%, transparent);
+}
+
+.sd-wfg-node.node-stage.is-branch-node {
+  border-color: color-mix(in srgb, #f43f5e 36%, var(--border-color, #e2e8f0));
+}
+
+.sd-wfg-node.node-stage.is-branch-node:hover {
+  border-color: color-mix(in srgb, #f43f5e 60%, var(--border-color, #e2e8f0));
+}
+
+/* 3. Dedicated Action Button: Add New Node on NO Branch */
+.sd-wfg-add-branch-node-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px;
+  margin-top: 10px;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px dashed color-mix(in srgb, #f43f5e 55%, transparent);
+  background: color-mix(in srgb, #f43f5e 8%, var(--bg-card, #ffffff));
+  color: #f43f5e;
+  font-size: 0.77rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.sd-wfg-add-branch-node-btn:hover {
+  background: #f43f5e;
+  color: #ffffff;
+  border-style: solid;
+  border-color: #f43f5e;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px color-mix(in srgb, #f43f5e 35%, transparent);
+}
+
+.sd-wfg-add-branch-node-btn:active {
+  transform: translateY(0);
+}
+
+/* 4. Canvas SVG Add NO Port (Interactive clickable port on pending stubs) */
+.sd-wfg-canvas-add-no-port {
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.sd-wfg-canvas-add-no-port rect {
+  transition: fill 0.15s ease, stroke 0.15s ease;
+}
+
+.sd-wfg-canvas-add-no-port text {
+  transition: fill 0.15s ease;
+  user-select: none;
+}
+
+.sd-wfg-canvas-add-no-port:hover rect {
+  fill: #f43f5e;
+  stroke: #f43f5e;
+}
+
+.sd-wfg-canvas-add-no-port:hover text {
+  fill: #ffffff;
+  font-weight: 700;
+}
+
+/* 5. Centered Edge Outcome Badges (✓ YES and ✕ NO Badges) */
+.sd-wfg-edge-badge-yes {
+  background: color-mix(in srgb, #10b981 14%, var(--bg-card, #ffffff)) !important;
+  border: 1px solid #10b981 !important;
+  color: #059669 !important;
+  font-weight: 700 !important;
+  font-size: 0.72rem !important;
+  padding: 3px 8px !important;
+  border-radius: 9999px !important;
+  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.18) !important;
+  white-space: nowrap !important;
+}
+
+.sd-wfg-edge-badge-no {
+  background: color-mix(in srgb, #f43f5e 14%, var(--bg-card, #ffffff)) !important;
+  border: 1px solid #f43f5e !important;
+  color: #e11d48 !important;
+  font-weight: 700 !important;
+  font-size: 0.72rem !important;
+  padding: 3px 8px !important;
+  border-radius: 9999px !important;
+  box-shadow: 0 2px 6px rgba(244, 63, 94, 0.18) !important;
+  white-space: nowrap !important;
+  cursor: pointer;
+}
+
+.sd-wfg-edge-badge-no:hover {
+  background: color-mix(in srgb, #f43f5e 24%, var(--bg-card, #ffffff)) !important;
+  transform: translateY(-1px);
+}

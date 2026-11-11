@@ -10,7 +10,8 @@
     "start": "node server/server.js",
     "build:start": "vite build && node server/server.js",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test test/*.test.js test/*.test.mjs test/*.test.cjs"
   },
   "dependencies": {
     "cors": "^2.8.6",
