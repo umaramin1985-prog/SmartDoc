@@ -744,12 +744,10 @@ export const FormsHub = () => {
           <div className="sd-template-titles">
             <h3 className="sd-card-title" title={t.title}>{t.title}</h3>
             <div className="sd-tpl-subline">
-              <span className="sd-mono">{t.code}</span>
-              {!isNonEditable && (
-                <>
-                  <span>·</span>
-                  <span>v{t.version || 1}</span>
-                </>
+              {!isNonEditable ? (
+                <span>v{t.version || 1}</span>
+              ) : (
+                <span>{(t.fileType || 'DOC').toUpperCase()}</span>
               )}
               {currentDept === null && t.department && (
                 <>
@@ -915,31 +913,20 @@ export const FormsHub = () => {
               <FileText size={17} className="sd-icon-doc" />
             )}
             <span className="sd-font-medium">{t.title}</span>
+            {isArchived && <span className="sd-tpl-status-pill is-warn">Archived</span>}
+            {!isArchived && t.isDraft && <span className="sd-tpl-status-pill is-warn">Draft</span>}
           </div>
-        </td>
-        <td>
-          {isArchived ? (
-            <span className="sd-tpl-status-pill is-warn">Archived</span>
-          ) : t.isDraft ? (
-            <span className="sd-tpl-status-pill is-warn">Draft</span>
-          ) : isNonEditable ? (
-            <span className="sd-muted">{t.fileType?.toUpperCase()}</span>
-          ) : (
-            <span className="sd-muted">Word Form · v{t.version || 1}</span>
-          )}
-        </td>
-        <td>
-          <span className="sd-mono">{formatSize(t.fileSize)}</span>
         </td>
         <td>
           <span className="sd-muted">
             {!isNonEditable
-              ? `${fieldCount} field${fieldCount === 1 ? '' : 's'} · ${stepCount} step${stepCount === 1 ? '' : 's'}`
-              : 'Read-only file'}
+              ? `v${t.version || 1} · ${fieldCount} field${fieldCount === 1 ? '' : 's'} · ${stepCount} step${stepCount === 1 ? '' : 's'}`
+              : `${(t.fileType || 'DOC').toUpperCase()} · Read-only`}
           </span>
         </td>
-        <td><code className="sd-mono">{t.code}</code></td>
-        <td><span className="sd-muted">{formatDate(t.createdAt)}</span></td>
+        <td>
+          <span className="sd-muted">{formatDate(t.createdAt)} · <span className="sd-mono">{formatSize(t.fileSize)}</span></span>
+        </td>
         <td style={{ textAlign: 'right' }} onClick={e => e.stopPropagation()}>
           <div className="sd-btn-row sd-justify-end" style={{ gap: '6px' }}>
             {isArchived ? (
@@ -964,10 +951,11 @@ export const FormsHub = () => {
               <>
                 {canManageTpl && (
                   <a
-                    className="btn btn-secondary btn-xs"
+                    className="sd-icon-btn sd-icon-btn-xs"
+                    title="Open in Word Form Studio"
                     {...tabLinkProps(tplUrl('edit', t), () => openEditor(t))}
                   >
-                    Edit
+                    <Edit3 size={13} />
                   </a>
                 )}
                 {t.isDraft ? (
@@ -1025,7 +1013,7 @@ export const FormsHub = () => {
     <div className="sd-page animate-fade-in sd-explorer-page">
       <PageHeader
         title="Forms &amp; Documents Explorer"
-        subtitle="Manage department folders, upload Word form templates, and access submitted documents with rights protection."
+        subtitle="Browse department drives, form templates, and approval workflows."
         actions={
           <div className="sd-btn-row">
             {isAdmin && (
@@ -1036,7 +1024,7 @@ export const FormsHub = () => {
                   onClick={() => setShowUpload(true)}
                   title="Upload Word template, PDF, or image document"
                 >
-                  <Upload size={16} /> Upload Document
+                  <Upload size={15} /> Upload
                 </button>
                 <button
                   id="btn-explorer-bulk-import"
@@ -1044,7 +1032,7 @@ export const FormsHub = () => {
                   onClick={() => setShowBulkImport(true)}
                   title="Bulk import multiple Word templates, PDFs, or image files at once"
                 >
-                  <FolderInput size={16} /> Bulk Import
+                  <FolderInput size={15} /> Bulk Import
                 </button>
                 <button
                   id="btn-explorer-new-folder"
@@ -1052,7 +1040,7 @@ export const FormsHub = () => {
                   onClick={() => handleOpenNewFolder()}
                   title="Create a new folder"
                 >
-                  <FolderPlus size={16} /> New Folder
+                  <FolderPlus size={15} /> New Folder
                 </button>
                 <a
                   id="btn-explorer-word-studio"
@@ -1060,7 +1048,7 @@ export const FormsHub = () => {
                   {...tabLinkProps(newStudioUrl(), openNewStudio)}
                   title="Open Word Form Studio to design or customize Word form templates"
                 >
-                  <FileText size={16} /> Word Form Studio
+                  <FileText size={15} /> Word Studio
                 </a>
               </>
             )}
@@ -1349,11 +1337,8 @@ export const FormsHub = () => {
                       <thead>
                         <tr>
                           <th>Name</th>
-                          <th>Type</th>
-                          <th>Size</th>
-                          <th>Details / Status</th>
-                          <th>Identifier</th>
-                          <th>Date</th>
+                          <th>Details</th>
+                          <th>Modified</th>
                           <th style={{ textAlign: 'right' }}>Actions</th>
                         </tr>
                       </thead>
@@ -1389,11 +1374,8 @@ export const FormsHub = () => {
                           <thead>
                             <tr>
                               <th>Name</th>
-                              <th>Type</th>
-                              <th>Size</th>
-                              <th>Details / Status</th>
-                              <th>Identifier</th>
-                              <th>Date</th>
+                              <th>Details</th>
+                              <th>Modified</th>
                               <th style={{ textAlign: 'right' }}>Actions</th>
                             </tr>
                           </thead>
@@ -1468,10 +1450,7 @@ export const FormsHub = () => {
                           <thead>
                             <tr>
                               <th>Department</th>
-                              <th>Code</th>
-                              <th>Description</th>
-                              <th>Items</th>
-                              <th>Storage Size</th>
+                              <th>Contents</th>
                               <th>Access</th>
                               <th style={{ textAlign: 'right' }}>Actions</th>
                             </tr>
@@ -1491,25 +1470,22 @@ export const FormsHub = () => {
                                   <td>
                                     <div className="sd-table-name-cell">
                                       <Building2 size={18} className="sd-icon-folder" />
-                                      <span className="sd-font-medium">{dept.name}</span>
+                                      <div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                          <span className="sd-font-medium">{dept.name}</span>
+                                          <span className="sd-badge sd-badge-gray sd-badge-xs sd-mono">{dept.code}</span>
+                                        </div>
+                                        {dept.description && (
+                                          <div className="sd-muted" style={{ fontSize: '0.76rem', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {dept.description}
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
                                   </td>
                                   <td>
-                                    <span className="sd-badge sd-badge-gray sd-badge-xs sd-mono">{dept.code}</span>
-                                  </td>
-                                  <td>
-                                    <span className="sd-muted" title={dept.description} style={{ maxWidth: 300, display: 'inline-block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                      {dept.description || '—'}
-                                    </span>
-                                  </td>
-                                  <td>
                                     <span className="sd-muted">
-                                      {deptFoldersCount} folder{deptFoldersCount === 1 ? '' : 's'} · {deptTplsCount} template{deptTplsCount === 1 ? '' : 's'}
-                                    </span>
-                                  </td>
-                                  <td>
-                                    <span className="sd-mono" title="Total Department Storage Size">
-                                      {formatSize(getDepartmentStorageSize(dept.name))}
+                                      {deptFoldersCount} folder{deptFoldersCount === 1 ? '' : 's'} · {deptTplsCount} template{deptTplsCount === 1 ? '' : 's'} · {formatSize(getDepartmentStorageSize(dept.name))}
                                     </span>
                                   </td>
                                   <td>
@@ -1521,15 +1497,6 @@ export const FormsHub = () => {
                                   </td>
                                   <td style={{ textAlign: 'right' }} onClick={e => e.stopPropagation()}>
                                     <div className="sd-btn-row sd-justify-end">
-                                      {hasAdmin && (
-                                        <button
-                                          className="sd-icon-btn"
-                                          title={`New folder in ${dept.name}`}
-                                          onClick={() => handleOpenNewFolder(dept.name, null)}
-                                        >
-                                          <FolderPlus size={14} />
-                                        </button>
-                                      )}
                                       <a
                                         className="btn btn-secondary btn-sm"
                                         {...tabLinkProps(locUrl(dept.name, null), () => navigateTo(dept.name, null))}
@@ -1563,11 +1530,8 @@ export const FormsHub = () => {
                               <thead>
                                 <tr>
                                   <th>Name</th>
-                                  <th>Type</th>
-                                  <th>Size</th>
-                                  <th>Details / Status</th>
-                                  <th>Identifier</th>
-                                  <th>Date</th>
+                                  <th>Details</th>
+                                  <th>Modified</th>
                                   <th style={{ textAlign: 'right' }}>Actions</th>
                                 </tr>
                               </thead>
@@ -1690,11 +1654,8 @@ export const FormsHub = () => {
                       <thead>
                         <tr>
                           <th>Name</th>
-                          <th>Type</th>
-                          <th>Size</th>
-                          <th>Details / Status</th>
-                          <th>Identifier</th>
-                          <th>Date</th>
+                          <th>Details</th>
+                          <th>Modified</th>
                           <th style={{ textAlign: 'right' }}>Actions</th>
                         </tr>
                       </thead>
@@ -1710,15 +1671,14 @@ export const FormsHub = () => {
                                   <span className="sd-font-medium">{f.name}</span>
                                 </div>
                               </td>
-                              <td><span className="sd-muted">Folder</span></td>
                               <td>
-                                <span className="sd-mono" title="Total Folder Storage Size (including nested items)">
-                                  {formatSize(getFolderStorageSize(f.id))}
+                                <span className="sd-muted">Folder · {subCount + tplCount} item{subCount + tplCount === 1 ? '' : 's'}</span>
+                              </td>
+                              <td>
+                                <span className="sd-muted">
+                                  {formatDate(f.createdAt)} · <span className="sd-mono">{formatSize(getFolderStorageSize(f.id))}</span>
                                 </span>
                               </td>
-                              <td>{subCount + tplCount} item{subCount + tplCount === 1 ? '' : 's'}</td>
-                              <td><span className="sd-muted">—</span></td>
-                              <td><span className="sd-muted">{formatDate(f.createdAt)}</span></td>
                               <td style={{ textAlign: 'right' }} onClick={e => e.stopPropagation()}>
                                 {canManageCurrent && (
                                   <div className="sd-btn-row sd-justify-end">
@@ -1873,7 +1833,6 @@ export const FormsHub = () => {
                                 <span className="sd-inspector-wf-num">{idx + 1}</span>
                                 <div className="sd-inspector-wf-info">
                                   <strong>{deptName}</strong>
-                                  <span>Department Sign-off &amp; PKI Stamp</span>
                                 </div>
                               </li>
                             );
