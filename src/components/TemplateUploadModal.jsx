@@ -798,6 +798,10 @@ export const TemplateUploadModal = ({ onClose, initialDepartment, initialFolderI
       <SendForReviewModal
         title={title}
         onClose={() => setShowSendForReview(false)}
+        onBack={() => {
+          setShowSendForReview(false);
+          setShowPrePublishPrompt(true);
+        }}
         onSend={handleSendForReview}
       />
     )}

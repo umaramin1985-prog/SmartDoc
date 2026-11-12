@@ -1,6 +1,6 @@
 import React from 'react';
 import { Modal } from './ui';
-import { Users, Rocket, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Users, Rocket, ArrowRight } from 'lucide-react';
 
 export const PrePublishReviewPromptModal = ({
   title,
@@ -10,78 +10,47 @@ export const PrePublishReviewPromptModal = ({
   isPublishing = false,
   isEditingExisting = false
 }) => {
+  const handleKeyActivate = (action) => (e) => {
+    if (isPublishing || !action) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      action();
+    }
+  };
+
   return (
     <Modal
       id="modal-pre-publish-review-prompt"
-      title="Send for Review Before Publishing?"
-      subtitle={`Choose how you want to proceed with "${title || 'Untitled Form'}"`}
+      title={`Publish "${title || 'Untitled Form'}"`}
+      subtitle="How would you like to publish this template?"
       onClose={isPublishing ? undefined : onClose}
       size="md"
-      footer={(
-        <>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={onClose}
-            disabled={isPublishing}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            id="btn-pre-publish-direct"
-            className="btn btn-secondary"
-            onClick={onPublishDirect}
-            disabled={isPublishing}
-            title="Publish immediately without sending for review"
-          >
-            <Rocket size={14} /> {isPublishing ? 'Publishing…' : isEditingExisting ? 'Commit & Publish Directly' : 'Publish Directly'}
-          </button>
-          <button
-            type="button"
-            id="btn-pre-publish-send-review"
-            className="btn btn-primary"
-            onClick={onSendForReview}
-            disabled={isPublishing}
-            title="Choose reviewers to propose changes before final publication"
-          >
-            <Users size={15} /> Send for Review
-          </button>
-        </>
-      )}
     >
       <div className="sd-pre-publish-wrap">
-        <p className="sd-pre-publish-intro">
-          Before publishing this document to the department drive, would you like to send it out to colleagues for review and suggested edits?
-        </p>
-
         <div className="sd-pre-publish-options">
           {/* Option 1: Send for Review (Recommended) */}
           <div
             id="opt-send-for-review"
             className="sd-pre-publish-option-card recommended"
             onClick={!isPublishing ? onSendForReview : undefined}
+            onKeyDown={handleKeyActivate(onSendForReview)}
             role="button"
             tabIndex={0}
           >
             <div className="sd-pre-publish-card-top">
               <div className="sd-pre-publish-icon-wrap accent">
-                <Users size={20} />
+                <Users size={18} />
               </div>
               <div className="sd-pre-publish-card-body">
                 <div className="sd-pre-publish-title-row">
-                  <h4 className="sd-pre-publish-heading">Send for Review</h4>
+                  <h4 className="sd-pre-publish-heading">Send for Review First</h4>
                   <span className="sd-pre-publish-tag">Recommended</span>
                 </div>
                 <p className="sd-pre-publish-desc">
-                  Invite colleagues to edit their own copy of this document. You will be able to review, accept, or reject each change before final publication.
+                  Let colleagues suggest edits before final publication.
                 </p>
               </div>
-            </div>
-            <div className="sd-pre-publish-card-action">
-              <span className="sd-link sd-pre-publish-action-link">
-                Choose reviewers &amp; send <ArrowRight size={13} />
-              </span>
+              <ArrowRight size={16} className="sd-pre-publish-arrow" />
             </div>
           </div>
 
@@ -90,33 +59,27 @@ export const PrePublishReviewPromptModal = ({
             id="opt-publish-direct"
             className="sd-pre-publish-option-card"
             onClick={!isPublishing ? onPublishDirect : undefined}
+            onKeyDown={handleKeyActivate(onPublishDirect)}
             role="button"
             tabIndex={0}
           >
             <div className="sd-pre-publish-card-top">
               <div className="sd-pre-publish-icon-wrap">
-                <Rocket size={20} />
+                <Rocket size={18} />
               </div>
               <div className="sd-pre-publish-card-body">
                 <div className="sd-pre-publish-title-row">
-                  <h4 className="sd-pre-publish-heading">Publish Directly</h4>
+                  <h4 className="sd-pre-publish-heading">
+                    {isPublishing ? 'Publishing…' : isEditingExisting ? 'Commit & Publish Immediately' : 'Publish Immediately'}
+                  </h4>
                 </div>
                 <p className="sd-pre-publish-desc">
-                  Skip peer review and make this document immediately active and fillable in the department drive.
+                  Make active and fillable in the department drive now.
                 </p>
               </div>
-            </div>
-            <div className="sd-pre-publish-card-action">
-              <span className="sd-muted sd-pre-publish-action-link">
-                Publish without review <ArrowRight size={13} />
-              </span>
+              <ArrowRight size={16} className="sd-pre-publish-arrow" />
             </div>
           </div>
-        </div>
-
-        <div className="sd-pre-publish-note">
-          <ShieldCheck size={14} className="sd-text-good" />
-          <span>Department workflows and audit logging will be activated upon publication.</span>
         </div>
       </div>
     </Modal>

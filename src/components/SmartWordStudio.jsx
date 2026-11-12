@@ -7301,13 +7301,20 @@ export const SmartWordStudio = ({
           <Modal
             id="modal-commit-template"
             size="md"
-            title={`Save & Commit Version ${(targetTemplate?.version || 1) + 1}`}
-            subtitle={`Document: ${targetTemplate?.title || title}`}
+            title={`Publish Version v${(targetTemplate?.version || 1) + 1}`}
+            subtitle={targetTemplate?.title || title}
             onClose={() => setShowCommitModal(false)}
             footer={
               <>
-                <button className="btn btn-secondary" onClick={() => setShowCommitModal(false)} disabled={saving}>
-                  Cancel
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setShowCommitModal(false);
+                    if (!resume) setShowPrePublishPrompt(true);
+                  }}
+                  disabled={saving}
+                >
+                  {!resume ? '← Back' : 'Cancel'}
                 </button>
                 <button
                   className="btn btn-primary"
@@ -7315,31 +7322,40 @@ export const SmartWordStudio = ({
                   disabled={saving || !commitMessage.trim()}
                 >
                   {saving ? <span className="sd-spin">⏳</span> : <GitCommit size={14} />}
-                  {saving ? 'Saving…' : `Commit & Bump to v${(targetTemplate?.version || 1) + 1}`}
+                  {saving ? 'Publishing…' : `Publish v${(targetTemplate?.version || 1) + 1}`}
                 </button>
               </>
             }
           >
             <div className="sd-commit-modal-body">
-              <div className="sd-alert sd-alert-info">
-                <GitCommit size={16} />
-                <div>
-                  Template changes are versioned like a Git repository. Describe what was changed in this version.
-                </div>
+              <div className="sd-commit-presets">
+                {['Updated form fields', 'Updated approval route', 'Formatting & layout', 'Merged peer review'].map(preset => (
+                  <button
+                    key={preset}
+                    type="button"
+                    className={`sd-rvp-dept-pill ${commitMessage === preset ? 'active' : ''}`}
+                    onClick={() => setCommitMessage(preset)}
+                  >
+                    {preset}
+                  </button>
+                ))}
               </div>
               <label className="sd-field">
-                <span className="sd-label">Commit Summary / Changes Made *</span>
+                <span className="sd-label">What changed in this version?</span>
                 <textarea
-                  rows={3}
+                  rows={2}
                   className="sd-input"
-                  placeholder="e.g., Added mandatory budget number field and changed 2nd approval step to Finance"
+                  placeholder="Briefly describe the update…"
                   value={commitMessage}
                   onChange={e => setCommitMessage(e.target.value)}
+                  onKeyDown={e => {
+                    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && commitMessage.trim() && !saving) {
+                      e.preventDefault();
+                      handleSaveEdit();
+                    }
+                  }}
                   autoFocus
                 />
-                <span className="sd-hint">
-                  This summary will be permanently recorded in the template's Git version log with your name and timestamp.
-                </span>
               </label>
             </div>
           </Modal>
@@ -7362,6 +7378,10 @@ export const SmartWordStudio = ({
           <SendForReviewModal
             title={title}
             onClose={() => setShowSendForReview(false)}
+            onBack={() => {
+              setShowSendForReview(false);
+              setShowPrePublishPrompt(true);
+            }}
             onSend={handleSendForReview}
           />
         )}

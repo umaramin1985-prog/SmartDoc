@@ -8055,42 +8055,81 @@ body:has(.sd-studio-modal-backdrop) .sd-modal-backdrop:has(.sd-ai-generator-wrap
 }
 
 /* Reviewer picker */
-.sd-rvp-intro { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 12px; }
-.sd-rvp-search { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--text-muted); }
+.sd-rvp-toolbar { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+.sd-rvp-search {
+  display: flex; align-items: center; gap: 8px; color: var(--text-muted);
+  position: relative;
+}
 .sd-rvp-search .sd-input { flex: 1; }
+.sd-rvp-clear-search {
+  background: transparent; border: none; color: var(--text-muted); cursor: pointer;
+  padding: 4px; display: inline-flex; align-items: center; justify-content: center;
+}
+.sd-rvp-clear-search:hover { color: var(--text-main); }
+.sd-rvp-dept-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+}
+.sd-rvp-dept-pills, .sd-commit-presets {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.sd-commit-presets { margin-bottom: 10px; }
+.sd-rvp-dept-pill {
+  padding: 4px 10px; border-radius: var(--radius-full); font-size: 0.75rem; font-weight: 500;
+  border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-muted);
+  cursor: pointer; transition: all 0.15s ease;
+}
+.sd-rvp-dept-pill:hover { border-color: var(--primary-400); color: var(--text-main); }
+.sd-rvp-dept-pill.active {
+  background: var(--primary-500); border-color: var(--primary-500); color: #fff;
+}
+.sd-rvp-select-all { font-size: 0.76rem; margin-left: auto; }
+.sd-rvp-chips {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 10px;
+}
+.sd-rvp-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px 3px 5px;
+  border-radius: var(--radius-full); font-size: 0.76rem; font-weight: 500;
+  background: color-mix(in srgb, var(--primary-500) 12%, var(--bg-card));
+  border: 1px solid color-mix(in srgb, var(--primary-500) 35%, var(--border-color));
+  color: var(--text-main);
+}
+.sd-rvp-chip button {
+  background: transparent; border: none; color: var(--text-muted); cursor: pointer;
+  padding: 1px; display: inline-flex; align-items: center;
+}
+.sd-rvp-chip button:hover { color: var(--text-main); }
 .sd-rvp-list {
-  max-height: 340px; overflow-y: auto; border: 1px solid var(--border-color);
-  border-radius: var(--radius-md); background: var(--bg-card-subtle); padding: 6px 10px 10px;
+  max-height: 280px; overflow-y: auto; border: 1px solid var(--border-color);
+  border-radius: var(--radius-md); background: var(--bg-card-subtle); padding: 8px;
 }
-.sd-rvp-empty { padding: 18px 4px; text-align: center; }
-.sd-rvp-group-head {
-  display: flex; align-items: center; gap: 10px; padding: 10px 2px 6px;
-  font-size: 0.8rem; position: sticky; top: -6px; background: var(--bg-card-subtle); z-index: 1;
-}
-.sd-rvp-group-head .sd-link-btn { margin-left: auto; }
-.sd-rvp-members { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px; }
+.sd-rvp-empty { padding: 18px 4px; text-align: center; font-size: 0.82rem; }
+.sd-rvp-members { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; }
 .sd-rvp-member {
   display: flex; align-items: center; gap: 10px; text-align: left; cursor: pointer;
-  padding: 8px 10px; border-radius: var(--radius-md); border: 1.5px solid var(--border-color);
+  padding: 7px 10px; border-radius: var(--radius-md); border: 1px solid var(--border-color);
   background: var(--bg-card); color: var(--text-main); font-family: inherit;
-  transition: border-color 0.15s, background 0.15s, transform 0.15s;
+  transition: border-color 0.15s, background 0.15s;
 }
-.sd-rvp-member:hover { border-color: var(--primary-300); transform: translateY(-1px); }
+.sd-rvp-member:hover { border-color: var(--primary-400); }
 .sd-rvp-member.on {
   border-color: var(--primary-500);
-  background: color-mix(in srgb, var(--primary-500) 10%, var(--bg-card));
+  background: color-mix(in srgb, var(--primary-500) 9%, var(--bg-card));
 }
-.sd-rvp-avatar { width: 30px; height: 30px; font-size: 0.7rem; flex-shrink: 0; }
+.sd-rvp-avatar { width: 28px; height: 28px; font-size: 0.68rem; flex-shrink: 0; }
 .sd-rvp-meta { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-.sd-rvp-name { font-weight: 600; font-size: 0.84rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sd-rvp-sub { font-size: 0.72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sd-rvp-name { font-weight: 600; font-size: 0.82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sd-rvp-sub { font-size: 0.71rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sd-rvp-check {
-  width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--border-color);
+  width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--border-color);
   display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: #fff;
 }
 .sd-rvp-member.on .sd-rvp-check { background: var(--primary-500); border-color: var(--primary-500); }
-.sd-rvp-note { margin-top: 14px; }
-.sd-rvp-count { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; font-size: 0.82rem; }
+.sd-rvp-note { margin-top: 10px; }
+.sd-rvp-note-toggle {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--text-muted);
+}
+.sd-rvp-note-toggle:hover { color: var(--primary-500); }
+.sd-rvp-count { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; font-size: 0.8rem; }
 
 /* Pre-publish review prompt */
 .sd-pre-publish-wrap {
@@ -8142,12 +8181,21 @@ body:has(.sd-studio-modal-backdrop) .sd-modal-backdrop:has(.sd-ai-generator-wrap
 }
 .sd-pre-publish-card-top {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 14px;
 }
+.sd-pre-publish-arrow {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+.sd-pre-publish-option-card:hover .sd-pre-publish-arrow {
+  transform: translateX(3px);
+  color: var(--primary-500);
+}
 .sd-pre-publish-icon-wrap {
-  width: 42px;
-  height: 42px;
+  width: 38px;
+  height: 38px;
   border-radius: var(--radius-md);
   display: flex;
   align-items: center;
