@@ -4400,17 +4400,27 @@ textarea.sd-input { resize: vertical; line-height: 1.5; }
   background: color-mix(in srgb, var(--primary-500) 12%, transparent);
   color: var(--primary-500);
 }
+.sd-dept-drive-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .sd-dept-drive-name {
-  font-size: 0.98rem;
+  font-size: 0.96rem;
   font-weight: 700;
   color: var(--text-main);
-  margin: 0 0 2px 0;
+  margin: 0;
 }
 .sd-dept-drive-desc {
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   color: var(--text-muted);
   line-height: 1.4;
-  margin: 6px 0 0 0;
+  margin: 4px 0 0 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .sd-dept-drive-stats {
   display: flex;

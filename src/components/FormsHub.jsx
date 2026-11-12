@@ -833,11 +833,12 @@ export const FormsHub = () => {
                 {canManageTpl && (
                   <a
                     id={`btn-tpl-edit-${t.id}`}
-                    className="btn btn-secondary btn-xs"
+                    className="sd-icon-btn sd-icon-btn-xs"
                     title="Open in Word Form Studio"
+                    aria-label="Edit template in Word Form Studio"
                     {...tabLinkProps(tplUrl('edit', t), () => openEditor(t))}
                   >
-                    Edit
+                    <Edit3 size={13} />
                   </a>
                 )}
 
@@ -1098,11 +1099,35 @@ export const FormsHub = () => {
               </React.Fragment>
             ))}
 
+            {currentFolderObj && canManageCurrent && (
+              <div className="sd-folder-current-actions">
+                <button
+                  type="button"
+                  className="sd-icon-btn sd-icon-btn-xs"
+                  title="Rename this folder"
+                  onClick={() => setFolderModal({ mode: 'rename', dept: currentDept, folderId: currentFolderId, name: currentFolderObj.name })}
+                >
+                  <Edit2 size={13} />
+                </button>
+                <button
+                  type="button"
+                  className="sd-icon-btn sd-icon-btn-xs sd-danger-hover"
+                  title="Delete this folder"
+                  onClick={() => setDeleteFolderTarget(currentFolderObj)}
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            )}
+
             <div className="sd-address-rights">
+              <span className="sd-muted sd-mono" style={{ fontSize: '0.74rem' }} title="Total storage in current view">
+                {formatSize(currentTotalStorageSize)}
+              </span>
               {currentDept ? (
                 canManageCurrent ? (
                   <span className="sd-badge sd-badge-green" title="You have Admin rights in this department">
-                    <ShieldCheck size={12} /> Admin (Full Control)
+                    <ShieldCheck size={12} /> Admin
                   </span>
                 ) : (
                   <span className="sd-badge sd-badge-gray" title="You have read-only access to this department">
@@ -1130,35 +1155,6 @@ export const FormsHub = () => {
                 onChange={e => setSearch(e.target.value)}
               />
             </div>
-
-            {isAdmin && (
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={() => handleOpenNewFolder()}
-                title="Create a new folder in this location"
-              >
-                <FolderPlus size={14} /> New Folder
-              </button>
-            )}
-
-            {currentFolderObj && canManageCurrent && (
-              <div className="sd-folder-current-actions">
-                <button
-                  className="btn btn-secondary btn-sm"
-                  title="Rename this folder"
-                  onClick={() => setFolderModal({ mode: 'rename', dept: currentDept, folderId: currentFolderId, name: currentFolderObj.name })}
-                >
-                  <Edit2 size={13} /> Rename
-                </button>
-                <button
-                  className="btn btn-danger-outline btn-sm"
-                  title="Delete this folder"
-                  onClick={() => setDeleteFolderTarget(currentFolderObj)}
-                >
-                  <Trash2 size={13} /> Delete Folder
-                </button>
-              </div>
-            )}
           </div>
 
           <div className="sd-toolbar-right-group">
@@ -1448,32 +1444,18 @@ export const FormsHub = () => {
                               </div>
 
                               <div className="sd-dept-drive-info">
-                                <h4 className="sd-dept-drive-name">{dept.name}</h4>
-                                <span className="sd-muted sd-mono">{dept.code}</span>
-                                <p className="sd-dept-drive-desc">{dept.description || 'Department drive for forms and documents'}</p>
+                                <div className="sd-dept-drive-title-row">
+                                  <h4 className="sd-dept-drive-name">{dept.name}</h4>
+                                  <span className="sd-badge sd-badge-gray sd-badge-xs sd-mono">{dept.code}</span>
+                                </div>
+                                {dept.description && (
+                                  <p className="sd-dept-drive-desc">{dept.description}</p>
+                                )}
                                 <div className="sd-dept-drive-stats">
                                   <span><Folder size={12} /> {deptFoldersCount} folder{deptFoldersCount === 1 ? '' : 's'}</span>
                                   <span><FileText size={12} /> {deptTplsCount} template{deptTplsCount === 1 ? '' : 's'}</span>
                                   <span title="Total Department Storage"><HardDrive size={12} /> {formatSize(getDepartmentStorageSize(dept.name))}</span>
                                 </div>
-                              </div>
-
-                              <div className="sd-dept-drive-footer" onClick={e => e.stopPropagation()}>
-                                {hasAdmin && (
-                                  <button
-                                    className="btn btn-secondary btn-sm"
-                                    onClick={() => handleOpenNewFolder(dept.name, null)}
-                                    title={`Create folder in ${dept.name}`}
-                                  >
-                                    <FolderPlus size={13} /> New Folder
-                                  </button>
-                                )}
-                                <a
-                                  className="sd-link sd-small"
-                                  {...tabLinkProps(locUrl(dept.name, null), () => navigateTo(dept.name, null))}
-                                >
-                                  Open Department &rarr;
-                                </a>
                               </div>
                             </div>
                           );
@@ -1949,23 +1931,6 @@ export const FormsHub = () => {
             );
           })()}
         </div>
-
-        {/* Explorer Bottom Status Bar */}
-        <footer className="sd-explorer-statusbar">
-          <span className="sd-status-item">
-            {currentDept ? (
-              `${totalItemsCount} item${totalItemsCount === 1 ? '' : 's'} (${filteredFolders.length} folders, ${filteredTemplates.length} templates) · Total Size: ${formatSize(currentTotalStorageSize)}`
-            ) : (
-              `${departments.length} departments available · Total Storage: ${formatSize(currentTotalStorageSize)}`
-            )}
-          </span>
-          <span className="sd-status-item sd-status-path">
-            Location: {breadcrumbs.map(b => b.label).join(' \\ ')}
-          </span>
-          <span className="sd-status-item">
-            Rights: {currentDept ? (canManageCurrent ? 'Full Control' : 'Read-only') : 'Browse'}
-          </span>
-        </footer>
       </div>
 
       {/* 0. Word Form Studio */}
