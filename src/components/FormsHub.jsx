@@ -21,7 +21,7 @@ import {
   ShieldCheck, Lock, LayoutGrid, List, Plus,
   CheckCircle2, HardDrive, Edit2, Edit3, History, Image as ImageIcon, Shield,
   AlertTriangle, Send, Printer, FileEdit, Sparkles, Download, FileDown, Loader2,
-  Archive, RotateCcw, Layers, Link2, Check, X, GitMerge, MoreHorizontal
+  Archive, RotateCcw, Layers, Link2, Check, X, GitMerge, MoreHorizontal, Compass
 } from 'lucide-react';
 
 export const FormsHub = () => {
@@ -36,6 +36,8 @@ export const FormsHub = () => {
   // Navigation state
   const [currentDept, setCurrentDept] = useState(null); // null = "All Departments" (Drive root)
   const [currentFolderId, setCurrentFolderId] = useState(null); // null = Department root
+  const [showExplorerGuide, setShowExplorerGuide] = useState(false);
+  const [explorerGuideTab, setExplorerGuideTab] = useState('fill'); // 'fill' | 'create' | 'manage'
 
   // Navigation history for Back / Forward
   const [navHistory, setNavHistory] = useState([{ dept: null, folderId: null }]);
@@ -1016,6 +1018,15 @@ export const FormsHub = () => {
         subtitle="Browse department drives, form templates, and approval workflows."
         actions={
           <div className="sd-btn-row">
+            <button
+              id="btn-explorer-guide"
+              type="button"
+              className={`btn ${showExplorerGuide ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setShowExplorerGuide(v => !v)}
+              title="Show step-by-step guide on how to use Forms & Documents"
+            >
+              <Compass size={15} /> Guide Me
+            </button>
             {isAdmin && (
               <>
                 <button
@@ -1055,6 +1066,174 @@ export const FormsHub = () => {
           </div>
         }
       />
+
+      {/* Interactive Goal-Driven Explorer Guided Concierge */}
+      {showExplorerGuide && (
+        <div className="sd-guided-copilot-card sd-explorer-concierge animate-fade-in">
+          <div className="sd-copilot-top">
+            <div className="sd-copilot-brand">
+              <span className="sd-copilot-icon-orb">
+                <Sparkles size={14} />
+              </span>
+              <span className="sd-copilot-title">Interactive Forms &amp; Documents Guide</span>
+              <span className="sd-muted sd-xs">Choose what you want to do below:</span>
+            </div>
+
+            <div className="sd-pill-toggle sd-pill-toggle-sm" role="tablist">
+              <button
+                type="button"
+                className={`sd-pill-btn ${explorerGuideTab === 'fill' ? 'active' : ''}`}
+                onClick={() => setExplorerGuideTab('fill')}
+              >
+                <PenSquare size={12} />
+                <span>1. Fill &amp; Submit a Form</span>
+              </button>
+              {isAdmin && (
+                <button
+                  type="button"
+                  className={`sd-pill-btn ${explorerGuideTab === 'create' ? 'active' : ''}`}
+                  onClick={() => setExplorerGuideTab('create')}
+                >
+                  <FileEdit size={12} />
+                  <span>2. Create / Upload Template</span>
+                </button>
+              )}
+              <button
+                type="button"
+                className={`sd-pill-btn ${explorerGuideTab === 'manage' ? 'active' : ''}`}
+                onClick={() => setExplorerGuideTab('manage')}
+              >
+                <GitMerge size={12} />
+                <span>{isAdmin ? '3.' : '2.'} Browse &amp; Inspect Routes</span>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              className="sd-icon-btn sd-form-guide-close"
+              onClick={() => setShowExplorerGuide(false)}
+              title="Close guide"
+            >
+              <X size={14} />
+            </button>
+          </div>
+
+          {explorerGuideTab === 'fill' && (
+            <div className="sd-concierge-body">
+              <div className="sd-concierge-intro">
+                <strong>How to fill &amp; submit a form:</strong> Pick any ready template below (or click <em>Fill</em> on a card in the Explorer). The <strong>Guided Form Copilot</strong> will walk you through every required field, attach your PKI signature, and route it to department approvers.
+              </div>
+              <div className="sd-concierge-chips">
+                {formTemplates
+                  .filter(t => !t.isDraft && t.fileType !== 'pdf' && t.fileType !== 'image' && (t.workflow?.length > 0))
+                  .slice(0, 5)
+                  .map(t => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      className="sd-concierge-tpl-btn"
+                      onClick={() => {
+                        try { localStorage.setItem('smartdoc_show_form_guide', 'true'); } catch {}
+                        handleStartFill(t);
+                      }}
+                    >
+                      <FileText size={14} className="sd-text-accent" />
+                      <div className="sd-concierge-tpl-text">
+                        <span className="sd-concierge-tpl-title">{t.title}</span>
+                        <span className="sd-concierge-tpl-sub">
+                          {t.department} · {(t.fields || []).length} fields · {(t.workflow || []).length} steps
+                        </span>
+                      </div>
+                      <span className="sd-concierge-tpl-cta">
+                        Guided Fill <ArrowRight size={11} />
+                      </span>
+                    </button>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {explorerGuideTab === 'create' && isAdmin && (
+            <div className="sd-concierge-body">
+              <div className="sd-concierge-grid-3">
+                <div className="sd-concierge-action-card" onClick={openNewStudio}>
+                  <div className="sd-concierge-action-icon"><FileEdit size={17} /></div>
+                  <div>
+                    <div className="sd-concierge-action-title">Design in Word Studio</div>
+                    <div className="sd-concierge-action-sub">Create a rich template from scratch with interactive <code>{'{{Field}}'}</code> placeholders and signature slots.</div>
+                  </div>
+                  <ArrowRight size={14} className="sd-text-accent" />
+                </div>
+
+                <div className="sd-concierge-action-card" onClick={() => setShowUpload(true)}>
+                  <div className="sd-concierge-action-icon"><Upload size={17} /></div>
+                  <div>
+                    <div className="sd-concierge-action-title">Upload Word / PDF / Image</div>
+                    <div className="sd-concierge-action-sub">Import an existing <code>.docx</code> file (auto-extracts fields) or store a reference PDF/image.</div>
+                  </div>
+                  <ArrowRight size={14} className="sd-text-accent" />
+                </div>
+
+                <div className="sd-concierge-action-card" onClick={() => setShowBulkImport(true)}>
+                  <div className="sd-concierge-action-icon"><FolderInput size={17} /></div>
+                  <div>
+                    <div className="sd-concierge-action-title">Bulk Import Package</div>
+                    <div className="sd-concierge-action-sub">Upload multiple department templates at once and assign a shared approval route.</div>
+                  </div>
+                  <ArrowRight size={14} className="sd-text-accent" />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {explorerGuideTab === 'manage' && (
+            <div className="sd-concierge-body">
+              <div className="sd-concierge-grid-3">
+                <div
+                  className="sd-concierge-action-card"
+                  onClick={() => navigateTo(currentUser?.department || departments[0]?.name || null, null)}
+                >
+                  <div className="sd-concierge-action-icon"><Building2 size={17} /></div>
+                  <div>
+                    <div className="sd-concierge-action-title">Open My Department Drive</div>
+                    <div className="sd-concierge-action-sub">Jump directly to <strong>{currentUser?.department || 'your department'}</strong> folders and templates.</div>
+                  </div>
+                  <ArrowRight size={14} className="sd-text-accent" />
+                </div>
+
+                <div
+                  className="sd-concierge-action-card"
+                  onClick={() => setFilterType('templates')}
+                >
+                  <div className="sd-concierge-action-icon"><FileText size={17} /></div>
+                  <div>
+                    <div className="sd-concierge-action-title">Show All Templates Only</div>
+                    <div className="sd-concierge-action-sub">Flatten the folder hierarchy to view and search every template in one place.</div>
+                  </div>
+                  <ArrowRight size={14} className="sd-text-accent" />
+                </div>
+
+                <div
+                  className="sd-concierge-action-card"
+                  onClick={() => {
+                    setShowInspector(true);
+                    if (!selectedItem && formTemplates.length > 0) {
+                      setSelectedItem({ type: 'template', data: formTemplates[0] });
+                    }
+                  }}
+                >
+                  <div className="sd-concierge-action-icon"><Eye size={17} /></div>
+                  <div>
+                    <div className="sd-concierge-action-title">Inspect Approval Chains</div>
+                    <div className="sd-concierge-action-sub">Open the right-hand Inspector drawer to see live usage telemetry, fields, and approval stages.</div>
+                  </div>
+                  <ArrowRight size={14} className="sd-text-accent" />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Explorer Container */}
       <div className="sd-explorer-container sd-card">

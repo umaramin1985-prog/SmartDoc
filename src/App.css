@@ -21564,6 +21564,395 @@ a.sd-address-crumb:focus-visible {
   min-width: 240px;
 }
 
+/* ---------- Interactive Guided Form Copilot & Explorer Concierge ---------- */
+.sd-guided-copilot-card {
+  width: 820px;
+  max-width: 100%;
+  margin: 0 auto 16px;
+  border-radius: 14px;
+  background: var(--bg-card);
+  border: 1px solid color-mix(in srgb, var(--primary-500) 28%, var(--border-color));
+  box-shadow: 0 8px 24px -6px rgba(15, 23, 42, 0.08), 0 2px 6px -1px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.sd-copilot-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 14px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--primary-500) 10%, var(--bg-card)) 0%,
+    color-mix(in srgb, #6366f1 6%, var(--bg-card)) 100%
+  );
+  border-bottom: 1px solid color-mix(in srgb, var(--primary-500) 16%, var(--border-color));
+}
+
+.sd-copilot-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.sd-copilot-icon-orb {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--primary-500);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--primary-500) 35%, transparent);
+}
+
+.sd-copilot-title {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--text-main);
+  letter-spacing: -0.01em;
+}
+
+.sd-copilot-step-pill {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.sd-copilot-pct-pill {
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary-500) 12%, var(--bg-card));
+  color: var(--primary-500);
+}
+
+.sd-copilot-pct-pill.is-done {
+  background: color-mix(in srgb, #10b981 15%, var(--bg-card));
+  color: #10b981;
+}
+
+.sd-copilot-segments {
+  flex: 1;
+  min-width: 80px;
+  max-width: 280px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sd-copilot-seg {
+  flex: 1;
+  height: 7px;
+  border-radius: 999px;
+  border: none;
+  padding: 0;
+  background: color-mix(in srgb, var(--text-muted) 22%, transparent);
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.sd-copilot-seg.is-req {
+  background: color-mix(in srgb, #f59e0b 32%, transparent);
+}
+
+.sd-copilot-seg.is-done {
+  background: #10b981;
+}
+
+.sd-copilot-seg.is-current {
+  background: var(--primary-500);
+  height: 9px;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-500) 24%, transparent);
+}
+
+.sd-copilot-seg:hover {
+  transform: scaleY(1.3);
+}
+
+.sd-copilot-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.sd-copilot-stage {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+}
+
+.sd-copilot-stage-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sd-copilot-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.sd-copilot-sheet-tag {
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--primary-500) 12%, transparent);
+  color: var(--primary-500);
+}
+
+.sd-copilot-sheet-tag.is-subform {
+  background: color-mix(in srgb, #8b5cf6 14%, transparent);
+  color: #7c3aed;
+}
+
+.sd-copilot-sheet-tag.is-sig {
+  background: color-mix(in srgb, #0ea5e9 14%, transparent);
+  color: #0284c7;
+}
+
+.sd-copilot-sheet-tag.is-submit {
+  background: color-mix(in srgb, #10b981 14%, transparent);
+  color: #059669;
+}
+
+.sd-copilot-prompt {
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: var(--text-main);
+  line-height: 1.25;
+}
+
+.sd-copilot-hint {
+  font-size: 0.73rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.sd-copilot-input-row {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sd-copilot-input {
+  width: 100%;
+  max-width: 440px;
+  height: 34px;
+  font-size: 0.82rem;
+  border-radius: 8px;
+  border: 1.5px solid color-mix(in srgb, var(--primary-500) 40%, var(--border-color));
+  background: var(--bg-app);
+  padding: 0 11px;
+  color: var(--text-main);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.sd-copilot-input:focus {
+  outline: none;
+  border-color: var(--primary-500);
+  background: var(--bg-card);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-500) 16%, transparent);
+}
+
+.sd-copilot-date-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 440px;
+}
+
+.sd-copilot-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-main);
+  cursor: pointer;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-app);
+}
+
+.sd-copilot-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.sd-copilot-checklist {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.sd-copilot-check-pill {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #f59e0b 14%, transparent);
+  color: #d97706;
+  border: 1px solid color-mix(in srgb, #f59e0b 30%, transparent);
+}
+
+.sd-copilot-check-pill.ok {
+  background: color-mix(in srgb, #10b981 14%, transparent);
+  color: #059669;
+  border-color: color-mix(in srgb, #10b981 30%, transparent);
+}
+
+/* ---------- Explorer Interactive 3-Goal Concierge ---------- */
+.sd-explorer-concierge {
+  width: 100%;
+  margin: 0 0 10px;
+  flex-shrink: 0;
+}
+
+.sd-concierge-body {
+  padding: 10px 14px;
+}
+
+.sd-concierge-intro {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.sd-concierge-chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 8px;
+}
+
+.sd-concierge-tpl-btn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border-radius: 9px;
+  background: var(--bg-app);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.sd-concierge-tpl-btn:hover {
+  border-color: var(--primary-500);
+  background: color-mix(in srgb, var(--primary-500) 5%, var(--bg-card));
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.sd-concierge-tpl-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.sd-concierge-tpl-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sd-concierge-tpl-sub {
+  font-size: 0.66rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sd-concierge-tpl-cta {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--primary-500);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.sd-concierge-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sd-concierge-action-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 11px;
+  border-radius: 9px;
+  background: var(--bg-app);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.sd-concierge-action-card:hover {
+  border-color: var(--primary-500);
+  background: color-mix(in srgb, var(--primary-500) 5%, var(--bg-card));
+  transform: translateY(-1px);
+}
+
+.sd-concierge-action-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--primary-500) 12%, transparent);
+  color: var(--primary-500);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sd-concierge-action-title {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.sd-concierge-action-sub {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
 
 /* =====================================================================
    STEP 1–6 ENTERPRISE UI ENHANCEMENTS

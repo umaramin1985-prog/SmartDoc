@@ -35,7 +35,10 @@ import {
   Lock,
   Layers,
   Link2,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Compass,
+  ArrowRight,
+  Sparkles
 } from 'lucide-react';
 import { fieldColumnSpan } from './formLayout';
 
@@ -325,6 +328,115 @@ export const FillFormModal = ({
     return items;
   }, [mainFields, mainValues, template, taggedSubforms, subformsValues, isFieldFilled]);
 
+  // Interactive Guided Form Copilot state & step builder
+  const [showFormGuide, setShowFormGuide] = useState(() => {
+    try {
+      const saved = localStorage.getItem('smartdoc_show_form_guide');
+      return saved === null ? true : saved === 'true';
+    } catch {
+      return true;
+    }
+  });
+  const [wizardIdx, setWizardIdx] = useState(0);
+
+  const toggleFormGuide = useCallback(() => {
+    setShowFormGuide(prev => {
+      const next = !prev;
+      try { localStorage.setItem('smartdoc_show_form_guide', String(next)); } catch {}
+      return next;
+    });
+  }, []);
+
+  const wizardSteps = useMemo(() => {
+    const list = [];
+    // 1. Main form fields
+    mainFields.forEach((f, idx) => {
+      const val = mainValues[f.key];
+      const filled = isFieldFilled(f, val);
+      list.push({
+        id: `MAIN:${f.key}`,
+        type: 'field',
+        tabId: 'MAIN',
+        tabTitle: template?.title || 'Main Form',
+        fieldIndex: idx + 1,
+        totalTabFields: mainFields.length,
+        field: f,
+        key: f.key,
+        label: f.label || f.key,
+        required: !!f.required,
+        isDone: filled
+      });
+    });
+
+    // 2. Tagged subform fields
+    taggedSubforms.forEach((sf, sIdx) => {
+      const sfVals = subformsValues[sf.id] || {};
+      const sfFields = sf.fields || [];
+      sfFields.forEach((f, fIdx) => {
+        const val = sfVals[f.key];
+        const filled = isFieldFilled(f, val);
+        list.push({
+          id: `${sf.id}:${f.key}`,
+          type: 'field',
+          tabId: sf.id,
+          tabTitle: `Subform ${sIdx + 1}: ${sf.title}`,
+          fieldIndex: fIdx + 1,
+          totalTabFields: sfFields.length,
+          field: f,
+          key: f.key,
+          label: f.label || f.key,
+          required: !!f.required,
+          isDone: filled
+        });
+      });
+    });
+
+    // 3. Digital Signature & PKI Seal step
+    const sigReady = !!currentUser?.hasSignature;
+    list.push({
+      id: 'STEP:SIGNATURE',
+      type: 'signature',
+      label: 'Digital Signature & PKI Seal',
+      required: true,
+      isDone: sigReady
+    });
+
+    // 4. Final Review & Submit step
+    list.push({
+      id: 'STEP:SUBMIT',
+      type: 'submit',
+      label: 'Review Approval Route & Submit',
+      required: true,
+      isDone: allMissingItems.length === 0 && sigReady
+    });
+
+    return list;
+  }, [mainFields, mainValues, template?.title, taggedSubforms, subformsValues, isFieldFilled, currentUser?.hasSignature, allMissingItems.length]);
+
+  const safeWizardIdx = Math.min(wizardIdx, Math.max(0, wizardSteps.length - 1));
+  const currentWizardStep = wizardSteps[safeWizardIdx] || wizardSteps[0];
+
+  const wizardProgressPct = useMemo(() => {
+    if (!wizardSteps.length) return 100;
+    const doneSteps = wizardSteps.filter(s => s.isDone).length;
+    return Math.round((doneSteps / wizardSteps.length) * 100);
+  }, [wizardSteps]);
+
+  const nextGuideTarget = useMemo(() => {
+    const activeReq = fields.find(f => f.required && !isFieldFilled(f, values[f.key]));
+    if (activeReq) {
+      return { tabId: activeDocTabId, key: activeReq.key, label: activeReq.label || activeReq.key, required: true };
+    }
+    if (allMissingItems.length > 0) {
+      return { ...allMissingItems[0], required: true };
+    }
+    const activeOpt = fields.find(f => !isFieldFilled(f, values[f.key]));
+    if (activeOpt) {
+      return { tabId: activeDocTabId, key: activeOpt.key, label: activeOpt.label || activeOpt.key, required: false };
+    }
+    return null;
+  }, [fields, values, isFieldFilled, activeDocTabId, allMissingItems]);
+
   // Robust resolution for on-document form element (direct input wrap/box or in-text placeholder)
   const getDocFieldElement = useCallback((key) => {
     if (!key) return null;
@@ -559,6 +671,66 @@ export const FillFormModal = ({
       docElem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   };
+
+  const goToWizardStep = useCallback((idx) => {
+    const clamped = Math.max(0, Math.min(idx, wizardSteps.length - 1));
+    setWizardIdx(clamped);
+    const step = wizardSteps[clamped];
+    if (!step) return;
+
+    if (step.type === 'field') {
+      if (step.tabId && step.tabId !== activeDocTabId) {
+        setActiveDocTabId(step.tabId);
+        setTimeout(() => {
+          setActiveRailField(step.key);
+          const docElem = getDocFieldElement(step.key);
+          docElem?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          const { railCard } = getRailFieldElements(step.key);
+          railCard?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 120);
+      } else {
+        setActiveRailField(step.key);
+        const docElem = getDocFieldElement(step.key);
+        docElem?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const { railCard } = getRailFieldElements(step.key);
+        railCard?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    } else if (step.type === 'signature') {
+      const sigEl = sheetRef.current?.querySelector('.sd-doc-signature-block');
+      sigEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else if (step.type === 'submit') {
+      const routeEl = sheetRef.current?.querySelector('.sd-form-filler-workflow-chain');
+      routeEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [wizardSteps, activeDocTabId, getDocFieldElement, getRailFieldElements]);
+
+  const handleJumpToNextUnfilled = useCallback(() => {
+    const nextIdx = wizardSteps.findIndex((s, i) => i > safeWizardIdx && !s.isDone);
+    const fallbackIdx = wizardSteps.findIndex(s => !s.isDone);
+    const targetIdx = nextIdx !== -1 ? nextIdx : (fallbackIdx !== -1 ? fallbackIdx : wizardSteps.length - 1);
+    goToWizardStep(targetIdx);
+  }, [wizardSteps, safeWizardIdx, goToWizardStep]);
+
+  const getWizardFieldValue = useCallback((step) => {
+    if (!step || step.type !== 'field') return '';
+    if (step.tabId === 'MAIN') return mainValues[step.key] ?? '';
+    return subformsValues[step.tabId]?.[step.key] ?? '';
+  }, [mainValues, subformsValues]);
+
+  const setWizardFieldValue = useCallback((step, newVal) => {
+    if (!step || step.type !== 'field') return;
+    if (step.tabId === 'MAIN') {
+      setMainValues(prev => ({ ...prev, [step.key]: newVal }));
+    } else {
+      setSubformsValues(prev => ({
+        ...prev,
+        [step.tabId]: {
+          ...(prev[step.tabId] || {}),
+          [step.key]: newVal
+        }
+      }));
+    }
+  }, []);
 
   const handleOpenFieldDialog = (f) => {
     setActiveDialogField(f);
@@ -1733,6 +1905,17 @@ export const FillFormModal = ({
           ) : (
             <>
               <button
+                id="btn-toggle-form-guide"
+                type="button"
+                className={`btn btn-sm ${showFormGuide ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={toggleFormGuide}
+                title={showFormGuide ? 'Hide step-by-step form completion guide' : 'Show step-by-step form completion guide'}
+              >
+                <Compass size={14} />
+                <span>Guide Me</span>
+              </button>
+
+              <button
                 type="button"
                 className="btn btn-secondary btn-sm"
                 onClick={onClose}
@@ -1767,6 +1950,341 @@ export const FillFormModal = ({
         {/* Main Canvas Scroll Area */}
         <main className={`sd-form-filler-desk ${isViewOnly && !customRightRail ? 'is-view-only' : ''}`} ref={deskRef}>
         {topBanner && <div className="sd-print-hide" style={{ width: '820px', maxWidth: '100%', marginBottom: '16px' }}>{topBanner}</div>}
+
+        {/* Interactive Step-by-Step Guided Form Copilot */}
+        {!isViewOnly && showFormGuide && currentWizardStep && (
+          <div className="sd-guided-copilot-card sd-print-hide animate-fade-in">
+            {/* Top Progress & Segmented Step Track */}
+            <div className="sd-copilot-top">
+              <div className="sd-copilot-brand">
+                <span className="sd-copilot-icon-orb">
+                  <Sparkles size={14} />
+                </span>
+                <span className="sd-copilot-title">Guided Form Copilot</span>
+                <span className="sd-copilot-step-pill">
+                  Step {safeWizardIdx + 1} of {wizardSteps.length}
+                </span>
+                <span className={`sd-copilot-pct-pill ${wizardProgressPct === 100 ? 'is-complete' : ''}`}>
+                  {wizardProgressPct}% Complete
+                </span>
+              </div>
+
+              {/* Segmented Clickable Progress Dots */}
+              <div className="sd-copilot-segments" role="tablist" aria-label="Form completion steps">
+                {wizardSteps.map((st, idx) => {
+                  const isCurr = idx === safeWizardIdx;
+                  return (
+                    <button
+                      key={st.id}
+                      type="button"
+                      className={`sd-copilot-seg ${isCurr ? 'is-current' : ''} ${st.isDone ? 'is-done' : st.required ? 'is-req' : ''}`}
+                      onClick={() => goToWizardStep(idx)}
+                      title={`Step ${idx + 1}: ${st.label}${st.isDone ? ' (Completed)' : st.required ? ' (Required)' : ' (Optional)'}`}
+                    />
+                  );
+                })}
+              </div>
+
+              <div className="sd-copilot-top-actions">
+                {allMissingItems.length > 0 && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-xs"
+                    onClick={handleJumpToNextUnfilled}
+                    title="Jump to the next unfilled mandatory field"
+                  >
+                    <span>Next Required ({allMissingItems.length})</span>
+                    <ArrowRight size={11} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="sd-icon-btn sd-form-guide-close"
+                  onClick={toggleFormGuide}
+                  title="Hide Guided Copilot"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            </div>
+
+            {/* Active Step Stage */}
+            <div className="sd-copilot-stage">
+              {currentWizardStep.type === 'field' && (() => {
+                const f = currentWizardStep.field;
+                const val = getWizardFieldValue(currentWizardStep);
+                const opts = Array.isArray(f.options)
+                  ? f.options
+                  : (typeof f.options === 'string' ? f.options.split(',').map(s => s.trim()).filter(Boolean) : []);
+
+                return (
+                  <>
+                    <div className="sd-copilot-stage-main">
+                      <div className="sd-copilot-meta-row">
+                        <span className="sd-copilot-sheet-tag">
+                          {currentWizardStep.tabTitle} · Field {currentWizardStep.fieldIndex}/{currentWizardStep.totalTabFields}
+                        </span>
+                        {f.required ? (
+                          <span className="sd-badge sd-badge-red sd-badge-xs">* Required</span>
+                        ) : (
+                          <span className="sd-badge sd-badge-gray sd-badge-xs">Optional</span>
+                        )}
+                        {currentWizardStep.isDone && (
+                          <span className="sd-badge sd-badge-green sd-badge-xs">
+                            <Check size={10} /> Filled
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="sd-copilot-prompt">
+                        {f.label || f.key}
+                      </div>
+
+                      {(f.description || f.placeholder) && (
+                        <div className="sd-copilot-hint">
+                          <Info size={12} />
+                          <span>{f.description || f.placeholder}</span>
+                        </div>
+                      )}
+
+                      {/* Live Interactive Input inside the Guided Copilot */}
+                      <div className="sd-copilot-input-row">
+                        {f.type === 'select' || f.type === 'dropdown' ? (
+                          <select
+                            className="sd-input sd-copilot-input"
+                            value={val}
+                            onChange={(e) => {
+                              setWizardFieldValue(currentWizardStep, e.target.value);
+                              if (e.target.value && safeWizardIdx < wizardSteps.length - 1) {
+                                setTimeout(() => goToWizardStep(safeWizardIdx + 1), 180);
+                              }
+                            }}
+                          >
+                            <option value="">-- Select {f.label || f.key} --</option>
+                            {opts.map((opt, i) => (
+                              <option key={i} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        ) : f.type === 'checkbox' ? (
+                          <label className="sd-copilot-checkbox">
+                            <input
+                              type="checkbox"
+                              checked={isCheckboxChecked(val)}
+                              onChange={(e) => {
+                                setWizardFieldValue(currentWizardStep, e.target.checked ? 'Yes' : '');
+                              }}
+                            />
+                            <span>{f.placeholder || f.label || 'Yes, I confirm and agree'}</span>
+                          </label>
+                        ) : f.type === 'date' ? (
+                          <div className="sd-copilot-date-row">
+                            <input
+                              type="date"
+                              className="sd-input sd-copilot-input"
+                              value={val}
+                              onChange={(e) => setWizardFieldValue(currentWizardStep, e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  goToWizardStep(safeWizardIdx + 1);
+                                }
+                              }}
+                            />
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-xs"
+                              onClick={() => setWizardFieldValue(currentWizardStep, new Date().toISOString().slice(0, 10))}
+                            >
+                              Today
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-xs"
+                              onClick={() => setWizardFieldValue(currentWizardStep, addDays(7))}
+                            >
+                              +7d
+                            </button>
+                          </div>
+                        ) : f.type === 'textarea' ? (
+                          <textarea
+                            rows={2}
+                            className="sd-input sd-copilot-input"
+                            placeholder={f.placeholder || `Type ${f.label || f.key} here…`}
+                            value={val}
+                            onChange={(e) => setWizardFieldValue(currentWizardStep, e.target.value)}
+                          />
+                        ) : (
+                          <input
+                            type={f.type === 'number' ? 'number' : 'text'}
+                            step={f.type === 'number' ? 'any' : undefined}
+                            className="sd-input sd-copilot-input"
+                            placeholder={f.placeholder || `Type ${f.label || f.key} and press Enter…`}
+                            value={val}
+                            onChange={(e) => setWizardFieldValue(currentWizardStep, e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                goToWizardStep(safeWizardIdx + 1);
+                              }
+                            }}
+                          />
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="sd-copilot-nav">
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        disabled={safeWizardIdx === 0}
+                        onClick={() => goToWizardStep(safeWizardIdx - 1)}
+                      >
+                        <ArrowLeft size={13} /> Prev
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        onClick={() => goToWizardStep(safeWizardIdx + 1)}
+                      >
+                        <span>{safeWizardIdx + 1 < wizardSteps.length ? 'Next Step' : 'Finish'}</span>
+                        <ArrowRight size={13} />
+                      </button>
+                    </div>
+                  </>
+                );
+              })()}
+
+              {currentWizardStep.type === 'signature' && (
+                <>
+                  <div className="sd-copilot-stage-main">
+                    <div className="sd-copilot-meta-row">
+                      <span className="sd-copilot-sheet-tag">Cryptographic Authentication</span>
+                      <span className={`sd-badge ${hasSignature ? 'sd-badge-green' : 'sd-badge-amber'} sd-badge-xs`}>
+                        {hasSignature ? '✓ PKI Signature Ready' : '* Signature Required'}
+                      </span>
+                    </div>
+                    <div className="sd-copilot-prompt">
+                      Attach Your Digital Signature &amp; PKI Seal
+                    </div>
+                    <div className="sd-copilot-hint">
+                      <ShieldCheck size={13} />
+                      <span>
+                        {hasSignature
+                          ? `Signed as ${currentUser?.name} (${currentUser?.department}) with RSA-2048 non-repudiation.`
+                          : 'Draw or upload your signature once — it will automatically appear in the signature block below.'}
+                      </span>
+                    </div>
+                    <div className="sd-btn-row" style={{ marginTop: 6 }}>
+                      <button
+                        type="button"
+                        className={`btn btn-xs ${hasSignature ? 'btn-secondary' : 'btn-primary'}`}
+                        onClick={openSignatureModal}
+                      >
+                        <PenLine size={12} />
+                        <span>{hasSignature ? 'Change / Redraw Signature' : 'Draw & Save Signature Now'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="sd-copilot-nav">
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => goToWizardStep(safeWizardIdx - 1)}
+                    >
+                      <ArrowLeft size={13} /> Prev
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => goToWizardStep(safeWizardIdx + 1)}
+                    >
+                      <span>Review &amp; Submit</span>
+                      <ArrowRight size={13} />
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {currentWizardStep.type === 'submit' && (
+                <>
+                  <div className="sd-copilot-stage-main">
+                    <div className="sd-copilot-meta-row">
+                      <span className="sd-copilot-sheet-tag">Final Step · Package Readiness</span>
+                      {allMissingItems.length === 0 && hasSignature ? (
+                        <span className="sd-badge sd-badge-green sd-badge-xs">✓ Ready to Submit</span>
+                      ) : (
+                        <span className="sd-badge sd-badge-amber sd-badge-xs">
+                          {allMissingItems.length} Required Field{allMissingItems.length === 1 ? '' : 's'} Remaining
+                        </span>
+                      )}
+                    </div>
+                    <div className="sd-copilot-prompt">
+                      {allMissingItems.length === 0 && hasSignature
+                        ? `Everything is complete! Ready to route "${template.title}" for approval.`
+                        : 'Almost there — complete the remaining items below before submitting:'}
+                    </div>
+                    <div className="sd-copilot-checklist">
+                      <span className={`sd-copilot-check-pill ${allMissingItems.length === 0 ? 'is-ok' : 'is-warn'}`}>
+                        {allMissingItems.length === 0 ? <Check size={12} /> : <AlertTriangle size={12} />}
+                        {allMissingItems.length === 0
+                          ? `All mandatory fields filled (${completedCount}/${fields.length})`
+                          : `${allMissingItems.length} mandatory field(s) missing`}
+                      </span>
+                      <span className={`sd-copilot-check-pill ${hasSignature ? 'is-ok' : 'is-warn'}`}>
+                        {hasSignature ? <Check size={12} /> : <AlertTriangle size={12} />}
+                        {hasSignature ? 'PKI Signature Sealed' : 'Signature missing'}
+                      </span>
+                      <span className="sd-copilot-check-pill is-ok">
+                        <Calendar size={12} />
+                        Deadline: {formatDate(expiryDate)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="sd-copilot-nav">
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => goToWizardStep(safeWizardIdx - 1)}
+                    >
+                      <ArrowLeft size={13} /> Prev
+                    </button>
+                    {allMissingItems.length > 0 ? (
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        onClick={handleJumpToNextUnfilled}
+                      >
+                        <span>Fix Missing Field</span>
+                        <ArrowRight size={13} />
+                      </button>
+                    ) : !hasSignature ? (
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        onClick={openSignatureModal}
+                      >
+                        <PenLine size={13} />
+                        <span>Add Signature</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        disabled={saving || !hasWorkflow}
+                        onClick={handleSubmit}
+                      >
+                        <Send size={13} />
+                        <span>{saving ? 'Submitting…' : isResubmit ? 'Resubmit Now' : 'Sign & Submit Now'}</span>
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
         {/* Objection Notification Banner */}
         {isResubmit && submission?.objectionNotes && (
           <div className="sd-form-filler-objection-banner">
