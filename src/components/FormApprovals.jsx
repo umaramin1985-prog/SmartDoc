@@ -21,18 +21,15 @@ const STATUS_OPTIONS = [
   { id: 'REJECTED', label: 'Rejected', tone: 'red' }
 ];
 
-const SubmissionTable = ({ rows, onOpen, onPreviewDoc, showSubmitter = true, showDept = true, currentUserId }) => (
+const SubmissionTable = ({ rows, onOpen, onPreviewDoc, currentUserId }) => (
   <div className="sd-table-wrap sd-card">
     <table className="sd-table sd-table-click">
       <thead>
         <tr>
-          <th>Form #</th>
-          <th>Title</th>
-          {showDept && <th>Department</th>}
-          {showSubmitter && <th>Submitted by</th>}
+          <th>Document</th>
+          <th>Submitted By</th>
           <th>Approval Pipeline</th>
-          <th>Deadline &amp; SLA</th>
-          <th>Status</th>
+          <th>Status &amp; SLA</th>
           <th style={{ textAlign: 'right' }}>Action</th>
         </tr>
       </thead>
@@ -51,14 +48,12 @@ const SubmissionTable = ({ rows, onOpen, onPreviewDoc, showSubmitter = true, sho
               className={hasObjection ? 'sd-tr-highlight-warn' : ''}
             >
               <td>
-                <div className="sd-flex-col">
-                  <span className="sd-mono sd-font-medium">{s.uniqueNumber}</span>
-                  <span className="sd-muted sd-xs">v{s.version}</span>
-                </div>
-              </td>
-              <td>
                 <div className="sd-table-title-cell">
-                  <strong>{s.title}</strong>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <strong>{s.title}</strong>
+                    <span className="sd-badge sd-badge-gray sd-badge-xs sd-mono">{s.uniqueNumber}</span>
+                    <span className="sd-muted sd-xs">v{s.version || 1}</span>
+                  </div>
                   {hasObjection && (
                     <span className="sd-badge sd-badge-amber sd-badge-xs sd-mt-xs">
                       <AlertTriangle size={10} /> Action required: Changes requested
@@ -66,18 +61,17 @@ const SubmissionTable = ({ rows, onOpen, onPreviewDoc, showSubmitter = true, sho
                   )}
                 </div>
               </td>
-              {showDept && (
-                <td>
-                  <span className="sd-badge sd-badge-gray sd-badge-sm">{s.department}</span>
-                </td>
-              )}
-              {showSubmitter && (
-                <td>
-                  <span className={isOriginator ? 'sd-font-medium sd-text-accent' : ''}>
-                    {s.submittedByName} {isOriginator && '(You)'}
-                  </span>
-                </td>
-              )}
+              <td>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <UserAvatar name={s.submittedByName} size="xs" />
+                  <div>
+                    <div className={isOriginator ? 'sd-font-medium sd-text-accent' : 'sd-font-medium'} style={{ fontSize: '0.82rem' }}>
+                      {s.submittedByName} {isOriginator && '(You)'}
+                    </div>
+                    <div className="sd-muted sd-xs">{s.department}</div>
+                  </div>
+                </div>
+              </td>
               <td>
                 <WorkflowMiniProgress
                   workflow={s.workflow}
@@ -86,12 +80,11 @@ const SubmissionTable = ({ rows, onOpen, onPreviewDoc, showSubmitter = true, sho
                 />
               </td>
               <td>
-                <div className="sd-deadline-cell">
-                  <span>{formatDate(s.expiryDate)}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <StatusBadge status={s.status} />
                   <SlaBadge createdAt={s.createdAt} expiryDate={s.expiryDate} status={s.status} />
                 </div>
               </td>
-              <td><StatusBadge status={s.status} /></td>
               <td style={{ textAlign: 'right' }} onClick={e => e.stopPropagation()}>
                 <div className="sd-btn-row sd-justify-end">
                   {onPreviewDoc && (
@@ -138,8 +131,7 @@ const SubmissionPipelineCards = ({ rows, onOpen, onPreviewDoc, currentUserId }) 
           <div className="sd-pipeline-card-top">
             <div className="sd-pipeline-card-id">
               <span className="sd-mono sd-font-medium">{s.uniqueNumber}</span>
-              <span className="sd-badge sd-badge-gray sd-badge-xs">v{s.version || 1}</span>
-              <span className="sd-badge sd-badge-gray sd-badge-xs">{s.department}</span>
+              <span className="sd-muted sd-xs">· {s.department} · v{s.version || 1}</span>
             </div>
             <div className="sd-pipeline-card-status">
               <SlaBadge createdAt={s.createdAt} expiryDate={s.expiryDate} status={s.status} />
@@ -175,11 +167,11 @@ const SubmissionPipelineCards = ({ rows, onOpen, onPreviewDoc, currentUserId }) 
               {onPreviewDoc && (
                 <button
                   type="button"
-                  className="btn btn-secondary btn-xs"
+                  className="sd-icon-btn"
                   onClick={() => onPreviewDoc(s)}
                   title="Preview document"
                 >
-                  <FileText size={12} /> Doc
+                  <FileText size={14} />
                 </button>
               )}
               <a
@@ -234,10 +226,10 @@ export const FormApprovals = () => {
   );
 
   const tabs = [
-    ...(isAdmin ? [{ id: 'queue', label: 'Awaiting my decision', icon: Inbox, count: myApprovalQueue.length }] : []),
-    { id: 'mine', label: 'My submissions', icon: Send, count: mySubmissions.length },
-    { id: 'dept', label: `${currentUser?.department || 'Department'} documents`, icon: Building2, count: deptForms.length },
-    { id: 'all', label: 'All submitted forms', icon: FileText, count: formSubmissions.length }
+    ...(isAdmin ? [{ id: 'queue', label: 'Needs My Decision', icon: Inbox, count: myApprovalQueue.length }] : []),
+    { id: 'mine', label: 'My Submissions', icon: Send, count: mySubmissions.length },
+    { id: 'dept', label: `${currentUser?.department || 'Department'}`, icon: Building2, count: deptForms.length },
+    { id: 'all', label: 'All Forms', icon: FileText, count: formSubmissions.length }
   ];
 
   const baseRows = useMemo(() => {
@@ -271,8 +263,6 @@ export const FormApprovals = () => {
     return list;
   }, [baseRows, statusFilter, search]);
 
-  // For Kanban Board mode: on "queue" tab, show items awaiting user's decision in "In Review"
-  // plus submissions where the user already recorded a decision in the other 3 columns.
   const boardFilteredRows = useMemo(() => {
     let list = baseRows;
     if (tab === 'queue' && currentUser?.id) {
@@ -310,62 +300,32 @@ export const FormApprovals = () => {
     <div className={`sd-page animate-fade-in sd-approvals-page ${viewMode === 'board' ? 'is-board-mode' : ''}`}>
       <PageHeader
         title="Submissions &amp; Approvals"
-        subtitle={isAdmin
-          ? 'Review forms awaiting your department approval, track submissions, and follow submitted documents across the enterprise.'
-          : 'Track all your submitted forms, view department documents, and address any requested changes.'}
+        subtitle="Review pending approvals, track submissions, and inspect workflow stages."
       />
 
-      {/* Tabs */}
-      <div className="sd-tabs" role="tablist">
-        {tabs.map(({ id, label, icon: Icon, count }) => (
-          <button
-            key={id}
-            role="tab"
-            id={`tab-${id}`}
-            aria-selected={tab === id}
-            className={`sd-tab ${tab === id ? 'active' : ''}`}
-            onClick={() => { setTab(id); setStatusFilter('ALL'); }}
-          >
-            <Icon size={15} /> {label} <span className="sd-tab-count">{count}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Approvals Toolbar: Status Filter Chips (Table/Cards only) + Search + View Mode Switcher */}
-      <div className="sd-approvals-toolbar">
-        {viewMode !== 'board' ? (
-          <div className="sd-status-chips-wrap" role="group" aria-label="Filter by submission status">
-            {STATUS_OPTIONS.map(opt => {
-              const count = statusCounts[opt.id] || 0;
-              const isActive = statusFilter === opt.id;
-              return (
-                <button
-                  key={opt.id}
-                  type="button"
-                  className={`sd-status-chip ${isActive ? 'active' : ''}`}
-                  onClick={() => setStatusFilter(opt.id)}
-                >
-                  {opt.tone && <span className={`sd-status-chip-dot ${opt.tone}`} />}
-                  <span>{opt.label}</span>
-                  <span className="sd-status-chip-count">{count}</span>
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          <span className="sd-kb-toolbar-hint">
-            {isAdmin
-              ? 'Click any card to open the form sheet, or drag actionable cards across columns to decide.'
-              : 'Click any card to view the submitted form sheet and approval status.'}
-          </span>
-        )}
+      {/* Unified Command Bar: Tabs + Search + View Mode Switcher */}
+      <div className="sd-approvals-command-bar">
+        <div className="sd-tabs sd-tabs-inline" role="tablist">
+          {tabs.map(({ id, label, icon: Icon, count }) => (
+            <button
+              key={id}
+              role="tab"
+              id={`tab-${id}`}
+              aria-selected={tab === id}
+              className={`sd-tab ${tab === id ? 'active' : ''}`}
+              onClick={() => { setTab(id); setStatusFilter('ALL'); }}
+            >
+              <Icon size={15} /> {label} <span className="sd-tab-count">{count}</span>
+            </button>
+          ))}
+        </div>
 
         <div className="sd-approvals-right-controls">
           <div className="sd-approvals-search">
             <Search size={14} className="sd-text-muted" />
             <input
               type="text"
-              placeholder="Search by form #, title, user…"
+              placeholder="Search form #, title, submitter…"
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
@@ -409,6 +369,30 @@ export const FormApprovals = () => {
           </div>
         </div>
       </div>
+
+      {/* Status Filter Chips (Table & Cards views only) */}
+      {viewMode !== 'board' && (
+        <div className="sd-approvals-toolbar">
+          <div className="sd-status-chips-wrap" role="group" aria-label="Filter by submission status">
+            {STATUS_OPTIONS.map(opt => {
+              const count = statusCounts[opt.id] || 0;
+              const isActive = statusFilter === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className={`sd-status-chip ${isActive ? 'active' : ''}`}
+                  onClick={() => setStatusFilter(opt.id)}
+                >
+                  {opt.tone && <span className={`sd-status-chip-dot ${opt.tone}`} />}
+                  <span>{opt.label}</span>
+                  <span className="sd-status-chip-count">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {viewMode === 'board' ? (
         search && boardFilteredRows.length === 0 ? (
@@ -475,8 +459,6 @@ export const FormApprovals = () => {
           rows={filteredRows}
           onOpen={id => setOpenId(id)}
           onPreviewDoc={handleQuickPreview}
-          showSubmitter={tab !== 'mine'}
-          showDept={tab === 'all'}
           currentUserId={currentUser?.id}
         />
       )}

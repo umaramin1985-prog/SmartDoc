@@ -10,7 +10,7 @@ import { buildAppUrl, tabLinkProps } from '../utils/router';
 import { useDeepLink } from '../utils/useDeepLink';
 import {
   Inbox, Send, ClipboardCheck, PencilLine, GitCompareArrows, Rocket, Ban, Check, Clock,
-  FileText, X, Layers
+  FileText, X, Layers, Search, ArrowRight
 } from 'lucide-react';
 
 const PHASE_META = {
@@ -61,6 +61,8 @@ export const ReviewsHub = () => {
     templateReviews, startReview, refreshReviews, cancelReview, addToast
   } = useApp();
   const [tab, setTab] = useState('assigned');
+  const [search, setSearch] = useState('');
+  const [templateSearch, setTemplateSearch] = useState('');
   const [busyId, setBusyId] = useState(null);
 
   // Open overlays: a reviewer editing, the initiator deciding, or the initiator publishing
@@ -76,6 +78,14 @@ export const ReviewsHub = () => {
     return (formTemplates || []).filter(t => t.isEditable !== false && canManageDepartment(t.department));
   }, [formTemplates, canManageDepartment]);
 
+  const filteredManageableTemplates = useMemo(() => {
+    const q = templateSearch.trim().toLowerCase();
+    if (!q) return manageableTemplates;
+    return manageableTemplates.filter(t =>
+      [t.title, t.department, t.code].some(v => String(v || '').toLowerCase().includes(q))
+    );
+  }, [manageableTemplates, templateSearch]);
+
   const assigned = useMemo(
     () => templateReviews.filter(r => r.initiatorId !== currentUser.id),
     [templateReviews, currentUser.id]
@@ -90,10 +100,21 @@ export const ReviewsHub = () => {
   const startedReady = started.filter(r => r.phase === 'AWAITING_DECISION' || r.phase === 'DECIDED').length;
 
   const tabs = [
-    { id: 'assigned', label: 'Assigned to me', icon: Inbox, count: assigned.length, alert: assignedOpen },
-    { id: 'started', label: 'Started by me', icon: Send, count: started.length, alert: startedReady }
+    { id: 'assigned', label: 'Assigned to Me', icon: Inbox, count: assigned.length, alert: assignedOpen },
+    { id: 'started', label: 'Started by Me', icon: Send, count: started.length, alert: startedReady }
   ];
-  const rows = tab === 'assigned' ? assigned : started;
+
+  const baseRows = tab === 'assigned' ? assigned : started;
+
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return baseRows;
+    return baseRows.filter(r =>
+      [r.title, r.department, r.initiatorName, ...(r.reviewers || []).map(v => v.name)].some(v =>
+        String(v || '').toLowerCase().includes(q)
+      )
+    );
+  }, [baseRows, search]);
 
   const load = async (r) => {
     setBusyId(r.id);
@@ -172,8 +193,6 @@ export const ReviewsHub = () => {
     refreshReviews().catch(() => {});
   };
 
-  // Deep link: /reviews?review=<id>[&action=review|decide|publish]
-  // Without an explicit action, the next step for the current user is chosen from the review's phase.
   useDeepLink(({ review, action }, { timedOut }) => {
     if (!review) return true;
     const r = templateReviews.find(x => String(x.id) === String(review));
@@ -206,12 +225,12 @@ export const ReviewsHub = () => {
       if (r.status === 'IN_REVIEW' && mine?.status === 'PENDING') {
         return (
           <a id={`btn-review-${r.id}`} className="btn btn-primary btn-sm" aria-disabled={busy || undefined} {...tabLinkProps(reviewUrl(r, 'review'), () => { if (!busy) openAsReviewer(r); })}>
-            <PencilLine size={14} /> {busy ? 'Opening…' : 'Review document'}
+            <PencilLine size={14} /> {busy ? 'Opening…' : 'Review Document'}
           </a>
         );
       }
       if (mine?.status === 'SUBMITTED') {
-        return <span className="sd-muted sd-rvl-note"><Check size={13} /> You submitted {mine.hasChanges ? 'with changes' : 'with no changes'}</span>;
+        return <span className="sd-muted sd-rvl-note"><Check size={13} /> Submitted {mine.hasChanges ? 'with edits' : 'as-is'}</span>;
       }
       return <span className="sd-muted sd-rvl-note">Closed</span>;
     }
@@ -219,21 +238,21 @@ export const ReviewsHub = () => {
     if (r.phase === 'AWAITING_DECISION') {
       return (
         <a id={`btn-decide-${r.id}`} className="btn btn-primary btn-sm" aria-disabled={busy || undefined} {...tabLinkProps(reviewUrl(r, 'decide'), () => { if (!busy) openDecisions(r); })}>
-          <GitCompareArrows size={14} /> {busy ? 'Opening…' : 'Review changes'}
+          <GitCompareArrows size={14} /> {busy ? 'Opening…' : 'Review Changes'}
         </a>
       );
     }
     if (r.status === 'DECIDED') {
       return (
         <a id={`btn-publish-${r.id}`} className="btn btn-primary btn-sm" aria-disabled={busy || undefined} {...tabLinkProps(reviewUrl(r, 'publish'), () => { if (!busy) openPublish(r); })}>
-          <Rocket size={14} /> {busy ? 'Opening…' : 'Continue to publish'}
+          <Rocket size={14} /> {busy ? 'Opening…' : 'Continue to Publish'}
         </a>
       );
     }
     if (r.status === 'IN_REVIEW') {
       return (
         <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleCancel(r)} disabled={busy}>
-          <Ban size={14} /> Cancel review
+          <Ban size={14} /> Cancel
         </button>
       );
     }
@@ -243,59 +262,103 @@ export const ReviewsHub = () => {
   return (
     <div className="sd-page animate-fade-in">
       <PageHeader
-        title="Reviews"
-        subtitle="Forms sent to you for review, and the drafts you sent out. Reviewers edit their own copy; you accept or reject every change before publishing."
+        title="Peer Reviews"
+        subtitle="Collaborate on draft templates and reconcile redline edits before publishing."
         actions={
           isAdmin && (
             <button
               id="btn-reviews-send-for-review"
-              className="btn btn-primary"
-              onClick={() => setShowTemplateSelect(true)}
+              className="btn btn-primary btn-sm"
+              onClick={() => {
+                setTemplateSearch('');
+                setShowTemplateSelect(true);
+              }}
               title="Send a form template for review"
             >
-              <Send size={15} /> Send for review
+              <Send size={14} /> Send for Review
             </button>
           )
         }
       />
 
-      <div className="sd-tabs" role="tablist">
-        {tabs.map(({ id, label, icon: Icon, count, alert }) => (
-          <button
-            key={id}
-            role="tab"
-            id={`tab-reviews-${id}`}
-            aria-selected={tab === id}
-            className={`sd-tab ${tab === id ? 'active' : ''}`}
-            onClick={() => setTab(id)}
-          >
-            <Icon size={15} /> {label} <span className="sd-tab-count">{count}</span>
-            {alert > 0 && <span className="sd-nav-dot" title="Needs your attention" />}
-          </button>
-        ))}
+      {/* Unified Command Bar: Tabs + Search */}
+      <div className="sd-approvals-command-bar">
+        <div className="sd-tabs sd-tabs-inline" role="tablist">
+          {tabs.map(({ id, label, icon: Icon, count, alert }) => (
+            <button
+              key={id}
+              role="tab"
+              id={`tab-reviews-${id}`}
+              aria-selected={tab === id}
+              className={`sd-tab ${tab === id ? 'active' : ''}`}
+              onClick={() => setTab(id)}
+            >
+              <Icon size={15} /> {label} <span className="sd-tab-count">{count}</span>
+              {alert > 0 && <span className="sd-nav-dot" title="Needs your attention" />}
+            </button>
+          ))}
+        </div>
+
+        <div className="sd-approvals-right-controls">
+          <div className="sd-approvals-search">
+            <Search size={14} className="sd-text-muted" />
+            <input
+              type="text"
+              placeholder="Search template, initiator, reviewer…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+            {search && (
+              <button
+                type="button"
+                className="sd-approvals-search-clear"
+                onClick={() => setSearch('')}
+                title="Clear search"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {rows.length === 0 ? (
         <EmptyState
           icon={tab === 'assigned' ? ClipboardCheck : Send}
-          title={tab === 'assigned' ? 'Nothing to review' : 'You have not sent any forms for review'}
-          text={tab === 'assigned'
-            ? 'When a colleague sends you a draft form, it will appear here.'
-            : 'Send a form template for review using the “Send for review” button above or from Forms & Documents Explorer.'}
+          title={
+            search
+              ? 'No matching reviews found'
+              : tab === 'assigned'
+              ? 'Nothing to review'
+              : 'You have not sent any forms for review'
+          }
+          text={
+            search
+              ? 'Try clearing your search filter.'
+              : tab === 'assigned'
+              ? 'When a colleague sends you a draft form, it will appear here.'
+              : 'Send a form template for review using the “Send for Review” button above.'
+          }
         />
       ) : (
         <div className="sd-rvl-list">
           {rows.map(r => {
             const submitted = r.reviewers.filter(v => v.status === 'SUBMITTED').length;
+            const pct = r.reviewers.length > 0 ? Math.round((submitted / r.reviewers.length) * 100) : 0;
+
             return (
               <article key={r.id} id={`review-row-${r.id}`} className="sd-card sd-rvl-card">
+                <div className="sd-rvl-doc-icon">
+                  <FileText size={20} />
+                </div>
+
                 <div className="sd-rvl-main">
                   <div className="sd-rvl-title-row">
                     <h3>{r.title}</h3>
                     <PhaseBadge phase={r.phase} />
                     {Array.isArray(r.subforms) && r.subforms.length > 0 && (
                       <span
-                        className="sd-badge sd-badge-purple"
+                        className="sd-badge sd-badge-purple sd-badge-xs"
                         title={`Includes ${r.subforms.length} tagged subform${r.subforms.length === 1 ? '' : 's'}: ${(r.subformSummaries || []).map(s => s.title).join(', ')}`}
                         style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                       >
@@ -303,25 +366,28 @@ export const ReviewsHub = () => {
                       </span>
                     )}
                   </div>
+
                   <p className="sd-muted sd-rvl-sub">
-                    {tab === 'assigned' ? `From ${r.initiatorName}` : `${r.reviewers.length} reviewer${r.reviewers.length === 1 ? '' : 's'}`}
-                    {' · '}{r.department}{' · '}started {formatDate(r.createdAt, true)}
+                    {tab === 'assigned' ? `From ${r.initiatorName}` : `Initiated by you`}
+                    {' · '}{r.department}{' · '}{formatDate(r.createdAt, true)}
+                    {r.message && tab === 'assigned' && (
+                      <span className="sd-rvl-inline-note"> — “{r.message}”</span>
+                    )}
                   </p>
-                  {r.message && tab === 'assigned' && <p className="sd-rvl-message">“{r.message}”</p>}
+
                   <ReviewerChips reviewers={r.reviewers} />
                 </div>
+
                 <div className="sd-rvl-side">
                   <div className="sd-rvl-progress-box">
                     <div className="sd-rvl-progress-head">
-                      <span className="sd-muted sd-rvl-progress">{submitted} / {r.reviewers.length} submitted</span>
-                      <span className="sd-rvl-pct">
-                        {r.reviewers.length > 0 ? Math.round((submitted / r.reviewers.length) * 100) : 0}%
-                      </span>
+                      <span className="sd-muted sd-rvl-progress">{submitted}/{r.reviewers.length} reviewed</span>
+                      <span className="sd-rvl-pct">{pct}%</span>
                     </div>
                     <div className="sd-rvl-progress-track">
                       <div
                         className="sd-rvl-progress-fill"
-                        style={{ width: `${r.reviewers.length > 0 ? Math.round((submitted / r.reviewers.length) * 100) : 0}%` }}
+                        style={{ width: `${pct}%` }}
                       />
                     </div>
                   </div>
@@ -355,8 +421,8 @@ export const ReviewsHub = () => {
       {showTemplateSelect && (
         <Modal
           id="modal-select-template-review"
-          title="Select a Form Template to Review"
-          subtitle="Choose which published template you want to send out to colleagues for review."
+          title="Select a Template to Review"
+          subtitle="Choose which published template you want to send out for peer review."
           onClose={() => setShowTemplateSelect(false)}
           size="md"
         >
@@ -365,31 +431,59 @@ export const ReviewsHub = () => {
               <p className="sd-muted">No editable templates found in your department. Create or upload a template in Forms &amp; Documents Explorer first.</p>
             </div>
           ) : (
-            <div className="sd-folder-picker-list" style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '360px', overflowY: 'auto' }}>
-              {manageableTemplates.map(t => (
-                <div
-                  key={t.id}
-                  className="sd-card"
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', cursor: 'pointer', transition: 'all 0.15s ease' }}
-                  onClick={() => {
-                    setShowTemplateSelect(false);
-                    setSendReviewTarget(t);
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div className="sd-template-icon sd-icon-word" style={{ width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <FileText size={18} />
-                    </div>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{t.title}</div>
-                      <div className="sd-muted" style={{ fontSize: '0.8rem' }}>{t.department} · {t.code} · v{t.version || 1}</div>
-                    </div>
-                  </div>
-                  <button type="button" className="btn btn-secondary btn-xs">
-                    Select
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div className="sdm-launchpad-search" style={{ marginBottom: 2 }}>
+                <Search size={14} className="sdm-search-icon" />
+                <input
+                  type="text"
+                  placeholder="Search templates by title, department, or code…"
+                  value={templateSearch}
+                  onChange={e => setTemplateSearch(e.target.value)}
+                  autoFocus
+                />
+                {templateSearch && (
+                  <button type="button" className="sdm-search-clear" onClick={() => setTemplateSearch('')}>
+                    <X size={12} />
                   </button>
-                </div>
-              ))}
+                )}
+              </div>
+
+              <div className="sdm-launchpad-list" style={{ maxHeight: '340px' }}>
+                {filteredManageableTemplates.length === 0 ? (
+                  <p className="sd-muted sd-small" style={{ textAlign: 'center', padding: '18px 0' }}>
+                    No templates match &ldquo;{templateSearch}&rdquo;.
+                  </p>
+                ) : (
+                  filteredManageableTemplates.map(t => (
+                    <div
+                      key={t.id}
+                      className="sdm-launch-card"
+                      onClick={() => {
+                        setShowTemplateSelect(false);
+                        setSendReviewTarget(t);
+                      }}
+                    >
+                      <div className="sdm-launch-card-icon">
+                        <FileText size={17} />
+                      </div>
+                      <div className="sdm-launch-card-body">
+                        <div className="sdm-launch-card-title sd-truncate">{t.title}</div>
+                        <div className="sdm-launch-card-sub">
+                          <span className="sdm-launch-dept">{t.department}</span>
+                          <span>•</span>
+                          <span>v{t.version || 1}</span>
+                          <span>•</span>
+                          <span className="sd-mono">{t.code}</span>
+                        </div>
+                      </div>
+                      <button type="button" className="btn btn-primary btn-xs">
+                        <span>Select</span>
+                        <ArrowRight size={12} />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           )}
         </Modal>
@@ -398,6 +492,10 @@ export const ReviewsHub = () => {
       {sendReviewTarget && (
         <SendForReviewModal
           title={sendReviewTarget.title}
+          onBack={() => {
+            setSendReviewTarget(null);
+            setShowTemplateSelect(true);
+          }}
           onClose={() => setSendReviewTarget(null)}
           onSend={handleSendForReview}
         />

@@ -278,50 +278,33 @@ export const SmartSettingsAdmin = () => {
         }
       />
 
-      <div className="sd-tabs" role="tablist">
-        <button role="tab" className={`sd-tab ${tab === 'users' ? 'active' : ''}`} onClick={() => setTab('users')}>
-          <Users size={15} /> Users <span className="sd-tab-count">{users.length}</span>
-        </button>
-        <button role="tab" className={`sd-tab ${tab === 'departments' ? 'active' : ''}`} onClick={() => setTab('departments')}>
-          <Building2 size={15} /> Departments <span className="sd-tab-count">{departments.length}</span>
-        </button>
-        <button role="tab" className={`sd-tab ${tab === 'system' ? 'active' : ''}`} onClick={() => setTab('system')}>
-          <ShieldAlert size={15} /> System Reset
-        </button>
-      </div>
-
-      {tab !== 'system' && (
-        <div className="sd-admin-kpi-strip">
-          <div className="sd-card sd-admin-kpi-card">
-            <div className="sd-admin-kpi-icon sd-tone-blue"><Users size={17} /></div>
-            <div>
-              <div className="sd-admin-kpi-val">{adminStats.activeCount} <span className="sd-muted sd-xs">/ {users.length}</span></div>
-              <div className="sd-admin-kpi-lbl">Active Directory Users</div>
-            </div>
-          </div>
-          <div className="sd-card sd-admin-kpi-card">
-            <div className="sd-admin-kpi-icon sd-tone-violet"><ShieldCheck size={17} /></div>
-            <div>
-              <div className="sd-admin-kpi-val">{adminStats.adminsCount}</div>
-              <div className="sd-admin-kpi-lbl">Department &amp; Super Admins</div>
-            </div>
-          </div>
-          <div className="sd-card sd-admin-kpi-card">
-            <div className="sd-admin-kpi-icon sd-tone-green"><PenLine size={17} /></div>
-            <div>
-              <div className="sd-admin-kpi-val">{adminStats.sigPct}% <span className="sd-muted sd-xs">({adminStats.sigCount})</span></div>
-              <div className="sd-admin-kpi-lbl">PKI Signature Readiness</div>
-            </div>
-          </div>
-          <div className="sd-card sd-admin-kpi-card">
-            <div className="sd-admin-kpi-icon sd-tone-amber"><Building2 size={17} /></div>
-            <div>
-              <div className="sd-admin-kpi-val">{departments.length} <span className="sd-muted sd-xs">({(formTemplates || []).length} forms)</span></div>
-              <div className="sd-admin-kpi-lbl">Department Drives</div>
-            </div>
-          </div>
+      <div className="sd-approvals-command-bar">
+        <div className="sd-tabs sd-tabs-inline" role="tablist">
+          <button role="tab" className={`sd-tab ${tab === 'users' ? 'active' : ''}`} onClick={() => setTab('users')}>
+            <Users size={15} /> Users <span className="sd-tab-count">{users.length}</span>
+          </button>
+          <button role="tab" className={`sd-tab ${tab === 'departments' ? 'active' : ''}`} onClick={() => setTab('departments')}>
+            <Building2 size={15} /> Departments <span className="sd-tab-count">{departments.length}</span>
+          </button>
+          <button role="tab" className={`sd-tab ${tab === 'system' ? 'active' : ''}`} onClick={() => setTab('system')}>
+            <ShieldAlert size={15} /> System Reset
+          </button>
         </div>
-      )}
+
+        {tab !== 'system' && (
+          <div className="sd-admin-summary-pills">
+            <span className="sdm-pill-badge sdm-pill-neutral" title="Active Directory Users">
+              <Users size={12} /> <strong>{adminStats.activeCount}</strong>/{users.length} Active
+            </span>
+            <span className="sdm-pill-badge sdm-pill-primary" title="Department & Super Admins">
+              <ShieldCheck size={12} /> <strong>{adminStats.adminsCount}</strong> Admins
+            </span>
+            <span className="sdm-pill-badge sdm-pill-emerald" title="Users with PKI Digital Signatures configured">
+              <PenLine size={12} /> <strong>{adminStats.sigPct}%</strong> PKI Ready
+            </span>
+          </div>
+        )}
+      </div>
 
       {tab === 'users' && (
         <>

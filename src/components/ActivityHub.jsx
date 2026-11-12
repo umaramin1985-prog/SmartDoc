@@ -323,64 +323,65 @@ export const ActivityHub = ({ isStandalone = false }) => {
         </div>
       </header>
 
-      {/* Search & Category Filter Toolbar */}
-      <div className="sd-activity-toolbar glass-card">
-        <div className="sd-activity-search-wrap">
-          <Search size={16} className="sd-activity-search-icon" />
-          <input
-            id="input-activity-search"
-            type="text"
-            className="sd-activity-search-input"
-            placeholder="Search by user, document, action, department or hash…"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-          {searchTerm && (
+      {/* Unified Search, Category & Department Filter Bar */}
+      <div className="sd-activity-toolbar glass-card sd-activity-unified-bar">
+        <div className="sd-activity-category-pills">
+          {CATEGORIES.map(cat => (
             <button
+              key={cat.id}
               type="button"
-              className="sd-icon-btn sd-activity-clear-btn"
-              onClick={() => {
-                setSearchTerm('');
-                setDebouncedSearch('');
-              }}
-              title="Clear search"
+              className={`sd-category-pill ${selectedCategory === cat.id ? 'active' : ''}`}
+              onClick={() => setSelectedCategory(cat.id)}
             >
-              ×
+              {cat.label}
             </button>
-          )}
+          ))}
         </div>
 
-        {/* Department filter (Super Admin only) */}
-        {isSuperAdmin && (
-          <div className="sd-activity-dept-select-wrap">
-            <Filter size={14} className="sd-text-muted" />
-            <select
-              id="select-activity-dept"
-              className="sd-activity-dept-select"
-              value={departmentFilter}
-              onChange={(e) => setDepartmentFilter(e.target.value)}
-            >
-              <option value="ALL">All Departments</option>
-              {departments.map(d => (
-                <option key={d.id} value={d.name}>{d.name}</option>
-              ))}
-            </select>
-          </div>
-        )}
-      </div>
+        <div className="sd-activity-right-filters">
+          {/* Department filter (Super Admin only) */}
+          {isSuperAdmin && (
+            <div className="sd-activity-dept-select-wrap">
+              <Filter size={14} className="sd-text-muted" />
+              <select
+                id="select-activity-dept"
+                className="sd-activity-dept-select"
+                value={departmentFilter}
+                onChange={(e) => setDepartmentFilter(e.target.value)}
+              >
+                <option value="ALL">All Departments</option>
+                {departments.map(d => (
+                  <option key={d.id} value={d.name}>{d.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
-      {/* Category Pills */}
-      <div className="sd-activity-category-pills">
-        {CATEGORIES.map(cat => (
-          <button
-            key={cat.id}
-            type="button"
-            className={`sd-category-pill ${selectedCategory === cat.id ? 'active' : ''}`}
-            onClick={() => setSelectedCategory(cat.id)}
-          >
-            {cat.label}
-          </button>
-        ))}
+          <div className="sd-activity-search-wrap">
+            <Search size={15} className="sd-activity-search-icon" />
+            <input
+              id="input-activity-search"
+              type="text"
+              className="sd-activity-search-input"
+              placeholder="Search user, document, action, hash…"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                className="sd-icon-btn sd-activity-clear-btn"
+                onClick={() => {
+                  setSearchTerm('');
+                  setDebouncedSearch('');
+                }}
+                title="Clear search"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Activity Stream List */}
