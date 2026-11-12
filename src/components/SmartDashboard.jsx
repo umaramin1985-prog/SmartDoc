@@ -414,10 +414,10 @@ export const SmartDashboard = () => {
               <a
                 className="sd-pill-btn"
                 {...tabLinkProps(buildAppUrl('dashboard-modern'), () => setActiveTab('dashboard-modern'))}
-                title="Switch to Kanban & Analytics Board"
+                title="Switch to Guided Action Workspace"
               >
                 <Sparkles size={12} />
-                <span>Kanban &amp; Analytics</span>
+                <span>Guided View</span>
               </a>
             </div>
             <button
